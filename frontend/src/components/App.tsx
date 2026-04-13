@@ -17,6 +17,7 @@ import { useBackend } from "../hooks/useBackend.js";
 import { useSettings } from "../hooks/useSettings.js";
 import { SettingsContext } from "../contexts/SettingsContext.js";
 import { dispatchCommand, executeShell } from "../commands/index.js";
+import type { SessionInfo } from "../commands/index.js";
 import { useAnimatedFrame } from "../hooks/useAnimatedFrame.js";
 import { MessageBubble } from "./MessageBubble.js";
 import { StreamingMessage } from "./StreamingMessage.js";
@@ -70,6 +71,7 @@ export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React
   const { exit } = useApp();
   const ranBatch = useRef(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [pickerSessions, setPickerSessions] = useState<SessionInfo[] | null>(null);
   const { settings, toggleSetting, setSetting, resetSettings, cycleMode } = useSettings();
 
   const {
@@ -98,6 +100,7 @@ export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React
     setSetting,
     resetSettings,
     openSettings: () => setSettingsOpen(true),
+    openSessionPicker: (sessions: SessionInfo[]) => setPickerSessions(sessions),
     exit,
   }), [config, settings, addSystemMessage, updateConfig, sendCommand, sendMessage, setSetting, resetSettings, exit]);
 
@@ -230,6 +233,8 @@ export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React
           disabled={isStreaming || settingsOpen}
           isStreaming={isStreaming}
           hint={settingsOpen ? `settings open ${symbols.dot} Esc to close` : undefined}
+          sessions={pickerSessions}
+          onSessionClose={() => setPickerSessions(null)}
           onSubmit={handleSubmit}
         />
 

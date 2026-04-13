@@ -8,6 +8,7 @@ import { Box, Text, useInput } from "ink";
 import { createInterface } from "node:readline";
 import { colors, symbols, modelColor, modelSymbol } from "../theme/index.js";
 import type { ModelInfo } from "../ipc/protocol.js";
+import type { SessionInfo } from "../commands/index.js";
 
 // ---------------------------------------------------------------------------
 // Command registry
@@ -68,7 +69,7 @@ const MODES: ModeDef[] = [
 // Component
 // ---------------------------------------------------------------------------
 
-type SelectorKind = null | "model" | "mode";
+type SelectorKind = null | "model" | "mode" | "session";
 
 // ---------------------------------------------------------------------------
 // Word boundary helpers
@@ -89,6 +90,35 @@ function wordBoundaryRight(text: string, pos: number): number {
 }
 
 // ---------------------------------------------------------------------------
+// Session display helpers
+// ---------------------------------------------------------------------------
+
+const SESSION_MAX_VISIBLE = 12;
+const STEM_RE = /^\d{4}-\d{2}-\d{2}_\d{6}_?/;
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"] as const;
+
+function sessionSlug(name: string): string {
+  const slug = name.replace(STEM_RE, "");
+  if (slug) return slug;
+  // No slug — fall back to the time portion: "153042" → "15:30"
+  const m = name.match(/_(\d{2})(\d{2})\d{2}$/);
+  return m ? `${m[1]}:${m[2]}` : name.slice(0, 8);
+}
+
+function sessionDate(iso: string): string {
+  if (!iso) return "?";
+  try {
+    const d = new Date(iso);
+    const mon = MONTHS[d.getMonth()] ?? "?";
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    return `${mon} ${d.getDate()} ${hh}:${mm}`;
+  } catch {
+    return iso.slice(0, 10);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -99,6 +129,8 @@ interface PromptInputProps {
   disabled: boolean;
   isStreaming?: boolean;
   hint?: string;
+  sessions?: SessionInfo[] | null;
+  onSessionClose?: () => void;
   onSubmit: (text: string) => void;
 }
 
@@ -109,6 +141,8 @@ export function PromptInput({
   disabled,
   isStreaming,
   hint,
+  sessions,
+  onSessionClose,
   onSubmit,
 }: PromptInputProps): React.ReactElement {
   const rawModeSupported = Boolean(process.stdin.isTTY);
@@ -121,6 +155,16 @@ export function PromptInput({
   // Interactive picker state
   const [selector, setSelector] = useState<SelectorKind>(null);
   const [selectorIndex, setSelectorIndex] = useState(0);
+  const [sessionScrollOffset, setSessionScrollOffset] = useState(0);
+
+  // Auto-open session picker when sessions list arrives from a command
+  useEffect(() => {
+    if (sessions && sessions.length > 0) {
+      setSelector("session");
+      setSelectorIndex(0);
+      setSessionScrollOffset(0);
+    }
+  }, [sessions]);
 
   // ---- Autocomplete ----
 
@@ -190,11 +234,47 @@ export function PromptInput({
         if (selector) {
           setSelector(null);
           clearInput();
+          if (selector === "session") onSessionClose?.();
         }
         return;
       }
 
-      // ── Selector mode ──
+      // ── Session selector ──
+      if (selector === "session") {
+        const list = sessions ?? [];
+        if (key.upArrow) {
+          setSelectorIndex((i) => {
+            const next = Math.max(0, i - 1);
+            setSessionScrollOffset((off) => Math.min(off, next));
+            return next;
+          });
+          return;
+        }
+        if (key.downArrow) {
+          setSelectorIndex((i) => {
+            const next = Math.min(list.length - 1, i + 1);
+            setSessionScrollOffset((off) => Math.max(off, next - SESSION_MAX_VISIBLE + 1));
+            return next;
+          });
+          return;
+        }
+        if (key.return) {
+          const sel = list[selectorIndex];
+          if (sel) submitAndRecord(`/resume ${sel.name}`);
+          setSelector(null);
+          onSessionClose?.();
+          return;
+        }
+        if (input === "\x03") {
+          setSelector(null);
+          clearInput();
+          onSessionClose?.();
+          return;
+        }
+        return;
+      }
+
+      // ── Model / mode selector ──
       if (selector) {
         const items = selector === "model" ? models : MODES;
 
@@ -383,10 +463,54 @@ export function PromptInput({
   const cursorChar = value[cursor] ?? " ";
   const after = value.slice(cursor + 1);
 
+  // Session picker visible window
+  const sessionList = sessions ?? [];
+  const sesStart = sessionScrollOffset;
+  const sesEnd = Math.min(sessionList.length, sesStart + SESSION_MAX_VISIBLE);
+  const visibleSessions = sessionList.slice(sesStart, sesEnd);
+
   return (
     <Box flexDirection="column">
-      {/* ── Model picker ── */}
-      {selector === "model" ? (
+      {/* ── Session picker ── */}
+      {selector === "session" ? (
+        <Box flexDirection="column" paddingLeft={2}>
+          <Box gap={1}>
+            <Text bold color={colors.triforce}>Resume session</Text>
+            <Text dimColor>({sessionList.length})</Text>
+          </Box>
+          {sesStart > 0 ? (
+            <Text dimColor>  {symbols.triforceSmall} {sesStart} more above</Text>
+          ) : null}
+          {visibleSessions.map((s, vi) => {
+            const i = vi + sesStart;
+            const isSelected = i === selectorIndex;
+            const slug = sessionSlug(s.name).padEnd(22);
+            const date = sessionDate(s.started);
+            const mc = modelColor(s.activeModel);
+            return (
+              <Box key={s.name} gap={1}>
+                <Text color={isSelected ? colors.triforce : colors.dim}>
+                  {isSelected ? symbols.arrowRight : " "}
+                </Text>
+                <Text color={isSelected ? colors.text : colors.muted} bold={isSelected}>
+                  {slug}
+                </Text>
+                <Text dimColor>{date.padEnd(14)}</Text>
+                <Text color={isSelected ? mc : colors.muted} bold={isSelected}>
+                  {s.activeModel.padEnd(10)}
+                </Text>
+                <Text dimColor>{s.messages}m</Text>
+              </Box>
+            );
+          })}
+          {sesEnd < sessionList.length ? (
+            <Text dimColor>  {symbols.triforceSmall} {sessionList.length - sesEnd} more below</Text>
+          ) : null}
+          <Text dimColor>{"  "}↑↓ navigate {symbols.dot} Enter resume {symbols.dot} Esc cancel</Text>
+        </Box>
+
+      /* ── Model picker ── */
+      ) : selector === "model" ? (
         <Box flexDirection="column" paddingLeft={2}>
           <Box gap={1} marginBottom={0}>
             <Text bold color={colors.triforce}>Select model</Text>

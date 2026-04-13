@@ -23,6 +23,15 @@ const execAsync = promisify(exec);
 // Context
 // ---------------------------------------------------------------------------
 
+export interface SessionInfo {
+  name: string;
+  started: string;
+  activeModel: string;
+  models: string[];
+  messages: number;
+  mode: string;
+}
+
 export interface CommandContext {
   config: AppConfig | null;
   settings: UISettings;
@@ -33,6 +42,7 @@ export interface CommandContext {
   setSetting: (key: keyof UISettings, value: boolean) => void;
   resetSettings: () => void;
   openSettings: () => void;
+  openSessionPicker: (sessions: SessionInfo[]) => void;
   exit: () => void;
 }
 
@@ -329,39 +339,48 @@ const COMMANDS: Record<string, Handler> = {
   "/sessions": (args, ctx) =>
     runCmd("/sessions", args, ctx, (result) => {
       const r = result as { sessions?: Array<Record<string, unknown>> } | null;
-      const sessions = r?.sessions ?? [];
-      if (sessions.length === 0) {
+      const raw = r?.sessions ?? [];
+      if (raw.length === 0) {
         ctx.addSystemMessage("No saved sessions.");
         return;
       }
-      const lines = sessions.slice(0, 20).map((s) => {
-        const date = String(s.started || "").slice(0, 10);
-        const models = Array.isArray(s.models) ? s.models.join(", ") : "";
-        const name = String(s.name || "");
-        const short = name.replace(/^\d{4}-\d{2}-\d{2}_\d{6}_?/, "");
-        return `| ${short || name} | ${date} | ${s.active_model} | ${models} | ${s.messages} |`;
-      });
-      ctx.addSystemMessage(
-        `**Sessions** (${sessions.length} saved)\n\n` +
-        `| Name | Date | Model | Models | Msgs |\n|------|------|-------|--------|------|\n` +
-        lines.join("\n") +
-        `\n\nUse \`/resume <name>\` to restore. Name matching is partial.`,
-      );
+      const sessions: SessionInfo[] = raw.map((s) => ({
+        name: String(s.name ?? ""),
+        started: String(s.started ?? ""),
+        activeModel: String(s.active_model ?? "?"),
+        models: Array.isArray(s.models) ? (s.models as string[]) : [],
+        messages: typeof s.messages === "number" ? s.messages : 0,
+        mode: String(s.mode ?? "manual"),
+      }));
+      ctx.openSessionPicker(sessions);
     }),
 
   "/resume": async (args, ctx) => {
     if (!args[0]) {
-      ctx.addSystemMessage("Usage: `/resume <name>` — use `/sessions` to list available sessions.");
-      return;
+      // No name given — open the picker instead.
+      return runCmd("/sessions", [], ctx, (result) => {
+        const r = result as { sessions?: Array<Record<string, unknown>> } | null;
+        const raw = r?.sessions ?? [];
+        if (raw.length === 0) {
+          ctx.addSystemMessage("No saved sessions.");
+          return;
+        }
+        const sessions: SessionInfo[] = raw.map((s) => ({
+          name: String(s.name ?? ""),
+          started: String(s.started ?? ""),
+          activeModel: String(s.active_model ?? "?"),
+          models: Array.isArray(s.models) ? (s.models as string[]) : [],
+          messages: typeof s.messages === "number" ? s.messages : 0,
+          mode: String(s.mode ?? "manual"),
+        }));
+        ctx.openSessionPicker(sessions);
+      });
     }
-    ctx.addSystemMessage(`Resuming session matching **${args[0]}**...`);
     return runCmd("/resume", args, ctx, (result) => {
       const r = result as { resumed?: string; models?: string[]; messages_restored?: number } | null;
       if (r?.resumed) {
         ctx.addSystemMessage(
-          `Resumed **${r.resumed}**\n` +
-          `Models: ${r.models?.join(", ")}\n` +
-          `Messages restored: ${r.messages_restored}`,
+          `Resumed **${r.resumed}** — ${r.messages_restored} messages restored`,
         );
       }
     });
