@@ -1,0 +1,18 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "z3cli"
+version = "0.2.0"
+description = "Zelda 3 Development Kit CLI — local model chat with MCP tool calling"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27",
+    "rich>=13.0",
+    "prompt-toolkit>=3.0",
+    "mcp>=1.0",
+]
+
+[project.scripts]
+z3cli = "z3cli.app.repl:run"
