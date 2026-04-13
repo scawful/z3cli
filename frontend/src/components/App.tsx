@@ -16,7 +16,7 @@ import { Box, Static, Text, useApp, useInput } from "ink";
 import { useBackend } from "../hooks/useBackend.js";
 import { useSettings } from "../hooks/useSettings.js";
 import { SettingsContext } from "../contexts/SettingsContext.js";
-import { dispatchCommand } from "../commands/index.js";
+import { dispatchCommand, executeShell } from "../commands/index.js";
 import { useAnimatedFrame } from "../hooks/useAnimatedFrame.js";
 import { MessageBubble } from "./MessageBubble.js";
 import { StreamingMessage } from "./StreamingMessage.js";
@@ -25,6 +25,7 @@ import { PromptInput } from "./PromptInput.js";
 import { WelcomeBanner } from "./WelcomeBanner.js";
 import { TitleBar } from "./TitleBar.js";
 import { SettingsPanel } from "./SettingsPanel.js";
+import { PermissionDialog } from "./PermissionDialog.js";
 import { colors, symbols } from "../theme/index.js";
 import type { Message } from "../ipc/protocol.js";
 import type { CommandContext } from "../commands/index.js";
@@ -69,7 +70,7 @@ export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React
   const { exit } = useApp();
   const ranBatch = useRef(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const { settings, toggleSetting, setSetting, resetSettings } = useSettings();
+  const { settings, toggleSetting, setSetting, resetSettings, cycleMode } = useSettings();
 
   const {
     config,
@@ -78,9 +79,11 @@ export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React
     isStreaming, activeToolCall,
     promptTokens, completionTokens,
     error,
+    pendingPermission,
     sendMessage, sendCommand,
     addSystemMessage, updateConfig,
     cancelStream,
+    approveTool, denyTool,
   } = useBackend(pythonPath, backendArgs);
 
   // Build the command context once per render cycle so dispatchCommand
@@ -101,6 +104,10 @@ export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React
   const handleSubmit = useCallback((text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
+    if (trimmed.startsWith("!")) {
+      void executeShell(trimmed.slice(1).trim(), commandCtx);
+      return;
+    }
     if (!trimmed.startsWith("/")) {
       void sendMessage(trimmed);
       return;
@@ -109,13 +116,27 @@ export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React
     void dispatchCommand(cmd, args, commandCtx);
   }, [sendMessage, commandCtx]);
 
-  // Escape cancels streaming.
+  // Escape cancels streaming; Shift+Tab cycles UI mode.
   useInput(
     (input, key) => {
       if (key.escape || input === "\x03") cancelStream();
     },
     { isActive: isStreaming && !settingsOpen && Boolean(process.stdin.isTTY) },
   );
+
+  useInput(
+    (_, key) => {
+      if (key.shift && key.tab) cycleMode();
+    },
+    { isActive: !settingsOpen && Boolean(process.stdin.isTTY) },
+  );
+
+  // Admin mode auto-approves any pending tool permission request.
+  useEffect(() => {
+    if (pendingPermission && settings.uiMode === "admin") {
+      void approveTool();
+    }
+  }, [pendingPermission, settings.uiMode, approveTool]);
 
   // Context usage estimate (0–100).
   const contextPercent = useMemo(() => {
@@ -149,7 +170,7 @@ export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React
   if (!config) return <ConnectingSpinner />;
 
   return (
-    <SettingsContext.Provider value={{ settings, toggleSetting, setSetting, resetSettings }}>
+    <SettingsContext.Provider value={{ settings, toggleSetting, setSetting, resetSettings, cycleMode }}>
       <Box flexDirection="column">
         <TitleBar
           version={config.version}
@@ -191,6 +212,16 @@ export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React
         {settingsOpen
           ? <SettingsPanel onClose={() => setSettingsOpen(false)} />
           : null}
+
+        {pendingPermission && settings.uiMode !== "admin" ? (
+          <PermissionDialog
+            name={pendingPermission.name}
+            server={pendingPermission.server}
+            arguments={pendingPermission.arguments}
+            onApprove={() => void approveTool()}
+            onDeny={() => void denyTool()}
+          />
+        ) : null}
 
         <PromptInput
           mode={config.mode}

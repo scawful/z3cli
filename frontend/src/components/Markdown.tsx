@@ -12,6 +12,9 @@ const marked = new Marked(
   markedTerminal({
     showSectionPrefix: false,
     tab: 2,
+    // Provide a safe highlight fallback so unknown languages (e.g. "asm")
+    // don't throw "could not find language" from cli-highlight.
+    highlight: (code: string, _lang?: string) => code,
   }),
 );
 

@@ -8,6 +8,10 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 
+export type UIMode = "chat" | "plan" | "review" | "build" | "admin";
+
+const UI_MODES: readonly UIMode[] = ["chat", "plan", "review", "build", "admin"];
+
 export interface UISettings {
   modeColoredBorder: boolean;     // TitleBar border color reflects routing mode
   toolsIndicator: boolean;        // ⚔ icon shows tools on/off in status bar
@@ -16,6 +20,7 @@ export interface UISettings {
   coloredToolArgs: boolean;       // Key/value coloring in tool arguments
   showFocusFile: boolean;         // Show active focus file in status bar
   showBroadcastModels: boolean;   // Show broadcast model list in title bar
+  uiMode: UIMode;                 // Interaction mode (Shift+Tab to cycle)
 }
 
 export const DEFAULT_SETTINGS: UISettings = {
@@ -26,6 +31,7 @@ export const DEFAULT_SETTINGS: UISettings = {
   coloredToolArgs: true,
   showFocusFile: true,
   showBroadcastModels: true,
+  uiMode: "chat",
 };
 
 const SETTINGS_PATH = path.join(os.homedir(), ".config", "z3cli", "ui-settings.json");
@@ -73,5 +79,14 @@ export function useSettings() {
     saveSettings(next);
   }, []);
 
-  return { settings, toggleSetting, setSetting, resetSettings };
+  const cycleMode = useCallback(() => {
+    setSettings((prev) => {
+      const idx = UI_MODES.indexOf(prev.uiMode);
+      const next = { ...prev, uiMode: UI_MODES[(idx + 1) % UI_MODES.length]! };
+      saveSettings(next);
+      return next;
+    });
+  }, []);
+
+  return { settings, toggleSetting, setSetting, resetSettings, cycleMode };
 }

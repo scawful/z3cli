@@ -6,9 +6,19 @@
 import React from "react";
 import { Box, Text } from "ink";
 import { colors, symbols, modelColor, formatTokens } from "../theme/index.js";
-import { useAnimatedFrame } from "../hooks/useAnimatedFrame.js";
 import { useSettingsContext } from "../contexts/SettingsContext.js";
 import { shortenPath, basename } from "../utils/path.js";
+import type { UIMode } from "../hooks/useSettings.js";
+
+function uiModeColor(mode: UIMode): string {
+  switch (mode) {
+    case "admin":  return colors.din;
+    case "build":  return colors.farore;
+    case "plan":   return colors.nayru;
+    case "review": return colors.triforce;
+    default:       return colors.dim;
+  }
+}
 
 interface StatusBarProps {
   model: string;
@@ -38,16 +48,13 @@ export function StatusBar({
   focusFile,
 }: StatusBarProps): React.ReactElement {
   const { settings } = useSettingsContext();
-  const spinner = useAnimatedFrame(symbols.thinking);
   const tok = formatTokens(promptTokens + completionTokens);
   const focusName = focusFile ? basename(focusFile) : "";
 
   return (
     <Box paddingX={1} justifyContent="space-between">
       <Box gap={1}>
-        {isStreaming
-          ? <Text color={colors.triforce}>{spinner}</Text>
-          : <Text color={colors.dim}>{symbols.triforceSmall}</Text>}
+        <Text color={isStreaming ? colors.triforce : colors.dim}>{symbols.triforceSmall}</Text>
         <Text bold color={modelColor(model)}>{model}</Text>
         <Text dimColor>{symbols.dot}</Text>
         <Text dimColor>{shortenPath(workspace)}</Text>
@@ -78,6 +85,10 @@ export function StatusBar({
           </>
         ) : null}
         <Text dimColor>{serverCount}s {toolCount}t {messageCount}m</Text>
+        <Text dimColor>{symbols.dot}</Text>
+        <Text color={uiModeColor(settings.uiMode)} bold={settings.uiMode !== "chat"}>
+          {settings.uiMode}
+        </Text>
       </Box>
     </Box>
   );

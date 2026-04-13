@@ -10,6 +10,18 @@
 
 ## Rules
 
+**Shell execution (`!`):** Handled in `App.tsx` `handleSubmit`. Logic lives in
+`executeShell()` exported from `commands/index.ts`. Runs in `config.workspace`.
+
+**UI mode (Shift+Tab):** Cycles `chat → plan → review → build → admin`. Owned by
+`useSettings` (`cycleMode`). Displayed in `StatusBar`. Admin mode auto-approves
+tool permissions. Read via `useSettingsContext().settings.uiMode`.
+
+**Tool permissions:** Backend sends `tool/permission_request` notification before
+executing each tool. Frontend shows `PermissionDialog` unless `uiMode === "admin"`.
+`approveTool` / `denyTool` send `tool/approve` / `tool/deny` commands to backend.
+Engine holds an `asyncio.Event` until the response arrives.
+
 **Commands:** Add to the table in `commands/index.ts`. Each handler is a
 named async function. Use the file-local `runCmd` wrapper for anything
 calling `sendCommand`. Never add command handling to `App.tsx`.

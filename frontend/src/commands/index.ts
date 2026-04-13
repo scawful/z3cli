@@ -10,10 +10,14 @@
  * namespace functions in the C++ side of this project.
  */
 
+import { exec } from "node:child_process";
+import { promisify } from "node:util";
 import { symbols } from "../theme/index.js";
 import { DEFAULT_SETTINGS } from "../hooks/useSettings.js";
 import type { AppConfig } from "../ipc/protocol.js";
 import type { UISettings } from "../hooks/useSettings.js";
+
+const execAsync = promisify(exec);
 
 // ---------------------------------------------------------------------------
 // Context
@@ -52,6 +56,20 @@ function runCmd(
 
 function fmtTok(n: number): string {
   return n > 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
+}
+
+export async function executeShell(cmd: string, ctx: CommandContext): Promise<void> {
+  if (!cmd) return;
+  const cwd = ctx.config?.workspace ?? process.cwd();
+  try {
+    const { stdout, stderr } = await execAsync(cmd, { cwd, timeout: 30_000 });
+    const out = [stdout.trimEnd(), stderr.trimEnd()].filter(Boolean).join("\n");
+    ctx.addSystemMessage(out || "(no output)");
+  } catch (e) {
+    const err = e as { message: string; stdout?: string; stderr?: string };
+    const out = [err.stdout?.trimEnd(), err.stderr?.trimEnd()].filter(Boolean).join("\n");
+    ctx.addSystemMessage(`Error: ${err.message}${out ? `\n${out}` : ""}`);
+  }
 }
 
 // ---------------------------------------------------------------------------

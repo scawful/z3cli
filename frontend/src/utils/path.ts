@@ -2,11 +2,8 @@
  * Path display utilities — shorten absolute paths for terminal display.
  */
 
-/** ~/src/hobby/z3cli → ~/z3cli */
 export function shortenPath(p: string): string {
-  return p
-    .replace(/^\/Users\/[^/]+/, "~")
-    .replace(/\/src\/hobby\//, "/");
+  return p.replace(/^\/Users\/[^/]+/, "~");
 }
 
 /** Last path segment, empty string if none. */

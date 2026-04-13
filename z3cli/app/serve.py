@@ -89,14 +89,34 @@ class ServeState:
         self.completion_tokens = 0
         self.session = Session()
         self.cancel_requested = False
+        self.tool_decision: asyncio.Event | None = None
+        self.tool_approved: bool = True
 
     def get_engine(self, model_name: str) -> ChatEngine:
         key = engine_key(self.backend_name, model_name)
         engine = self.engines.get(key)
         if engine is None:
-            engine = ChatEngine(api_base=self.api_base, bridge=self.bridge)
+            engine = ChatEngine(
+                api_base=self.api_base,
+                bridge=self.bridge,
+                permission_hook=self._tool_permission_hook,
+            )
             self.engines[key] = engine
         return engine
+
+    async def _tool_permission_hook(self, tool_name: str, arguments: str, server: str) -> bool:
+        """Notify frontend and wait for approve/deny before executing a tool."""
+        _notify("tool/permission_request", {
+            "name": tool_name,
+            "arguments": arguments,
+            "server": server,
+        })
+        event = asyncio.Event()
+        self.tool_decision = event
+        self.tool_approved = False
+        await event.wait()
+        self.tool_decision = None
+        return self.tool_approved
 
 
 def active_model_name(state: ServeState) -> str:
@@ -388,6 +408,20 @@ async def handle_command(state: ServeState, req_id: int, params: dict) -> None:
     cmd = str(params.get("cmd", ""))
     args = params.get("args", [])
     args = args if isinstance(args, list) else []
+
+    if cmd == "tool/approve":
+        state.tool_approved = True
+        if state.tool_decision:
+            state.tool_decision.set()
+        _respond(req_id, result={"approved": True})
+        return
+
+    if cmd == "tool/deny":
+        state.tool_approved = False
+        if state.tool_decision:
+            state.tool_decision.set()
+        _respond(req_id, result={"approved": False})
+        return
 
     if cmd == "/status":
         _respond(req_id, result=build_ready_params(state))

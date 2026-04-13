@@ -14,6 +14,7 @@ export interface SettingsContextValue {
   toggleSetting: (key: keyof UISettings) => void;
   setSetting: (key: keyof UISettings, value: boolean) => void;
   resetSettings: () => void;
+  cycleMode: () => void;
 }
 
 export const SettingsContext = createContext<SettingsContextValue | null>(null);

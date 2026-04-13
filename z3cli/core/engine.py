@@ -195,9 +195,19 @@ def _truncate_tool_result(result: str, max_chars: int) -> str:
 # ---------------------------------------------------------------------------
 
 class ChatEngine:
-    def __init__(self, api_base: str, bridge: ToolBridge | None = None):
+    def __init__(
+        self,
+        api_base: str,
+        bridge: ToolBridge | None = None,
+        permission_hook=None,
+    ):
+        """
+        permission_hook: optional async callable(tool_name, arguments_json, server) -> bool.
+        Called before each tool execution. Return False to deny.
+        """
         self.api_base = api_base
         self.bridge = bridge
+        self._permission_hook = permission_hook
         self.client = httpx.AsyncClient(base_url=api_base, timeout=300.0)
         self.messages: list[dict] = []
         self.connected = False
@@ -489,6 +499,19 @@ class ChatEngine:
                     if bridge else "?"
                 )
                 yield ToolCallEvent(tc["name"], tc["arguments"], server)
+
+                # Permission gate — caller can deny tool execution
+                if self._permission_hook is not None:
+                    allowed = await self._permission_hook(tc["name"], tc["arguments"], server)
+                    if not allowed:
+                        denial = "[Tool call denied by user]"
+                        self.messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc_id,
+                            "content": denial,
+                        })
+                        yield ToolResultEvent(tc["name"], denial)
+                        continue
 
                 try:
                     args = json.loads(tc["arguments"]) if tc["arguments"] else {}

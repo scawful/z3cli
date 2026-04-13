@@ -115,6 +115,11 @@ export interface ReadyNotification extends JsonRpcNotification {
   };
 }
 
+export interface ToolPermissionNotification extends JsonRpcNotification {
+  method: "tool/permission_request";
+  params: { name: string; server: string; arguments: string };
+}
+
 export type BackendEvent =
   | TextNotification
   | ThinkingNotification
@@ -122,7 +127,8 @@ export type BackendEvent =
   | ToolResultNotification
   | DoneNotification
   | ErrorNotification
-  | ReadyNotification;
+  | ReadyNotification
+  | ToolPermissionNotification;
 
 // ---------------------------------------------------------------------------
 // App-level types

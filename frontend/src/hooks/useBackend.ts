@@ -11,6 +11,12 @@ function nextMsgId(): string {
   return `msg-${++messageIdCounter}`;
 }
 
+export interface PendingPermission {
+  name: string;
+  server: string;
+  arguments: string;
+}
+
 export interface UseBackendResult {
   config: AppConfig | null;
   messages: Message[];
@@ -21,11 +27,14 @@ export interface UseBackendResult {
   promptTokens: number;
   completionTokens: number;
   error: string | null;
+  pendingPermission: PendingPermission | null;
   sendMessage: (text: string) => Promise<void>;
   sendCommand: (cmd: string, args?: string[]) => Promise<unknown>;
   addSystemMessage: (content: string) => void;
   updateConfig: (patch: Partial<AppConfig>) => void;
   cancelStream: () => void;
+  approveTool: () => Promise<void>;
+  denyTool: () => Promise<void>;
   backend: Backend;
 }
 
@@ -44,6 +53,7 @@ export function useBackend(pythonPath: string, args: string[] = []): UseBackendR
   const [promptTokens, setPromptTokens] = useState(0);
   const [completionTokens, setCompletionTokens] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [pendingPermission, setPendingPermission] = useState<PendingPermission | null>(null);
 
   const toolTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const toolStartRef = useRef<number>(0);
@@ -212,6 +222,12 @@ export function useBackend(pythonPath: string, args: string[] = []): UseBackendR
           break;
         }
 
+        case "tool/permission_request": {
+          const perm = event.params as { name: string; server: string; arguments: string };
+          setPendingPermission({ name: perm.name, server: perm.server, arguments: perm.arguments });
+          break;
+        }
+
         case "error":
           clearToolCallState();
           setStreamingThinking("");
@@ -315,6 +331,20 @@ export function useBackend(pythonPath: string, args: string[] = []): UseBackendR
     setConfig((prev) => (prev ? { ...prev, ...patch } : prev));
   }, []);
 
+  const approveTool = useCallback(async () => {
+    setPendingPermission(null);
+    if (backendRef.current?.running) {
+      await backendRef.current.command("tool/approve", []);
+    }
+  }, []);
+
+  const denyTool = useCallback(async () => {
+    setPendingPermission(null);
+    if (backendRef.current?.running) {
+      await backendRef.current.command("tool/deny", []);
+    }
+  }, []);
+
   return {
     config,
     messages,
@@ -325,11 +355,14 @@ export function useBackend(pythonPath: string, args: string[] = []): UseBackendR
     promptTokens,
     completionTokens,
     error,
+    pendingPermission,
     sendMessage,
     sendCommand,
     addSystemMessage,
     updateConfig,
     cancelStream,
+    approveTool,
+    denyTool,
     backend: backendRef.current!,
   };
 }

@@ -14,7 +14,7 @@ from z3cli.core.tool_adapters import ADAPTER_REGISTRY
 VALID_MODES = {"manual", "oracle", "switchhook", "broadcast"}
 VALID_BACKENDS = {"studio", "llamacpp"}
 DEFAULT_WORKSPACE = Path("/Users/scawful/src/hobby/oracle-of-secrets")
-DEFAULT_ROM = Path("/Users/scawful/src/hobby/roms/oracle.sfc")
+DEFAULT_ROM = Path("/Users/scawful/src/hobby/oracle-of-secrets/Roms/oos168.sfc")
 DEFAULT_BROADCAST_MODELS = ["farore", "nayru", "veran"]
 DEFAULT_LLAMACPP_MODEL = os.environ.get("LLAMACPP_MODEL", "oracle-fast")
 ACTION_KEYWORDS = [
