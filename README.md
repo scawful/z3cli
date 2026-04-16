@@ -30,6 +30,7 @@ Current implementation status and recent work: [`docs/cli-current-state.md`](doc
 - workspace: `~/src/hobby/oracle-of-secrets`
 - ROM: `~/src/hobby/roms/oracle.sfc`
 - Public model portfolio note: [`docs/MODEL_PORTFOLIO_PUBLIC.md`](docs/MODEL_PORTFOLIO_PUBLIC.md)
+- Halext experimental page draft: [`docs/halext-model-lab-draft.md`](docs/halext-model-lab-draft.md)
 
 ## Start
 
