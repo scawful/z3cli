@@ -1,5 +1,13 @@
 /** Zelda-themed terminal color palette, symbols, and styling. */
 
+import {
+  isActionLikeModel,
+  isCloudLikeModel,
+  isPlanLikeModel,
+  isToolLikeModel,
+  normalizeModelName,
+} from "../utils/models.js";
+
 // ---------------------------------------------------------------------------
 // Oracle Goddess palette
 // ---------------------------------------------------------------------------
@@ -77,38 +85,70 @@ export const symbols = {
 // Model theming
 // ---------------------------------------------------------------------------
 
-const modelColorMap: Record<string, string> = {
+const exactModelColorMap: Record<string, string> = {
   din: colors.din,
   nayru: colors.nayru,
   farore: colors.farore,
   veran: colors.veran,
   majora: colors.majora,
   hylia: colors.hylia,
-  "oracle-tools": colors.oracleTools,
+  oracle: colors.nayru,
   "oracle-fast": colors.oracleTools,
-  "switchhook-plan": colors.nayru,
-  "switchhook-act": colors.din,
 };
 
-const modelSymbolMap: Record<string, string> = {
+const exactModelSymbolMap: Record<string, string> = {
   din: symbols.triforce,
   nayru: symbols.crystal,
   farore: symbols.pendant,
   veran: symbols.crystal,
   majora: symbols.shield,
   hylia: symbols.pendant,
-  "oracle-tools": symbols.sword,
+  oracle: symbols.compass,
   "oracle-fast": symbols.sword,
-  "switchhook-plan": symbols.compass,
-  "switchhook-act": symbols.sword,
 };
+const ORACLE_MODE_LEGACY_ALIASES = new Set(["oracle-main", "switchhook"]);
 
 export function modelColor(name: string): string {
-  return modelColorMap[name] ?? colors.assistant;
+  const lowered = normalizeModelName(name);
+  if (exactModelColorMap[lowered]) {
+    return exactModelColorMap[lowered]!;
+  }
+  if (ORACLE_MODE_LEGACY_ALIASES.has(lowered)) {
+    return colors.nayru;
+  }
+  if (isPlanLikeModel(lowered)) {
+    return colors.nayru;
+  }
+  if (isActionLikeModel(lowered)) {
+    return colors.din;
+  }
+  if (isToolLikeModel(lowered) || lowered.includes("oracle")) {
+    return colors.oracleTools;
+  }
+  if (isCloudLikeModel(lowered)) {
+    return colors.triforce;
+  }
+  return colors.assistant;
 }
 
 export function modelSymbol(name: string): string {
-  return modelSymbolMap[name] ?? symbols.triforceSmall;
+  const lowered = normalizeModelName(name);
+  if (exactModelSymbolMap[lowered]) {
+    return exactModelSymbolMap[lowered]!;
+  }
+  if (ORACLE_MODE_LEGACY_ALIASES.has(lowered)) {
+    return symbols.compass;
+  }
+  if (isPlanLikeModel(lowered)) {
+    return symbols.compass;
+  }
+  if (isActionLikeModel(lowered) || isToolLikeModel(lowered)) {
+    return symbols.sword;
+  }
+  if (isCloudLikeModel(lowered)) {
+    return symbols.triforce;
+  }
+  return symbols.triforceSmall;
 }
 
 // ---------------------------------------------------------------------------
@@ -136,12 +176,16 @@ const serverSymbolMap: Record<string, string> = {
 // ---------------------------------------------------------------------------
 
 export function modeColor(mode: string): string {
-  switch (mode) {
-    case "oracle":     return colors.nayru;      // wisdom routes
-    case "broadcast":  return colors.farore;     // courage to many
-    case "switchhook": return colors.din;        // power splits
-    case "manual":     return colors.dim;        // direct control
-    default:           return colors.triforce;
+  const normalizedMode = normalizeModelName(mode);
+  if (ORACLE_MODE_LEGACY_ALIASES.has(normalizedMode)) {
+    return colors.nayru;
+  }
+  switch (normalizedMode) {
+    case "oracle":       return colors.nayru;     // wisdom routes
+    case "broadcast":    return colors.farore;    // courage to many
+    case "orchestrator": return colors.triforce;  // cloud planner drives
+    case "manual":       return colors.dim;       // direct control
+    default:             return colors.triforce;
   }
 }
 
@@ -188,4 +232,3 @@ export function formatTokens(count: number): { text: string; color: string } {
         : colors.rupeeGreen;
   return { text: `${symbols.rupee} ${num}`, color };
 }
-
