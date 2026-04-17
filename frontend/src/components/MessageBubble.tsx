@@ -9,13 +9,22 @@
 import React from "react";
 import { Box, Text } from "ink";
 import { Markdown } from "./Markdown.js";
+import { JsonArgList } from "./JsonArgList.js";
 import {
-  colors, symbols,
+  symbols,
   modelColor, modelSymbol,
   serverColor, serverSymbol,
+  toolSymbol,
 } from "../theme/index.js";
 import { useSettingsContext } from "../contexts/SettingsContext.js";
+import { useAnimatedFrame } from "../hooks/useAnimatedFrame.js";
 import type { Message } from "../ipc/protocol.js";
+import {
+  collapseToolResult,
+  parseToolArguments,
+  summarizeToolInvocation,
+  summarizeToolResult,
+} from "../utils/tooling.js";
 
 interface MessageBubbleProps {
   message: Message;
@@ -25,43 +34,54 @@ interface MessageBubbleProps {
 // File-local helpers
 // ---------------------------------------------------------------------------
 
+function Blinker({ color }: { color: string }): React.ReactElement {
+  const frame = useAnimatedFrame(["▼", " "], 600);
+  return <Text color={color}>{frame}</Text>;
+}
+
 function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString([], {
     hour: "2-digit", minute: "2-digit", hour12: false,
   });
 }
 
-const MAX_ARG_WIDTH = 60;
-
-function ToolArgs({ jsonStr, colored }: { jsonStr: string; colored: boolean }): React.ReactElement | null {
-  if (!jsonStr) return null;
-  try {
-    const obj = JSON.parse(jsonStr) as Record<string, unknown>;
-    if (typeof obj !== "object" || obj === null) return <Text dimColor>{jsonStr}</Text>;
-    const entries = Object.entries(obj);
-    if (entries.length === 0) return null;
-    return (
-      <Box flexDirection="column">
-        {entries.map(([k, v]) => {
-          const val = typeof v === "string" ? v : JSON.stringify(v);
-          const display = val.length > MAX_ARG_WIDTH ? val.slice(0, MAX_ARG_WIDTH - 3) + "..." : val;
-          return colored ? (
-            <Box key={k} gap={1}>
-              <Text color={colors.dim}>{k}:</Text>
-              <Text>{display}</Text>
-            </Box>
-          ) : (
-            <Text key={k} dimColor>{k}: {display}</Text>
-          );
-        })}
-      </Box>
-    );
-  } catch {
-    const display = jsonStr.length > MAX_ARG_WIDTH
-      ? jsonStr.slice(0, MAX_ARG_WIDTH - 3) + "..."
-      : jsonStr;
-    return <Text dimColor>{display}</Text>;
+function shouldRenderToolResultAsMarkdown(content: string): boolean {
+  const t = content.trim();
+  if (t.includes("```")) return true;
+  if (content.includes("\n")) return true;
+  if (t.startsWith("{") || t.startsWith("[")) {
+    try {
+      JSON.parse(t);
+      return true;
+    } catch {
+      return t.length > 40;
+    }
   }
+  return t.length > 160;
+}
+
+function AttachmentList({
+  attachments,
+}: {
+  attachments: NonNullable<Message["attachments"]>;
+}): React.ReactElement | null {
+  const { colors } = useSettingsContext();
+  if (attachments.length === 0) return null;
+  return (
+    <Box flexDirection="column" paddingLeft={2}>
+      <Box gap={1}>
+        <Text dimColor>{symbols.triforceSmall}</Text>
+        <Text dimColor>attached files</Text>
+      </Box>
+      {attachments.map((attachment) => (
+        <Box key={attachment.path} gap={1} paddingLeft={2}>
+          <Text color={colors.nayru}>{attachment.path}</Text>
+          <Text dimColor>{attachment.lines}L</Text>
+          <Text dimColor>{attachment.chars}C</Text>
+        </Box>
+      ))}
+    </Box>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -69,22 +89,29 @@ function ToolArgs({ jsonStr, colored }: { jsonStr: string; colored: boolean }): 
 // ---------------------------------------------------------------------------
 
 export function MessageBubble({ message }: MessageBubbleProps): React.ReactElement {
-  const { settings } = useSettingsContext();
-  const { role, content, toolName, toolServer, toolArguments, model } = message;
+  const { settings, colors } = useSettingsContext();
+  const { role, content, toolName, toolServer, toolArguments, model, attachments } = message;
 
   if (role === "tool" && toolArguments !== undefined && !content) {
     const server = toolServer ?? "";
-    const sc = serverColor(server);
+    const sc = serverColor(server, colors);
+    const ts = toolSymbol(toolName ?? "tool");
+    const args = parseToolArguments(toolArguments);
+    const summary = summarizeToolInvocation(toolName ?? "tool", args);
+    const showArgs = toolArguments.trim().length > 0 && toolArguments.trim().length <= 220;
     return (
       <Box borderStyle="round" borderColor={sc} paddingX={1} flexDirection="column">
         <Box gap={1}>
-          <Text color={sc}>{serverSymbol(server)}</Text>
+          <Text color={sc}>{ts}</Text>
           {server ? <Text dimColor>{server} {symbols.arrow}</Text> : null}
           <Text bold color={sc}>{toolName ?? "tool"}</Text>
         </Box>
-        {toolArguments ? (
+        {summary && summary !== (toolName ?? "tool") ? (
+          <Text dimColor>{summary}</Text>
+        ) : null}
+        {showArgs ? (
           <Box paddingLeft={2}>
-            <ToolArgs jsonStr={toolArguments} colored={settings.coloredToolArgs} />
+            <JsonArgList jsonStr={toolArguments} colored={settings.coloredToolArgs} />
           </Box>
         ) : null}
       </Box>
@@ -93,35 +120,44 @@ export function MessageBubble({ message }: MessageBubbleProps): React.ReactEleme
 
   if (role === "tool" && content) {
     const isError = content.startsWith("Error") || content.startsWith("error:");
-    const lines = content.split("\n");
-    const totalLines = lines.length;
-    const maxLines = 12;
-    const display =
-      totalLines > maxLines
-        ? lines.slice(0, maxLines).join("\n") + `\n··· ${totalLines - maxLines} more lines`
-        : content;
+    const collapsed = collapseToolResult(content);
+    const display = collapsed.display;
     const resultColor = isError ? colors.error : colors.success;
+    const rich = shouldRenderToolResultAsMarkdown(display);
+    const summary = summarizeToolResult(content);
     return (
       <Box borderStyle="round" borderColor={resultColor} paddingX={1} flexDirection="column">
-        {settings.showToolGrouping || totalLines > maxLines ? (
-          <Box gap={1}>
-            {settings.showToolGrouping ? <Text dimColor>└</Text> : null}
-            {toolName ? <Text dimColor>{toolName}</Text> : null}
-            {totalLines > maxLines
-              ? <Text dimColor>{symbols.arrow} {totalLines} lines</Text>
-              : null}
-          </Box>
+        <Box gap={1}>
+          {settings.showToolGrouping ? <Text dimColor>└</Text> : null}
+          {toolName ? <Text dimColor>{toolSymbol(toolName)} {toolName}</Text> : null}
+          <Text dimColor>{symbols.arrow} {summary}</Text>
+        </Box>
+        {rich ? (
+          <Markdown>{display}</Markdown>
+        ) : (
+          <Text dimColor>{display}</Text>
+        )}
+        {collapsed.wasCollapsed ? (
+          collapsed.hiddenLines > 0 ? (
+            <Text dimColor>··· {collapsed.hiddenLines} more lines</Text>
+          ) : collapsed.truncatedByChars ? (
+            <Text dimColor>··· output truncated</Text>
+          ) : null
         ) : null}
-        <Text dimColor>{display}</Text>
       </Box>
     );
   }
 
   if (role === "user") {
     return (
-      <Box paddingX={1} marginTop={1}>
-        <Text bold color={colors.user}>{symbols.arrowRight} </Text>
-        <Text>{content}</Text>
+      <Box paddingX={1} marginTop={1} flexDirection="column">
+        <Box>
+          <Text bold color={colors.user}>{symbols.arrowRight} </Text>
+          <Text wrap="wrap">{content}</Text>
+        </Box>
+        {attachments && attachments.length > 0 ? (
+          <AttachmentList attachments={attachments} />
+        ) : null}
       </Box>
     );
   }
@@ -129,29 +165,42 @@ export function MessageBubble({ message }: MessageBubbleProps): React.ReactEleme
   if (role === "system") {
     return (
       <Box flexDirection="column" paddingX={2} marginBottom={1}>
+        <Box gap={1}>
+          <Text color={colors.nayru} bold>[Navi]</Text>
+          <Text italic dimColor>Hey! Listen!</Text>
+        </Box>
         <Markdown>{content}</Markdown>
       </Box>
     );
   }
 
   // Assistant
-  const mc = model ? modelColor(model) : colors.assistant;
+  const mc = model ? modelColor(model, colors) : colors.assistant;
   const ms = model ? modelSymbol(model) : symbols.triforceSmall;
   return (
-    <Box flexDirection="column" paddingX={2} marginBottom={1}>
-      {model ? (
-        <Box justifyContent="space-between">
-          <Text color={mc}>{ms} <Text bold>{model}</Text></Text>
-          {settings.showTimestamps
-            ? <Text dimColor>{formatTime(message.timestamp)}</Text>
-            : null}
+    <Box
+      borderStyle="double"
+      borderColor={colors.triforce}
+      paddingX={1}
+      marginX={1}
+      marginBottom={1}
+      flexDirection="column"
+    >
+      <Box justifyContent="space-between">
+        <Box gap={1}>
+          <Text color={mc}>{ms}</Text>
+          <Text bold color={mc}>{model || "Oracle"}</Text>
         </Box>
-      ) : settings.showTimestamps ? (
-        <Box justifyContent="flex-end">
-          <Text dimColor>{formatTime(message.timestamp)}</Text>
-        </Box>
-      ) : null}
-      <Markdown>{content}</Markdown>
+        {settings.showTimestamps
+          ? <Text dimColor>{formatTime(message.timestamp)}</Text>
+          : null}
+      </Box>
+      <Box flexDirection="column">
+        <Markdown>{content}</Markdown>
+      </Box>
+      <Box justifyContent="flex-end">
+        <Blinker color={colors.triforce} />
+      </Box>
     </Box>
   );
 }

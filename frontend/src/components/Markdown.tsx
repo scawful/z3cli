@@ -30,53 +30,84 @@ const HEX_ADDR_RE = /(?<!\x1b\[[0-9;]*)\$[0-9A-Fa-f]{2,6}\b/g;
  * Highlight $XXXX hex addresses in gold — the bread and butter of
  * SNES ROM hacking. Only applies outside of existing ANSI sequences.
  */
-function highlightAddresses(text: string): string {
+export function highlightHexAddresses(text: string): string {
   return text.replace(HEX_ADDR_RE, (match) => `${ADDR_ON}${match}${ADDR_OFF}`);
 }
 
+function isIndentedLine(line: string): boolean {
+  return line.startsWith("    ") || line.startsWith("\t");
+}
+
 /**
- * Post-process rendered markdown to add line numbers to code blocks.
- * Detects ANSI-styled code block regions and prepends line numbers.
+ * Post-process rendered markdown to add line numbers to indented code runs.
+ * Requires at least two non-empty indented lines (skipping blank lines) so a
+ * single wrapped or quoted line is not mistaken for a code block.
  */
 function addLineNumbers(rendered: string): string {
-  // marked-terminal wraps code blocks — look for multi-line indented sections
-  // that are preceded by a blank line (typical code block output)
   const lines = rendered.split("\n");
-  const result: string[] = [];
-  let inCodeBlock = false;
-  let codeLineNum = 0;
+  const n = lines.length;
+  const lineNumWithinBlock = new Array<number>(n).fill(0);
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
-    // Heuristic: code blocks from marked-terminal start with 4+ spaces or contain ANSI codes
-    // after a language identifier line. We look for consecutive indented lines.
-    const isIndented = line.startsWith("    ") || line.startsWith("\t");
-    const nextEmpty = i < lines.length - 1 && lines[i + 1]!.trim() === "";
-
-    if (isIndented && !inCodeBlock) {
-      inCodeBlock = true;
-      codeLineNum = 1;
+  let i = 0;
+  while (i < n) {
+    while (i < n && (!isIndentedLine(lines[i]!) || lines[i]!.trim() === "")) {
+      i++;
     }
+    if (i >= n) break;
 
-    if (inCodeBlock && !isIndented && line.trim() !== "") {
-      inCodeBlock = false;
-    }
-
-    if (inCodeBlock && (isIndented || line.trim() === "")) {
-      if (line.trim() === "" && nextEmpty) {
-        // End of code block
-        inCodeBlock = false;
-        result.push(line);
-      } else {
-        const numStr = String(codeLineNum).padStart(3, " ");
-        result.push(`\x1b[2m${numStr}\x1b[0m ${line}`);
-        codeLineNum++;
+    let j = i + 1;
+    let sawSecondNonEmptyIndented = false;
+    while (j < n) {
+      const L = lines[j]!;
+      if (L.trim() === "") {
+        j++;
+        continue;
       }
+      if (isIndentedLine(L) && L.trim() !== "") {
+        sawSecondNonEmptyIndented = true;
+        break;
+      }
+      break;
+    }
+    if (!sawSecondNonEmptyIndented) {
+      i++;
+      continue;
+    }
+
+    const blockStart = i;
+    let k = i;
+    while (k < n) {
+      const L = lines[k]!;
+      if (L.trim() === "") {
+        k++;
+        continue;
+      }
+      if (!isIndentedLine(L)) break;
+      k++;
+    }
+
+    let ln = 0;
+    for (let t = blockStart; t < k; t++) {
+      const L = lines[t]!;
+      if (isIndentedLine(L) && L.trim() !== "") {
+        ln++;
+        lineNumWithinBlock[t] = ln;
+      }
+    }
+    i = k;
+  }
+
+  const result: string[] = [];
+  for (let t = 0; t < n; t++) {
+    const line = lines[t]!;
+    const num = lineNumWithinBlock[t];
+    if (num > 0) {
+      const numStr = String(num).padStart(3, " ");
+      result.push(`\x1b[2m${numStr}\x1b[0m ${line}`);
     } else {
       result.push(line);
     }
   }
-
   return result.join("\n");
 }
 
@@ -90,7 +121,7 @@ export function Markdown({ children }: MarkdownProps): React.ReactElement {
       const result = marked.parse(children);
       if (typeof result === "string") {
         let output = addLineNumbers(result.replace(/\n$/, ""));
-        output = highlightAddresses(output);
+        output = highlightHexAddresses(output);
         return output;
       }
       return children;
@@ -99,5 +130,5 @@ export function Markdown({ children }: MarkdownProps): React.ReactElement {
     }
   }, [children]);
 
-  return <Text>{rendered}</Text>;
+  return <Text wrap="wrap">{rendered}</Text>;
 }

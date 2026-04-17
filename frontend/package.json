@@ -9,10 +9,13 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.tsx",
-    "start": "node dist/index.js"
+    "generate:protocol": "python3 ../scripts/generate_protocol_ts.py",
+    "start": "node dist/index.js",
+    "test": "tsx --test --test-concurrency=1 src/**/*.test.ts"
   },
   "dependencies": {
     "ink": "^6.0.0",
+    "ink-scroll-view": "^0.3.6",
     "ink-spinner": "^5.0.0",
     "marked": "^15.0.0",
     "marked-terminal": "^7.3.0",
@@ -21,6 +24,8 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
+    "ink-testing-library": "^4.0.0",
+    "react-test-renderer": "^19.2.5",
     "tsx": "^4.0.0",
     "typescript": "^5.7.0"
   }

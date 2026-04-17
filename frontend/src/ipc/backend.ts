@@ -6,6 +6,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
 import { EventEmitter } from "node:events";
 import type {
+  AttachmentReference,
   JsonRpcRequest,
   JsonRpcResponse,
   BackendEvent,
@@ -24,6 +25,13 @@ export class Backend extends EventEmitter {
     private backendArgs: string[] = [],
   ) {
     super();
+  }
+
+  private rejectPending(reason: string): void {
+    for (const [, pending] of this.pending) {
+      pending.reject(new Error(reason));
+    }
+    this.pending.clear();
   }
 
   /** Spawn the Python backend in --serve mode. */
@@ -50,9 +58,16 @@ export class Backend extends EventEmitter {
       this.emit("stderr", chunk.toString());
     });
 
-    this.proc.on("exit", (code) => {
-      this.emit("exit", code);
+    this.proc.on("exit", (code, signal) => {
+      const exitCode = typeof code === "number" ? code : -1;
+      const suffix = signal ? ` (signal ${signal})` : "";
+      this.rejectPending(`Backend exited with code ${exitCode}${suffix}`);
+      this.emit("exit", exitCode);
       this.proc = null;
+    });
+
+    this.proc.on("error", (error) => {
+      this.rejectPending(`Backend process error: ${error.message}`);
     });
   }
 
@@ -79,14 +94,25 @@ export class Backend extends EventEmitter {
   }
 
   /** Send a JSON-RPC request and wait for the response. */
-  async request(method: string, params?: Record<string, unknown>): Promise<unknown> {
+  async request(
+    method: string,
+    params?: Record<string, unknown>,
+    timeoutMs = 480_000,
+  ): Promise<unknown> {
     if (!this.proc?.stdin?.writable) {
       throw new Error("Backend not running");
     }
     const id = this.nextId++;
     const req: JsonRpcRequest = { jsonrpc: "2.0", id, method, params };
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`Request timed out after ${timeoutMs / 1000}s (${method})`));
+      }, timeoutMs);
+      this.pending.set(id, {
+        resolve: (v) => { clearTimeout(timer); resolve(v); },
+        reject: (e) => { clearTimeout(timer); reject(e); },
+      });
       this.proc!.stdin!.write(JSON.stringify(req) + "\n");
     });
   }
@@ -98,9 +124,12 @@ export class Backend extends EventEmitter {
     this.proc.stdin.write(JSON.stringify(msg) + "\n");
   }
 
-  /** Send a chat message. Streaming events arrive via the 'event' emitter. */
-  async chat(message: string, model?: string): Promise<void> {
-    this.notify("chat", { message, model });
+  /** Send a chat message and return the accepted backend request id. */
+  async chat(message: string, model?: string, attachments?: AttachmentReference[]): Promise<string> {
+    const result = await this.request("chat", { message, model, attachments }, 30_000);
+    if (!result || typeof result !== "object") return "";
+    const payload = result as Record<string, unknown>;
+    return typeof payload.request_id === "string" ? payload.request_id : "";
   }
 
   /** Execute a slash command. */
@@ -108,8 +137,12 @@ export class Backend extends EventEmitter {
     return this.request("command", { cmd, args });
   }
 
-  /** Cancel the active streaming response. */
-  cancel(): void {
+  /** Cancel a streaming response, optionally scoped to a request id. */
+  cancel(requestId?: string): void {
+    if (requestId) {
+      this.notify("cancel", { request_id: requestId });
+      return;
+    }
     this.notify("cancel");
   }
 

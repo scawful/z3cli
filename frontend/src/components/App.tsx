@@ -12,43 +12,37 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Box, Static, Text, useApp, useInput } from "ink";
+import { Box, Text, useApp, useInput } from "ink";
+import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 import { useBackend } from "../hooks/useBackend.js";
 import { useSettings } from "../hooks/useSettings.js";
 import { SettingsContext } from "../contexts/SettingsContext.js";
-import { dispatchCommand, executeShell } from "../commands/index.js";
+import { dispatchCommand, executeShell, normalizeSessions } from "../commands/index.js";
 import type { SessionInfo } from "../commands/index.js";
 import { useAnimatedFrame } from "../hooks/useAnimatedFrame.js";
-import { MessageBubble } from "./MessageBubble.js";
-import { StreamingMessage } from "./StreamingMessage.js";
 import { StatusBar } from "./StatusBar.js";
 import { PromptInput } from "./PromptInput.js";
-import { WelcomeBanner } from "./WelcomeBanner.js";
 import { TitleBar } from "./TitleBar.js";
 import { SettingsPanel } from "./SettingsPanel.js";
+import { HelpPanel } from "./HelpPanel.js";
 import { PermissionDialog } from "./PermissionDialog.js";
-import { colors, symbols } from "../theme/index.js";
-import type { Message } from "../ipc/protocol.js";
+import { ContextPanel } from "./ContextPanel.js";
+import { TranscriptScroll } from "./TranscriptScroll.js";
+import { ToolReviewDialog } from "./ToolReviewDialog.js";
+import { symbols, getThemeColors } from "../theme/index.js";
+import type { AttachmentMeta, AttachmentReference } from "../ipc/protocol.js";
 import type { CommandContext } from "../commands/index.js";
-
-// ---------------------------------------------------------------------------
-// Context window estimates (tokens) per model
-// ---------------------------------------------------------------------------
-
-const CONTEXT_WINDOWS: Record<string, number> = {
-  din: 8192, nayru: 8192, farore: 8192,
-  veran: 8192, majora: 8192, hylia: 8192,
-  "oracle-tools": 8192,
-  "switchhook-plan": 32768,
-  "switchhook-act": 32768,
-};
+import { useTerminalSize } from "../hooks/useTerminalWidth.js";
+import { computeTranscriptViewportHeight, groupMessages, shouldShowContextPanel } from "../utils/transcript.js";
+import { estimateContextWindow } from "../utils/models.js";
 
 // ---------------------------------------------------------------------------
 // Loading screen
 // ---------------------------------------------------------------------------
 
-function ConnectingSpinner(): React.ReactElement {
+function ConnectingSpinner({ theme }: { theme: string }): React.ReactElement {
   const spinner = useAnimatedFrame(symbols.thinking);
+  const colors = getThemeColors(theme);
   return (
     <Box padding={1} gap={1}>
       <Text color={colors.triforce}>{spinner}</Text>
@@ -57,22 +51,73 @@ function ConnectingSpinner(): React.ReactElement {
   );
 }
 
-// ---------------------------------------------------------------------------
-// App
-// ---------------------------------------------------------------------------
-
 interface AppProps {
   pythonPath: string;
   backendArgs: string[];
   batchCommands: string[];
 }
 
+export type PromptSubmission =
+  | { kind: "ignore" }
+  | { kind: "shell"; command: string }
+  | { kind: "message"; text: string; attachments: AttachmentReference[] }
+  | { kind: "command"; cmd: string; args: string[] };
+
+export function classifyPromptSubmission(
+  text: string,
+  attachments: AttachmentReference[] = [],
+): PromptSubmission {
+  const trimmed = text.trim();
+  if (!trimmed && attachments.length === 0) {
+    return { kind: "ignore" };
+  }
+  if (!trimmed) {
+    return { kind: "message", text: "", attachments };
+  }
+  if (trimmed.startsWith("!")) {
+    return { kind: "shell", command: trimmed.slice(1).trim() };
+  }
+  if (!trimmed.startsWith("/")) {
+    return { kind: "message", text: trimmed, attachments };
+  }
+  const [cmd, ...args] = trimmed.split(/\s+/) as [string, ...string[]];
+  return { kind: "command", cmd, args };
+}
+
 export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React.ReactElement {
   const { exit } = useApp();
   const ranBatch = useRef(false);
+  const transcriptScrollRef = useRef<ScrollViewRef | null>(null);
+  const contextScrollRef = useRef<ScrollViewRef | null>(null);
+
+  // ---------------------------------------------------------------------------
+  // Helpers
+  // ---------------------------------------------------------------------------
+
+  function KeyboardLegend({ colors }: { colors: any }): React.ReactElement {
+    return (
+      <Box width="100%" paddingX={1} marginTop={0}>
+        <Text dimColor>
+          <Text color={colors.triforce}>[Ctrl+P]</Text> Palette {symbols.dot}{" "}
+          <Text color={colors.triforce}>[Tab]</Text> Complete {symbols.dot}{" "}
+          <Text color={colors.triforce}>[Esc]</Text> Cancel {symbols.dot}{" "}
+          <Text color={colors.triforce}>[/]</Text> Command {symbols.dot}{" "}
+          <Text color={colors.triforce}>[Shift+Tab]</Text> Mode {symbols.dot}{" "}
+          <Text color={colors.triforce}>[PgUp/PgDn]</Text> Transcript {symbols.dot}{" "}
+          <Text color={colors.triforce}>[Ctrl+PgUp/PgDn]</Text> Context
+        </Text>
+      </Box>
+    );
+  }
+
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [pickerSessions, setPickerSessions] = useState<SessionInfo[] | null>(null);
-  const { settings, toggleSetting, setSetting, resetSettings, cycleMode } = useSettings();
+  const [recentSessions, setRecentSessions] = useState<SessionInfo[]>([]);
+  const [draftFiles, setDraftFiles] = useState<AttachmentMeta[]>([]);
+  const { settings, toggleSetting, setSetting, resetSettings, cycleMode, cycleTheme } = useSettings();
+  const { width: terminalWidth, rows: terminalRows } = useTerminalSize();
+  const transcriptViewportHeight = computeTranscriptViewportHeight(terminalRows);
 
   const {
     config,
@@ -80,12 +125,16 @@ export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React
     streamingContent, streamingThinking,
     isStreaming, activeToolCall,
     promptTokens, completionTokens,
+    cacheCreationTokens, cacheReadTokens,
     error,
     pendingPermission,
+    pendingReview,
+    subagents,
     sendMessage, sendCommand,
-    addSystemMessage, updateConfig,
+    addSystemMessage, replaceMessages, replaceSubagents, updateConfig,
     cancelStream,
-    approveTool, denyTool,
+    approveTool, approveToolForSession, denyTool, denyToolForSession,
+    acceptToolReview, rejectToolReview,
   } = useBackend(pythonPath, backendArgs);
 
   // Build the command context once per render cycle so dispatchCommand
@@ -94,44 +143,40 @@ export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React
     config,
     settings,
     addSystemMessage,
+    replaceMessages,
+    replaceSubagents,
     updateConfig,
     sendCommand,
     sendMessage,
     setSetting,
     resetSettings,
     openSettings: () => setSettingsOpen(true),
+    openHelp: () => setHelpOpen(true),
     openSessionPicker: (sessions: SessionInfo[]) => setPickerSessions(sessions),
     exit,
-  }), [config, settings, addSystemMessage, updateConfig, sendCommand, sendMessage, setSetting, resetSettings, exit]);
+  }), [config, settings, addSystemMessage, replaceMessages, replaceSubagents, updateConfig, sendCommand, sendMessage, setSetting, resetSettings, exit]);
 
-  const handleSubmit = useCallback((text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed) return;
-    if (trimmed.startsWith("!")) {
-      void executeShell(trimmed.slice(1).trim(), commandCtx);
+  const handleSubmit = useCallback((text: string, attachments: AttachmentReference[] = []) => {
+    const submission = classifyPromptSubmission(text, attachments);
+    if (submission.kind === "ignore") return;
+    if (submission.kind === "shell") {
+      void executeShell(submission.command, commandCtx);
       return;
     }
-    if (!trimmed.startsWith("/")) {
-      void sendMessage(trimmed);
+    if (submission.kind === "message") {
+      void sendMessage(submission.text, submission.attachments).catch(() => undefined);
       return;
     }
-    const [cmd, ...args] = trimmed.split(/\s+/) as [string, ...string[]];
-    void dispatchCommand(cmd, args, commandCtx);
+    void dispatchCommand(submission.cmd, submission.args, commandCtx);
   }, [sendMessage, commandCtx]);
 
   // Escape cancels streaming; Shift+Tab cycles UI mode.
   useInput(
     (input, key) => {
-      if (key.escape || input === "\x03") cancelStream();
+      const ctrlChar = key.ctrl ? input.toLowerCase() : "";
+      if (key.escape || ctrlChar === "c" || input === "\x03") cancelStream();
     },
     { isActive: isStreaming && !settingsOpen && Boolean(process.stdin.isTTY) },
-  );
-
-  useInput(
-    (_, key) => {
-      if (key.shift && key.tab) cycleMode();
-    },
-    { isActive: !settingsOpen && Boolean(process.stdin.isTTY) },
   );
 
   // Admin mode auto-approves any pending tool permission request.
@@ -141,14 +186,40 @@ export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React
     }
   }, [pendingPermission, settings.uiMode, approveTool]);
 
-  // Context usage estimate (0–100).
-  const contextPercent = useMemo(() => {
-    if (!config) return 0;
-    const tokens = messages.reduce((sum, m) =>
-      m.role === "system" ? sum : sum + Math.ceil(m.content.length / 4), 0);
-    const window = CONTEXT_WINDOWS[config.activeModel] ?? 8192;
-    return Math.min(100, Math.round((tokens / window) * 100));
+  // Context usage estimate (0–100) based on current transcript content.
+  const { contextPercent, contextWindow } = useMemo(() => {
+    if (!config) {
+      return { contextPercent: 0, contextWindow: 0 };
+    }
+    const estimatedTokens = messages.reduce((sum, message) =>
+      message.role === "system" ? sum : sum + Math.ceil(message.content.length / 4), 0);
+    const window = estimateContextWindow(config.activeModel, config.models);
+    const percent = window > 0 ? Math.min(100, Math.round((estimatedTokens / window) * 100)) : 0;
+    return { contextPercent: percent, contextWindow: window };
   }, [config, messages]);
+
+  const groupedMessages = useMemo(() => groupMessages(messages), [messages]);
+  const showContextPanel = shouldShowContextPanel(terminalWidth, settingsOpen);
+
+  useEffect(() => {
+    if (!showContextPanel) return;
+    contextScrollRef.current?.remeasure();
+  }, [transcriptViewportHeight, showContextPanel]);
+
+  useEffect(() => {
+    if (!config) return;
+    let cancelled = false;
+    void sendCommand("/sessions", []).then((result) => {
+      if (cancelled) return;
+      const raw = (result as { sessions?: Array<Record<string, unknown>> } | null)?.sessions ?? [];
+      setRecentSessions(normalizeSessions(raw));
+    }).catch(() => {
+      if (!cancelled) setRecentSessions([]);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [config?.sessionPath, sendCommand]);
 
   // Run batch commands once after config arrives.
   useEffect(() => {
@@ -160,7 +231,7 @@ export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React
         const trimmed = line.trim();
         if (!trimmed) continue;
         if (!trimmed.startsWith("/")) {
-          await sendMessage(trimmed);
+          await sendMessage(trimmed).catch(() => undefined);
         } else {
           const [cmd, ...args] = trimmed.split(/\s+/) as [string, ...string[]];
           await dispatchCommand(cmd, args, commandCtx);
@@ -170,11 +241,23 @@ export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React
     })();
   }, [batchCommands, config, commandCtx, sendMessage]);
 
-  if (!config) return <ConnectingSpinner />;
+  if (!config) return <ConnectingSpinner theme={settings.theme} />;
+
+  const themeColors = getThemeColors(settings.theme);
 
   return (
-    <SettingsContext.Provider value={{ settings, toggleSetting, setSetting, resetSettings, cycleMode }}>
-      <Box flexDirection="column">
+    <SettingsContext.Provider value={{
+      settings,
+      colors: themeColors,
+      config,
+      execCommand: (cmd, args) => { void dispatchCommand(cmd, args, commandCtx); },
+      toggleSetting,
+      setSetting,
+      resetSettings,
+      cycleMode,
+      cycleTheme
+    }}>
+      <Box flexDirection="column" width="100%">
         <TitleBar
           version={config.version}
           backend={config.backend}
@@ -185,44 +268,82 @@ export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React
           broadcastModels={config.broadcastModels}
         />
 
-        <Static items={messages}>
-          {(msg: Message, i: number) => (
-            <Box key={`${msg.id}-${i}`} flexDirection="column">
-              <MessageBubble message={msg} />
-            </Box>
-          )}
-        </Static>
-
-        {messages.length === 0 && !isStreaming
-          ? <WelcomeBanner config={config} />
-          : null}
-
-        {isStreaming ? (
-          <StreamingMessage
-            content={streamingContent}
-            thinkingContent={streamingThinking}
-            activeToolCall={activeToolCall}
-          />
-        ) : null}
-
-        {error ? (
-          <Box borderStyle="round" borderColor={colors.error} paddingX={1} gap={1}>
-            <Text color={colors.error}>{symbols.heart}</Text>
-            <Text color={colors.error}>{error}</Text>
+        <Box flexDirection={showContextPanel ? "row" : "column"} width="100%" gap={1}>
+          <Box flexDirection="column" flexGrow={1} minWidth={0}>
+            <TranscriptScroll
+              scrollRef={transcriptScrollRef}
+              viewportHeight={transcriptViewportHeight}
+              groupedMessages={groupedMessages}
+              themeColors={themeColors}
+              config={config}
+              messagesLength={messages.length}
+              isStreaming={isStreaming}
+              streamingContent={streamingContent}
+              streamingThinking={streamingThinking}
+              activeToolCall={activeToolCall}
+              subagents={subagents}
+              error={error}
+            />
           </Box>
-        ) : null}
+
+          {showContextPanel ? (
+            <Box
+              height={transcriptViewportHeight}
+              width={36}
+              flexShrink={0}
+              flexDirection="column"
+            >
+              <ScrollView ref={contextScrollRef} width="100%" flexGrow={1}>
+                <Box key="context-rail" flexDirection="column" width="100%">
+                  <ContextPanel
+                    config={config}
+                    contextPercent={contextPercent}
+                    contextWindow={contextWindow}
+                    promptTokens={promptTokens}
+                    completionTokens={completionTokens}
+                    userMessageCount={Math.max(
+                      config.sessionMessages ?? 0,
+                      messages.filter((m) => m.role === "user").length,
+                    )}
+                    recentSessions={recentSessions}
+                    draftFiles={draftFiles}
+                  />
+                </Box>
+              </ScrollView>
+            </Box>
+          ) : null}
+        </Box>
 
         {settingsOpen
           ? <SettingsPanel onClose={() => setSettingsOpen(false)} />
+          : null}
+
+        {helpOpen
+          ? <HelpPanel onClose={() => setHelpOpen(false)} />
           : null}
 
         {pendingPermission && settings.uiMode !== "admin" ? (
           <PermissionDialog
             name={pendingPermission.name}
             server={pendingPermission.server}
+            workspace={config.workspace}
             arguments={pendingPermission.arguments}
-            onApprove={() => void approveTool()}
-            onDeny={() => void denyTool()}
+            onApproveOnce={() => void approveTool()}
+            onApproveSession={() => void approveToolForSession()}
+            onDenyOnce={() => void denyTool()}
+            onDenySession={() => void denyToolForSession()}
+          />
+        ) : pendingReview ? (
+          <ToolReviewDialog
+            name={pendingReview.name}
+            server={pendingReview.server}
+            summary={pendingReview.summary}
+            paths={pendingReview.paths}
+            diffLines={pendingReview.diffLines}
+            omitted={pendingReview.omitted}
+            verificationCommands={pendingReview.verificationCommands}
+            onAccept={() => void acceptToolReview()}
+            onReject={() => void rejectToolReview()}
           />
         ) : null}
 
@@ -230,27 +351,43 @@ export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React
           mode={config.mode}
           model={config.activeModel}
           models={config.models}
-          disabled={isStreaming || settingsOpen}
+          workspace={config.workspace}
+          backend={config.backend}
+          focusFile={config.focusFile}
+          hasStickyPermissions={Object.keys(config.permissionRules ?? {}).length > 0}
+          recentSessions={recentSessions}
+          disabled={isStreaming || settingsOpen || helpOpen || Boolean(pendingPermission) || Boolean(pendingReview)}
           isStreaming={isStreaming}
-          hint={settingsOpen ? `settings open ${symbols.dot} Esc to close` : undefined}
+          hint={settingsOpen ? `settings open ${symbols.dot} Esc to close` : helpOpen ? `Book of Mudora open ${symbols.dot} Esc to close` : undefined}
           sessions={pickerSessions}
+          onCycleMode={cycleMode}
           onSessionClose={() => setPickerSessions(null)}
+          onDraftFilesChange={setDraftFiles}
           onSubmit={handleSubmit}
+          transcriptScrollRef={transcriptScrollRef}
+          sidePanelScrollRef={showContextPanel ? contextScrollRef : undefined}
         />
 
         <StatusBar
           model={config.activeModel}
           serverCount={config.servers.length}
           toolCount={config.toolCount}
-          messageCount={messages.filter((m) => m.role === "user").length}
+          messageCount={Math.max(
+            config.sessionMessages ?? 0,
+            messages.filter((m) => m.role === "user").length,
+          )}
           promptTokens={promptTokens}
           completionTokens={completionTokens}
+          cacheReadTokens={cacheReadTokens}
+          cacheCreationTokens={cacheCreationTokens}
           isStreaming={isStreaming}
           workspace={config.workspace}
           warningCount={config.warnings.length}
           toolsEnabled={config.toolsEnabled}
           focusFile={config.focusFile}
         />
+
+        <KeyboardLegend colors={themeColors} />
       </Box>
     </SettingsContext.Provider>
   );

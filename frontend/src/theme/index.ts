@@ -9,54 +9,79 @@ import {
 } from "../utils/models.js";
 
 // ---------------------------------------------------------------------------
-// Oracle Goddess palette
+// Palettes
 // ---------------------------------------------------------------------------
 
-export const colors = {
-  // The three goddesses
-  din: "#EF4444",        // red — power, optimization
-  nayru: "#3B82F6",      // blue — wisdom, explanation
-  farore: "#22C55E",     // green — courage, autocomplete
+const palettes = {
+  gold: {
+    primary: "#FFD700",
+    accent: "#FFD700",
+  },
+  green: {
+    primary: "#22C55E",
+    accent: "#22C55E",
+  },
+  red: {
+    primary: "#EF4444",
+    accent: "#EF4444",
+  },
+  blue: {
+    primary: "#3B82F6",
+    accent: "#3B82F6",
+  },
+};
 
-  // Oracle pantheon
-  veran: "#8B5CF6",      // purple — sorceress of shadows
-  majora: "#F97316",     // orange — mask of chaos
-  hylia: "#EC4899",      // pink — golden goddess
-  oracleTools: "#FBBF24", // amber — tool-calling
+export function getThemeColors(theme: string = "gold") {
+  const p = (palettes as any)[theme] || palettes.gold;
+  return {
+    // The three goddesses
+    din: "#EF4444",        // red — power, optimization
+    nayru: "#3B82F6",      // blue — wisdom, explanation
+    farore: "#22C55E",     // green — courage, autocomplete
 
-  // Triforce gold
-  triforce: "#FFD700",
+    // Oracle pantheon
+    veran: "#8B5CF6",      // purple — sorceress of shadows
+    majora: "#F97316",     // orange — mask of chaos
+    hylia: "#EC4899",      // pink — golden goddess
+    oracleTools: "#FBBF24", // amber — tool-calling
 
-  // UI chrome
-  border: "#374151",
-  borderActive: "#FFD700",  // triforce gold when active
-  accent: "#FFD700",
-  success: "#22C55E",
-  error: "#EF4444",
-  warning: "#F59E0B",
-  dim: "#6B7280",
-  text: "#E5E7EB",
-  muted: "#9CA3AF",
+    // Theme primary
+    triforce: p.primary,
+    accent: p.accent,
 
-  // Roles
-  user: "#5EEAD4",
-  assistant: "#A78BFA",
-  system: "#6B7280",
-  tool: "#FBBF24",
+    // UI chrome
+    border: p.primary,
+    borderActive: p.primary,
+    success: "#22C55E",
+    error: "#EF4444",
+    warning: "#F59E0B",
+    dim: "#6B7280",
+    text: "#E5E7EB",
+    muted: "#9CA3AF",
 
-  // Hearts (context)
-  heartFull: "#EF4444",
-  heartLow: "#F59E0B",
-  heartEmpty: "#4B5563",
+    // Roles
+    user: "#5EEAD4",
+    assistant: "#A78BFA",
+    system: "#6B7280",
+    tool: "#FBBF24",
 
-  // Rupees (tokens)
-  rupeeGreen: "#22C55E",
-  rupeeBlue: "#3B82F6",
-  rupeeRed: "#EF4444",
+    // Hearts (context)
+    heartFull: "#EF4444",
+    heartLow: "#F59E0B",
+    heartEmpty: "#4B5563",
 
-  // Hex addresses
-  address: "#FFD700",
-} as const;
+    // Rupees (tokens)
+    rupeeGreen: "#22C55E",
+    rupeeBlue: "#3B82F6",
+    rupeeRed: "#EF4444",
+
+    // Hex addresses
+    address: p.primary,
+  };
+}
+
+// Default export for backward compatibility
+export const colors = getThemeColors("gold");
 
 // ---------------------------------------------------------------------------
 // Zelda symbols
@@ -75,11 +100,39 @@ export const symbols = {
   rupee: "◆",
   compass: "◎",
   shield: "◈",
-  spinner: ["◜", "◠", "◝", "◞", "◡", "◟"],
+  spinner: ["◈", "◇", "◈", "◆"],
   dot: "·",
   bar: "│",
-  thinking: ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"],
+  thinking: ["✧", "✦", "✧", " "],
 } as const;
+
+// ---------------------------------------------------------------------------
+// Item/Tool symbols
+// ---------------------------------------------------------------------------
+
+const toolSymbolMap: Record<string, string> = {
+  // Common tool mappings
+  read_file: "📖",
+  write_file: "🔨",
+  replace: "⚔",
+  grep_search: "◎",
+  glob: "◎",
+  list_directory: "◎",
+  web_fetch: "🎵",
+  run_shell_command: "📜",
+  ask_user: "💬",
+  enter_plan_mode: "🗺",
+  exit_plan_mode: "▲",
+};
+
+/** Map tool name to Zelda item icons. */
+export function toolSymbol(name: string): string {
+  const lowered = name.toLowerCase();
+  for (const [key, symbol] of Object.entries(toolSymbolMap)) {
+    if (lowered.includes(key)) return symbol;
+  }
+  return symbols.shield;
+}
 
 // ---------------------------------------------------------------------------
 // Model theming
@@ -108,30 +161,52 @@ const exactModelSymbolMap: Record<string, string> = {
 };
 const ORACLE_MODE_LEGACY_ALIASES = new Set(["oracle-main", "switchhook"]);
 
-export function modelColor(name: string): string {
+export function modelColor(name: string, c: any = colors): string {
+  const exactModelColorMap: Record<string, string> = {
+    din: c.din,
+    nayru: c.nayru,
+    farore: c.farore,
+    veran: c.veran,
+    majora: c.majora,
+    hylia: c.hylia,
+    oracle: c.nayru,
+    "oracle-fast": c.oracleTools,
+  };
+
   const lowered = normalizeModelName(name);
   if (exactModelColorMap[lowered]) {
     return exactModelColorMap[lowered]!;
   }
   if (ORACLE_MODE_LEGACY_ALIASES.has(lowered)) {
-    return colors.nayru;
+    return c.nayru;
   }
   if (isPlanLikeModel(lowered)) {
-    return colors.nayru;
+    return c.nayru;
   }
   if (isActionLikeModel(lowered)) {
-    return colors.din;
+    return c.din;
   }
   if (isToolLikeModel(lowered) || lowered.includes("oracle")) {
-    return colors.oracleTools;
+    return c.oracleTools;
   }
   if (isCloudLikeModel(lowered)) {
-    return colors.triforce;
+    return c.triforce;
   }
-  return colors.assistant;
+  return c.assistant;
 }
 
 export function modelSymbol(name: string): string {
+  const exactModelSymbolMap: Record<string, string> = {
+    din: symbols.triforce,
+    nayru: symbols.crystal,
+    farore: symbols.pendant,
+    veran: symbols.crystal,
+    majora: symbols.shield,
+    hylia: symbols.pendant,
+    oracle: symbols.compass,
+    "oracle-fast": symbols.sword,
+  };
+
   const lowered = normalizeModelName(name);
   if (exactModelSymbolMap[lowered]) {
     return exactModelSymbolMap[lowered]!;
@@ -155,46 +230,55 @@ export function modelSymbol(name: string): string {
 // Server theming — each MCP server gets a goddess-aligned color and symbol
 // ---------------------------------------------------------------------------
 
-const serverColorMap: Record<string, string> = {
-  "book-of-mudora": colors.nayru,      // wisdom — code search
-  "hyrule-historian": colors.farore,    // courage — lore/data
-  "yaze-editor": colors.din,           // power — ROM editing
-  "mesen2-oos": colors.veran,          // dark magic — debugging
-  "afs": colors.oracleTools,           // amber — file system
-};
+export function serverColor(name: string, c: any = colors): string {
+  const serverColorMap: Record<string, string> = {
+    "book-of-mudora": c.nayru,      // wisdom — code search
+    "hyrule-historian": c.farore,    // courage — lore/data
+    "yaze-editor": c.din,           // power — ROM editing
+    "mesen2-oos": c.veran,          // dark magic — debugging
+    "afs": c.oracleTools,           // amber — file system
+  };
+  return serverColorMap[name] ?? c.tool;
+}
 
-const serverSymbolMap: Record<string, string> = {
-  "book-of-mudora": symbols.pendant,   // wisdom pendant
-  "hyrule-historian": symbols.compass,  // historical records
-  "yaze-editor": symbols.sword,        // editing power
-  "mesen2-oos": symbols.crystal,       // debug crystal
-  "afs": symbols.triforceSmall,        // general
-};
+export function serverSymbol(name: string): string {
+  const serverSymbolMap: Record<string, string> = {
+    "book-of-mudora": symbols.pendant,   // wisdom pendant
+    "hyrule-historian": symbols.compass,  // historical records
+    "yaze-editor": symbols.sword,        // editing power
+    "mesen2-oos": symbols.crystal,       // debug crystal
+    "afs": symbols.triforceSmall,        // general
+  };
+  return serverSymbolMap[name] ?? symbols.triforceSmall;
+}
 
 // ---------------------------------------------------------------------------
 // Mode theming — routing mode gets a goddess-aligned color
 // ---------------------------------------------------------------------------
 
-export function modeColor(mode: string): string {
+export function modeColor(mode: string, c: any = colors): string {
   const normalizedMode = normalizeModelName(mode);
   if (ORACLE_MODE_LEGACY_ALIASES.has(normalizedMode)) {
-    return colors.nayru;
+    return c.nayru;
   }
   switch (normalizedMode) {
-    case "oracle":       return colors.nayru;     // wisdom routes
-    case "broadcast":    return colors.farore;    // courage to many
-    case "orchestrator": return colors.triforce;  // cloud planner drives
-    case "manual":       return colors.dim;       // direct control
-    default:             return colors.triforce;
+    case "oracle":       return c.nayru;     // wisdom routes
+    case "broadcast":    return c.farore;    // courage to many
+    case "orchestrator": return c.triforce;  // cloud planner drives
+    case "manual":       return c.dim;       // direct control
+    default:             return c.triforce;
   }
 }
 
-export function serverColor(name: string): string {
-  return serverColorMap[name] ?? colors.tool;
-}
-
-export function serverSymbol(name: string): string {
-  return serverSymbolMap[name] ?? symbols.triforceSmall;
+/** Map interaction UI mode to thematic colors. */
+export function uiModeColor(mode: string, c: any = colors): string {
+  switch (mode) {
+    case "admin":  return c.din;
+    case "build":  return c.farore;
+    case "plan":   return c.nayru;
+    case "review": return c.triforce;
+    default:       return c.dim;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -204,6 +288,7 @@ export function serverSymbol(name: string): string {
 export function heartBar(
   percent: number,
   maxHearts: number = 10,
+  c: any = colors,
 ): { display: string; color: string } {
   // Hearts represent remaining capacity (100% used = 0 hearts)
   const remaining = Math.round(((100 - percent) / 100) * maxHearts);
@@ -212,7 +297,7 @@ export function heartBar(
   const display = symbols.heart.repeat(full) + symbols.heartEmpty.repeat(empty);
 
   const color =
-    full <= 2 ? colors.error : full <= 4 ? colors.heartLow : colors.heartFull;
+    full <= 2 ? c.error : full <= 4 ? c.heartLow : c.heartFull;
 
   return { display, color };
 }
@@ -221,14 +306,14 @@ export function heartBar(
 // Rupee — token counter formatting
 // ---------------------------------------------------------------------------
 
-export function formatTokens(count: number): { text: string; color: string } {
-  if (count === 0) return { text: "", color: colors.dim };
+export function formatTokens(count: number, c: any = colors): { text: string; color: string } {
+  if (count === 0) return { text: "", color: c.dim };
   const num = count > 1000 ? `${(count / 1000).toFixed(1)}k` : `${count}`;
   const color =
     count > 10000
-      ? colors.rupeeRed
+      ? c.rupeeRed
       : count > 3000
-        ? colors.rupeeBlue
-        : colors.rupeeGreen;
+        ? c.rupeeBlue
+        : c.rupeeGreen;
   return { text: `${symbols.rupee} ${num}`, color };
 }

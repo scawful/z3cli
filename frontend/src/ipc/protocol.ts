@@ -1,134 +1,14 @@
 /**
- * JSON-RPC 2.0 protocol types for z3cli frontend <-> Python backend.
+ * Frontend IPC protocol facade.
  *
- * Frontend sends requests via stdin, backend streams events via stdout.
+ * Transport-layer JSON-RPC request/notification types are generated from the
+ * backend schema in `z3cli.app.ipc_schema`. This file keeps only app-local
+ * view models and camelCase config/message shapes used by React state.
  */
 
-// ---------------------------------------------------------------------------
-// Core JSON-RPC
-// ---------------------------------------------------------------------------
+export * from "./protocol.generated.js";
 
-export interface JsonRpcRequest {
-  jsonrpc: "2.0";
-  id: number;
-  method: string;
-  params?: Record<string, unknown>;
-}
-
-export interface JsonRpcResponse {
-  jsonrpc: "2.0";
-  id: number;
-  result?: unknown;
-  error?: { code: number; message: string };
-}
-
-export interface JsonRpcNotification {
-  jsonrpc: "2.0";
-  method: string;
-  params?: Record<string, unknown>;
-}
-
-// ---------------------------------------------------------------------------
-// Request methods (frontend -> backend)
-// ---------------------------------------------------------------------------
-
-export type ChatRequest = JsonRpcRequest & {
-  method: "chat";
-  params: { message: string; model?: string };
-};
-
-export type CommandRequest = JsonRpcRequest & {
-  method: "command";
-  params: { cmd: string; args: string[] };
-};
-
-export type StatusRequest = JsonRpcRequest & {
-  method: "status";
-};
-
-export type ModelsRequest = JsonRpcRequest & {
-  method: "models";
-};
-
-// ---------------------------------------------------------------------------
-// Notification methods (backend -> frontend, streaming)
-// ---------------------------------------------------------------------------
-
-export interface TextNotification extends JsonRpcNotification {
-  method: "text";
-  params: { delta: string };
-}
-
-export interface ToolCallNotification extends JsonRpcNotification {
-  method: "tool_call";
-  params: { name: string; server: string; arguments: string };
-}
-
-export interface ToolResultNotification extends JsonRpcNotification {
-  method: "tool_result";
-  params: { name: string; result: string };
-}
-
-export interface DoneNotification extends JsonRpcNotification {
-  method: "done";
-  params: {
-    prompt_tokens: number;
-    completion_tokens: number;
-    total_tokens: number;
-  };
-}
-
-export interface ThinkingNotification extends JsonRpcNotification {
-  method: "thinking";
-  params: { delta: string };
-}
-
-export interface ErrorNotification extends JsonRpcNotification {
-  method: "error";
-  params: { message: string };
-}
-
-export interface ReadyNotification extends JsonRpcNotification {
-  method: "ready";
-  params: {
-    version: string;
-    backend: string;
-    active_model: string;
-    studio_model?: string;
-    mode: string;
-    workspace: string;
-    rom_path: string;
-    tools_enabled: boolean;
-    servers: string[];
-    tool_count: number;
-    warnings: string[];
-    models: Array<{
-      name: string;
-      model_id: string;
-      role: string;
-      loaded: boolean;
-      tools_enabled: boolean;
-    }>;
-    session_path: string;
-    focus_file?: string;
-    broadcast_models?: string[];
-  };
-}
-
-export interface ToolPermissionNotification extends JsonRpcNotification {
-  method: "tool/permission_request";
-  params: { name: string; server: string; arguments: string };
-}
-
-export type BackendEvent =
-  | TextNotification
-  | ThinkingNotification
-  | ToolCallNotification
-  | ToolResultNotification
-  | DoneNotification
-  | ErrorNotification
-  | ReadyNotification
-  | ToolPermissionNotification;
+import type { AttachmentMeta, ReadyParams } from "./protocol.generated.js";
 
 // ---------------------------------------------------------------------------
 // App-level types
@@ -145,6 +25,11 @@ export interface Message {
   toolServer?: string;
   toolArguments?: string;
   timestamp: number;
+  turnId?: string;
+  toolGroup?: string;
+  attachments?: AttachmentMeta[];
+  requestId?: string;
+  spanId?: string;
 }
 
 export interface ModelInfo {
@@ -153,22 +38,85 @@ export interface ModelInfo {
   role: string;
   loaded: boolean;
   toolsEnabled: boolean;
+  provider?: string;
+  contextBudget?: number;
 }
 
 export interface AppConfig {
-  version: string;
-  backend: string;
-  activeModel: string;
-  studioModel?: string;
-  mode: string;
-  workspace: string;
-  romPath: string;
-  toolsEnabled: boolean;
-  servers: string[];
-  toolCount: number;
-  warnings: string[];
+  version: ReadyParams["version"];
+  backend: ReadyParams["backend"];
+  activeModel: ReadyParams["active_model"];
+  studioModel?: ReadyParams["studio_model"];
+  mode: ReadyParams["mode"];
+  workspace: ReadyParams["workspace"];
+  romPath: ReadyParams["rom_path"];
+  toolsEnabled: ReadyParams["tools_enabled"];
+  toolsWrite?: ReadyParams["tools_write"];
+  servers: ReadyParams["servers"];
+  toolCount: ReadyParams["tool_count"];
+  warnings: ReadyParams["warnings"];
   models: ModelInfo[];
-  sessionPath: string;
-  focusFile?: string;
-  broadcastModels?: string[];
+  sessionPath: ReadyParams["session_path"];
+  focusFile?: ReadyParams["focus_file"];
+  broadcastModels?: ReadyParams["broadcast_models"];
+  orchestratorModel?: ReadyParams["orchestrator_model"];
+  sessionMessages?: ReadyParams["session_messages"];
+  sessionToolCalls?: ReadyParams["session_tool_calls"];
+  lastActiveAt?: ReadyParams["last_active_at"];
+  lastActiveModel?: ReadyParams["last_active_model"];
+  permissionRules?: ReadyParams["permission_rules"];
+  verifyHooks?: ReadyParams["verify_hooks"];
+  shellActive?: ReadyParams["shell_active"];
+  shellCwd?: ReadyParams["shell_cwd"];
+  cancelCount?: ReadyParams["cancel_count"];
+  backendRestartCount?: ReadyParams["backend_restart_count"];
+  toolLatencyMs?: ReadyParams["tool_latency_ms"];
+  toolLatencySamples?: ReadyParams["tool_latency_samples"];
+  reviewWaitMs?: ReadyParams["review_wait_ms"];
+  permissionWaitMs?: ReadyParams["permission_wait_ms"];
+  permissionTimeoutCount?: ReadyParams["permission_timeout_count"];
+  reviewTimeoutCount?: ReadyParams["review_timeout_count"];
+  modelRetryCount?: ReadyParams["model_retry_count"];
+  modelRetryBackoffMs?: ReadyParams["model_retry_backoff_ms"];
+  modelErrorCount?: ReadyParams["model_error_count"];
+  toolTimeoutCount?: ReadyParams["tool_timeout_count"];
+  modelBackpressureCount?: ReadyParams["model_backpressure_count"];
+  toolBackpressureCount?: ReadyParams["tool_backpressure_count"];
+  modelQueueHighwater?: ReadyParams["model_queue_highwater"];
+  toolQueueHighwater?: ReadyParams["tool_queue_highwater"];
+  modelInflightHighwater?: ReadyParams["model_inflight_highwater"];
+  toolInflightHighwater?: ReadyParams["tool_inflight_highwater"];
+  inflightModelCalls?: ReadyParams["inflight_model_calls"];
+  queuedModelCalls?: ReadyParams["queued_model_calls"];
+  inflightToolCalls?: ReadyParams["inflight_tool_calls"];
+  queuedToolCalls?: ReadyParams["queued_tool_calls"];
+  modelRetryMax?: ReadyParams["model_retry_max"];
+  modelRetryBaseMs?: ReadyParams["model_retry_base_ms"];
+  toolExecTimeoutS?: ReadyParams["tool_exec_timeout_s"];
+  maxInflightModelCalls?: ReadyParams["max_inflight_model_calls"];
+  maxInflightTools?: ReadyParams["max_inflight_tools"];
+  execQueueDepth?: ReadyParams["exec_queue_depth"];
+  requestCount?: ReadyParams["request_count"];
+  requestSuccessCount?: ReadyParams["request_success_count"];
+  requestErrorCount?: ReadyParams["request_error_count"];
+  requestRejectCount?: ReadyParams["request_reject_count"];
+  requestCancelCount?: ReadyParams["request_cancel_count"];
+  spanCount?: ReadyParams["span_count"];
+  lastRequestId?: ReadyParams["last_request_id"];
+  lastSpanId?: ReadyParams["last_span_id"];
+  lastToolCallId?: ReadyParams["last_tool_call_id"];
+  requestSamples?: ReadyParams["request_samples"];
+  queuedMsP50?: ReadyParams["queued_ms_p50"];
+  queuedMsP95?: ReadyParams["queued_ms_p95"];
+  modelMsP50?: ReadyParams["model_ms_p50"];
+  modelMsP95?: ReadyParams["model_ms_p95"];
+  toolMsP50?: ReadyParams["tool_ms_p50"];
+  toolMsP95?: ReadyParams["tool_ms_p95"];
+  totalMsP50?: ReadyParams["total_ms_p50"];
+  totalMsP95?: ReadyParams["total_ms_p95"];
+  lastRequestStatus?: ReadyParams["last_request_status"];
+  lastRequestQueuedMs?: ReadyParams["last_request_queued_ms"];
+  lastRequestModelMs?: ReadyParams["last_request_model_ms"];
+  lastRequestToolMs?: ReadyParams["last_request_tool_ms"];
+  lastRequestTotalMs?: ReadyParams["last_request_total_ms"];
 }

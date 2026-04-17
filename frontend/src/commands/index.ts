@@ -10,14 +10,13 @@
  * namespace functions in the C++ side of this project.
  */
 
-import { exec } from "node:child_process";
-import { promisify } from "node:util";
 import { symbols } from "../theme/index.js";
+import { shortenPath } from "../utils/path.js";
+import { modelPickerDescription } from "../utils/models.js";
 import { DEFAULT_SETTINGS } from "../hooks/useSettings.js";
-import type { AppConfig } from "../ipc/protocol.js";
+import type { AppConfig, Message } from "../ipc/protocol.js";
 import type { UISettings } from "../hooks/useSettings.js";
-
-const execAsync = promisify(exec);
+import type { SubagentEntry } from "../utils/subagentState.js";
 
 // ---------------------------------------------------------------------------
 // Context
@@ -26,22 +25,30 @@ const execAsync = promisify(exec);
 export interface SessionInfo {
   name: string;
   started: string;
+  updated: string;
+  backend: string;
   activeModel: string;
   models: string[];
   messages: number;
   mode: string;
+  workspace: string;
+  preview: string;
+  toolCalls: number;
 }
 
 export interface CommandContext {
   config: AppConfig | null;
   settings: UISettings;
   addSystemMessage: (content: string) => void;
+  replaceMessages: (messages: Message[]) => void;
+  replaceSubagents: (entries: SubagentEntry[]) => void;
   updateConfig: (patch: Partial<AppConfig>) => void;
   sendCommand: (cmd: string, args?: string[]) => Promise<unknown>;
   sendMessage: (text: string) => Promise<void>;
-  setSetting: (key: keyof UISettings, value: boolean) => void;
+  setSetting: (key: keyof UISettings, value: any) => void;
   resetSettings: () => void;
   openSettings: () => void;
+  openHelp: () => void;
   openSessionPicker: (sessions: SessionInfo[]) => void;
   exit: () => void;
 }
@@ -68,17 +75,134 @@ function fmtTok(n: number): string {
   return n > 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
 }
 
+function normalizeMessages(raw: unknown): Message[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((entry, index) => {
+    if (!entry || typeof entry !== "object") return [];
+    const msg = entry as Record<string, unknown>;
+    const role = msg.role;
+    if (role !== "user" && role !== "assistant" && role !== "system" && role !== "tool") {
+      return [];
+    }
+    return [{
+      id: typeof msg.id === "string" ? msg.id : `restored-${index}`,
+      role,
+      content: typeof msg.content === "string" ? msg.content : "",
+      model: typeof msg.model === "string" ? msg.model : undefined,
+      toolName: typeof msg.toolName === "string" ? msg.toolName : undefined,
+      toolServer: typeof msg.toolServer === "string" ? msg.toolServer : undefined,
+      toolArguments: typeof msg.toolArguments === "string" ? msg.toolArguments : undefined,
+      timestamp: typeof msg.timestamp === "number" ? msg.timestamp : Date.now(),
+      turnId: typeof msg.turnId === "string" ? msg.turnId : undefined,
+      toolGroup: typeof msg.toolGroup === "string" ? msg.toolGroup : undefined,
+      requestId: typeof msg.requestId === "string" ? msg.requestId : undefined,
+      spanId: typeof msg.spanId === "string" ? msg.spanId : undefined,
+      attachments: Array.isArray(msg.attachments)
+        ? msg.attachments.flatMap((item) => {
+            if (!item || typeof item !== "object") return [];
+            const entry = item as Record<string, unknown>;
+            if (
+              typeof entry.path !== "string"
+              || typeof entry.lines !== "number"
+              || typeof entry.chars !== "number"
+            ) {
+              return [];
+            }
+            return [{ path: entry.path, lines: entry.lines, chars: entry.chars }];
+          })
+        : undefined,
+    }];
+  });
+}
+
+export function normalizeSubagents(raw: unknown): SubagentEntry[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return [];
+    const item = entry as Record<string, unknown>;
+    if (
+      typeof item.id !== "string"
+      || typeof item.name !== "string"
+      || typeof item.model !== "string"
+      || typeof item.provider !== "string"
+      || typeof item.depth !== "number"
+      || (item.status !== "running" && item.status !== "done" && item.status !== "error" && item.status !== "cancelled")
+      || typeof item.text !== "string"
+      || typeof item.thinking !== "string"
+      || typeof item.toolCallCount !== "number"
+      || typeof item.startedAt !== "number"
+    ) {
+      return [];
+    }
+    return [{
+      id: item.id,
+      name: item.name,
+      model: item.model,
+      provider: item.provider,
+      depth: item.depth,
+      parentId: typeof item.parentId === "string" ? item.parentId : undefined,
+      status: item.status,
+      text: item.text,
+      thinking: item.thinking,
+      toolCallCount: item.toolCallCount,
+      activeTool:
+        item.activeTool && typeof item.activeTool === "object"
+          && typeof (item.activeTool as Record<string, unknown>).name === "string"
+          && typeof (item.activeTool as Record<string, unknown>).server === "string"
+          ? {
+              name: (item.activeTool as Record<string, unknown>).name as string,
+              server: (item.activeTool as Record<string, unknown>).server as string,
+            }
+          : undefined,
+      startedAt: item.startedAt,
+      finishedAt: typeof item.finishedAt === "number" ? item.finishedAt : undefined,
+      error: typeof item.error === "string" ? item.error : undefined,
+      promptTokens: typeof item.promptTokens === "number" ? item.promptTokens : undefined,
+      completionTokens: typeof item.completionTokens === "number" ? item.completionTokens : undefined,
+    }];
+  });
+}
+
+export function normalizeSessions(raw: Array<Record<string, unknown>>): SessionInfo[] {
+  return raw.map((s) => ({
+    name: String(s.name ?? ""),
+    started: String(s.started ?? ""),
+    updated: String(s.updated ?? s.started ?? ""),
+    backend: String(s.backend ?? "studio"),
+    activeModel: String(s.active_model ?? "?"),
+    models: Array.isArray(s.models) ? (s.models as string[]) : [],
+    messages: typeof s.messages === "number" ? s.messages : 0,
+    mode: String(s.mode ?? "manual"),
+    workspace: String(s.workspace ?? ""),
+    preview: String(s.preview ?? ""),
+    toolCalls: typeof s.tool_calls === "number" ? s.tool_calls : 0,
+  }));
+}
+
 export async function executeShell(cmd: string, ctx: CommandContext): Promise<void> {
   if (!cmd) return;
-  const cwd = ctx.config?.workspace ?? process.cwd();
   try {
-    const { stdout, stderr } = await execAsync(cmd, { cwd, timeout: 30_000 });
-    const out = [stdout.trimEnd(), stderr.trimEnd()].filter(Boolean).join("\n");
-    ctx.addSystemMessage(out || "(no output)");
+    const result = await ctx.sendCommand("/shell", [cmd]) as {
+      output?: string;
+      exit_code?: number;
+      cwd?: string;
+      duration_ms?: number;
+    } | null;
+    ctx.updateConfig({
+      shellActive: true,
+      shellCwd: result?.cwd ?? ctx.config?.workspace,
+    });
+    const output = result?.output?.trimEnd() || "(no output)";
+    const cwd = result?.cwd ? `cwd: ${shortenPath(result.cwd)}` : "";
+    const exitCode = typeof result?.exit_code === "number" ? `exit: ${result.exit_code}` : "";
+    const duration = typeof result?.duration_ms === "number" ? `${result.duration_ms}ms` : "";
+    const footer = [cwd, exitCode, duration].filter(Boolean).join("  ");
+    ctx.addSystemMessage(
+      ["```", output, "```", footer].filter(Boolean).join("\n"),
+    );
   } catch (e) {
-    const err = e as { message: string; stdout?: string; stderr?: string };
-    const out = [err.stdout?.trimEnd(), err.stderr?.trimEnd()].filter(Boolean).join("\n");
-    ctx.addSystemMessage(`Error: ${err.message}${out ? `\n${out}` : ""}`);
+    const err = e as Error;
+    ctx.addSystemMessage(`Error: ${err.message}`);
   }
 }
 
@@ -95,11 +219,16 @@ export const HELP_TEXT = `**Commands**
 | /backends | List available backends |
 | /backend-status | Show backend connection status |
 | /model <name> | Switch active model |
+| /orchestrator [name\\|auto] | Show or set orchestrator planner |
+| /specialist <name> | Switch to a specialist in manual mode |
 | /mode <name> | Set routing mode |
 | /models | List Zelda models |
 | /status | Connection and state info |
 | /servers | Tool server info |
 | /tools <on\\|off> | Toggle tool use |
+| /tools-write <on\\|off> | Toggle tool write access |
+| /verify-hooks <on\\|off> | Toggle automatic post-write verification |
+| /permissions [clear] | Show or clear sticky tool rules |
 | /route <prompt> | Preview routing |
 | /broadcast <a,b,c> | Set broadcast models |
 | /load [name] | Load model in LM Studio |
@@ -113,8 +242,13 @@ export const HELP_TEXT = `**Commands**
 | /sessions | List saved sessions |
 | /resume <name> | Resume a saved session |
 | /compact [model] | Compress history (lossy) |
+| /shell [command] | Use the persistent shell session |
+| /shell-reset | Reset the persistent shell session |
+| /shell-log [n] | Show recent shell commands |
 | /settings | Open UI settings panel |
-| /exit | Quit z3cli |`;
+| /exit | Quit z3cli |
+
+\`@path\` in a prompt attaches a workspace file to the turn. \`!cmd\` runs inside the persistent shell session. \`Ctrl+P\` opens the command palette.`;
 
 // ---------------------------------------------------------------------------
 // Command table
@@ -123,7 +257,7 @@ export const HELP_TEXT = `**Commands**
 const COMMANDS: Record<string, Handler> = {
   "/exit": async (_, ctx) => ctx.exit(),
 
-  "/help": async (_, ctx) => ctx.addSystemMessage(HELP_TEXT),
+  "/help": async (_, ctx) => ctx.openHelp(),
 
   "/models": async (_, ctx) => {
     if (!ctx.config) return;
@@ -131,15 +265,16 @@ const COMMANDS: Record<string, Handler> = {
       const active = m.name === ctx.config!.activeModel ? " *" : "  ";
       const loaded = m.loaded ? "loaded" : "      ";
       const tools = m.toolsEnabled ? "tools" : "     ";
-      return `${active} ${m.name.padEnd(16)} ${loaded}  ${tools}  ${m.role}`;
+      const summary = modelPickerDescription(m);
+      return `${active} ${m.name.padEnd(18)} ${loaded}  ${tools}  ${summary}`;
     });
     ctx.addSystemMessage("```\n" + lines.join("\n") + "\n```");
   },
 
   "/modes": async (_, ctx) =>
     ctx.addSystemMessage(
-      "**Routing modes:** manual (active model only), oracle (keyword route), " +
-      "switchhook (plan vs act), broadcast (fan out to multiple models)",
+      "**Routing modes:** manual (active model only), oracle (portfolio router), " +
+      "orchestrator (planner delegates to specialists), broadcast (fan out to multiple models)",
     ),
 
   "/settings": async (args, ctx) => {
@@ -183,6 +318,28 @@ const COMMANDS: Record<string, Handler> = {
       if (r?.active_model) {
         ctx.updateConfig({ activeModel: r.active_model });
         ctx.addSystemMessage(`Model set to **${r.active_model}**`);
+      }
+    }),
+
+  "/orchestrator": (args, ctx) =>
+    runCmd("/orchestrator", args, ctx, (result) => {
+      const r = result as {
+        orchestrator?: string;
+        resolved?: string;
+        auto_selected?: boolean;
+        warning?: string;
+      } | null;
+      if (r) {
+        ctx.updateConfig({
+          orchestratorModel: typeof r.orchestrator === "string" ? r.orchestrator : ctx.config?.orchestratorModel,
+        });
+        const planner = r.orchestrator || "(auto)";
+        const resolved = r.resolved ? `resolved: **${r.resolved}**` : "resolved: **none**";
+        const auto = r.auto_selected ? "auto-selected" : "explicit";
+        ctx.addSystemMessage(`Orchestrator planner: **${planner}** (${auto}, ${resolved})`);
+        if (r.warning) {
+          ctx.addSystemMessage(`Warning: ${r.warning}`);
+        }
       }
     }),
 
@@ -243,6 +400,22 @@ const COMMANDS: Record<string, Handler> = {
     });
   },
 
+  "/tools-write": (args, ctx) => {
+    const enabled = args[0]?.toLowerCase() === "on";
+    return runCmd("/tools-write", args, ctx, () => {
+      ctx.updateConfig({ toolsWrite: enabled });
+      ctx.addSystemMessage(`Tool write access ${enabled ? "enabled" : "disabled"}.`);
+    });
+  },
+
+  "/verify-hooks": (args, ctx) => {
+    const enabled = args[0]?.toLowerCase() === "on";
+    return runCmd("/verify-hooks", args, ctx, () => {
+      ctx.updateConfig({ verifyHooks: enabled });
+      ctx.addSystemMessage(`Automatic verification ${enabled ? "enabled" : "disabled"}.`);
+    });
+  },
+
   "/servers": async (_, ctx) => {
     if (!ctx.config) return;
     if (ctx.config.servers.length > 0) {
@@ -291,9 +464,9 @@ const COMMANDS: Record<string, Handler> = {
     }
     ctx.addSystemMessage(`Loading **${args[0]}** into focus context...`);
     return runCmd("/focus", args, ctx, (result) => {
-      const r = result as { loaded?: string; lines?: number; chars?: number } | null;
+      const r = result as { loaded?: string; path?: string; lines?: number; chars?: number } | null;
       if (r?.loaded) {
-        ctx.updateConfig({ focusFile: r.loaded });
+        ctx.updateConfig({ focusFile: r.path ?? r.loaded });
         ctx.addSystemMessage(
           `Loaded **${r.loaded}** (${r.lines} lines, ${r.chars} chars) into system prompt.\n` +
           `This context is now KV-cached — all subsequent turns benefit from it.`,
@@ -301,6 +474,30 @@ const COMMANDS: Record<string, Handler> = {
       }
     });
   },
+
+  "/permissions": (args, ctx) =>
+    runCmd("/permissions", args, ctx, (result) => {
+      const r = result as { cleared?: boolean; allow?: string[]; deny?: string[] } | null;
+      if (r?.cleared) {
+        ctx.updateConfig({ permissionRules: {} });
+        ctx.addSystemMessage("Sticky permission rules cleared.");
+        return;
+      }
+      const allow = r?.allow ?? [];
+      const deny = r?.deny ?? [];
+      if (allow.length === 0 && deny.length === 0) {
+        ctx.addSystemMessage("No sticky permission rules.");
+        return;
+      }
+      const lines = ["**Sticky permission rules**"];
+      if (allow.length > 0) {
+        lines.push("", `Allow: ${allow.join(", ")}`);
+      }
+      if (deny.length > 0) {
+        lines.push("", `Deny: ${deny.join(", ")}`);
+      }
+      ctx.addSystemMessage(lines.join("\n"));
+    }),
 
   "/stats": (args, ctx) =>
     runCmd("/stats", args, ctx, (result) => {
@@ -312,6 +509,55 @@ const COMMANDS: Record<string, Handler> = {
       const modelsUsed = (r.models_used as string[]) || [];
       const toolCalls = (r.tool_calls as number) || 0;
       const engines = (r.engines as number) || 0;
+      const cancelCount = (r.cancel_count as number) || 0;
+      const backendRestarts = (r.backend_restart_count as number) || 0;
+      const toolLatencyMs = (r.tool_latency_ms as number) || 0;
+      const toolLatencySamples = (r.tool_latency_samples as number) || 0;
+      const permissionWaitMs = (r.permission_wait_ms as number) || 0;
+      const reviewWaitMs = (r.review_wait_ms as number) || 0;
+      const permissionTimeouts = (r.permission_timeout_count as number) || 0;
+      const reviewTimeouts = (r.review_timeout_count as number) || 0;
+      const modelRetryCount = (r.model_retry_count as number) || 0;
+      const modelRetryBackoffMs = (r.model_retry_backoff_ms as number) || 0;
+      const modelErrorCount = (r.model_error_count as number) || 0;
+      const toolTimeoutCount = (r.tool_timeout_count as number) || 0;
+      const modelBackpressureCount = (r.model_backpressure_count as number) || 0;
+      const toolBackpressureCount = (r.tool_backpressure_count as number) || 0;
+      const inflightModelCalls = (r.inflight_model_calls as number) || 0;
+      const queuedModelCalls = (r.queued_model_calls as number) || 0;
+      const inflightToolCalls = (r.inflight_tool_calls as number) || 0;
+      const queuedToolCalls = (r.queued_tool_calls as number) || 0;
+      const modelQueueHighwater = (r.model_queue_highwater as number) || 0;
+      const toolQueueHighwater = (r.tool_queue_highwater as number) || 0;
+      const modelRetryMax = (r.model_retry_max as number) || 0;
+      const modelRetryBaseMs = (r.model_retry_base_ms as number) || 0;
+      const toolExecTimeoutS = (r.tool_exec_timeout_s as number) || 0;
+      const maxInflightModelCalls = (r.max_inflight_model_calls as number) || 0;
+      const maxInflightTools = (r.max_inflight_tools as number) || 0;
+      const execQueueDepth = (r.exec_queue_depth as number) || 0;
+      const requestCount = (r.request_count as number) || 0;
+      const requestSuccessCount = (r.request_success_count as number) || 0;
+      const requestErrorCount = (r.request_error_count as number) || 0;
+      const requestRejectCount = (r.request_reject_count as number) || 0;
+      const requestCancelCount = (r.request_cancel_count as number) || 0;
+      const spanCount = (r.span_count as number) || 0;
+      const lastRequestId = (r.last_request_id as string) || "";
+      const lastSpanId = (r.last_span_id as string) || "";
+      const lastToolCallId = (r.last_tool_call_id as string) || "";
+      const requestSamples = (r.request_samples as number) || 0;
+      const queuedMsP50 = (r.queued_ms_p50 as number) || 0;
+      const queuedMsP95 = (r.queued_ms_p95 as number) || 0;
+      const modelMsP50 = (r.model_ms_p50 as number) || 0;
+      const modelMsP95 = (r.model_ms_p95 as number) || 0;
+      const toolMsP50 = (r.tool_ms_p50 as number) || 0;
+      const toolMsP95 = (r.tool_ms_p95 as number) || 0;
+      const totalMsP50 = (r.total_ms_p50 as number) || 0;
+      const totalMsP95 = (r.total_ms_p95 as number) || 0;
+      const lastRequestStatus = (r.last_request_status as string) || "";
+      const lastRequestQueuedMs = (r.last_request_queued_ms as number) || 0;
+      const lastRequestModelMs = (r.last_request_model_ms as number) || 0;
+      const lastRequestToolMs = (r.last_request_tool_ms as number) || 0;
+      const lastRequestTotalMs = (r.last_request_total_ms as number) || 0;
 
       let out = "**Session Statistics**\n\n| Metric | Value |\n|--------|-------|\n";
       out += `| Messages | ${r.messages} |\n`;
@@ -319,6 +565,34 @@ const COMMANDS: Record<string, Handler> = {
       out += `| Prompt tokens | ${fmtTok(pt)} |\n`;
       out += `| Completion tokens | ${fmtTok(ct)} |\n`;
       out += `| **Total tokens** | **${fmtTok(total)}** |\n`;
+      out += `| Cancels | ${cancelCount} |\n`;
+      out += `| Backend restarts | ${backendRestarts} |\n`;
+      out += `| Avg tool latency | ${toolLatencyMs}ms (${toolLatencySamples} samples) |\n`;
+      out += `| Permission wait | ${permissionWaitMs}ms |\n`;
+      out += `| Review wait | ${reviewWaitMs}ms |\n`;
+      out += `| Permission timeouts | ${permissionTimeouts} |\n`;
+      out += `| Review timeouts | ${reviewTimeouts} |\n`;
+      out += `| Model retries | ${modelRetryCount} |\n`;
+      out += `| Retry backoff | ${modelRetryBackoffMs}ms |\n`;
+      out += `| Model errors | ${modelErrorCount} |\n`;
+      out += `| Tool timeouts | ${toolTimeoutCount} |\n`;
+      out += `| Model inflight/queue | ${inflightModelCalls}/${maxInflightModelCalls} · ${queuedModelCalls}/${execQueueDepth} |\n`;
+      out += `| Tool inflight/queue | ${inflightToolCalls}/${maxInflightTools} · ${queuedToolCalls}/${execQueueDepth} |\n`;
+      out += `| Queue highwater (m/t) | ${modelQueueHighwater}/${toolQueueHighwater} |\n`;
+      out += `| Backpressure (m/t) | ${modelBackpressureCount}/${toolBackpressureCount} |\n`;
+      out += `| Retry policy | max ${modelRetryMax}, base ${modelRetryBaseMs}ms |\n`;
+      out += `| Tool timeout policy | ${toolExecTimeoutS}s |\n`;
+      out += `| Requests | total ${requestCount} · ok ${requestSuccessCount} · err ${requestErrorCount} · rejected ${requestRejectCount} · cancelled ${requestCancelCount} |\n`;
+      out += `| Spans | ${spanCount} |\n`;
+      out += `| Request latency p50 (q/m/t) | ${queuedMsP50}/${modelMsP50}/${toolMsP50} ms |\n`;
+      out += `| Request latency p95 (q/m/t) | ${queuedMsP95}/${modelMsP95}/${toolMsP95} ms |\n`;
+      out += `| Request latency p50/p95 (total) | ${totalMsP50}/${totalMsP95} ms (n=${requestSamples}) |\n`;
+      if (lastRequestStatus) {
+        out += `| Last request outcome | ${lastRequestStatus} (${lastRequestQueuedMs}/${lastRequestModelMs}/${lastRequestToolMs}/${lastRequestTotalMs} ms q/m/t/total) |\n`;
+      }
+      if (lastRequestId) out += `| Last request id | ${lastRequestId} |\n`;
+      if (lastSpanId) out += `| Last span id | ${lastSpanId} |\n`;
+      if (lastToolCallId) out += `| Last tool call id | ${lastToolCallId} |\n`;
       if (engines > 0) out += `| Active engines | ${engines} |\n`;
       if (modelsUsed.length > 0) out += `| Models used | ${modelsUsed.join(", ")} |\n`;
       out += `| Session | \`${r.session || "none"}\` |`;
@@ -329,11 +603,47 @@ const COMMANDS: Record<string, Handler> = {
     runCmd("/save", args, ctx, (result) => {
       const r = result as { path?: string; messages?: number } | null;
       if (r?.path) {
-        const short = String(r.path).replace(/^\/Users\/[^/]+/, "~");
+        const short = shortenPath(String(r.path));
         ctx.addSystemMessage(`Session auto-saving to:\n\`${short}\`\nMessages: ${r.messages}`);
       } else {
         ctx.addSystemMessage("No active session.");
       }
+    }),
+
+  "/shell": (args, ctx) => {
+    if (args.length === 0) {
+      return runCmd("/shell", [], ctx, (result) => {
+        const r = result as { active?: boolean; cwd?: string; entries?: number } | null;
+        ctx.addSystemMessage(
+          `Shell ${r?.active ? "active" : "idle"}\n` +
+          `${r?.cwd ? `cwd: \`${shortenPath(r.cwd)}\`\n` : ""}` +
+          `${typeof r?.entries === "number" ? `history: ${r.entries}` : ""}`,
+        );
+      });
+    }
+    return executeShell(args.join(" "), ctx);
+  },
+
+  "/shell-reset": (args, ctx) =>
+    runCmd("/shell-reset", args, ctx, () => {
+      ctx.updateConfig({ shellActive: false, shellCwd: ctx.config?.workspace });
+      ctx.addSystemMessage("Persistent shell reset.");
+    }),
+
+  "/shell-log": (args, ctx) =>
+    runCmd("/shell-log", args, ctx, (result) => {
+      const entries = ((result as { entries?: Array<Record<string, unknown>> } | null)?.entries ?? []);
+      if (entries.length === 0) {
+        ctx.addSystemMessage("No shell history.");
+        return;
+      }
+      const lines = entries.map((entry) => {
+        const command = String(entry.command ?? "");
+        const exitCode = String(entry.exit_code ?? "");
+        const cwd = String(entry.cwd ?? "");
+        return `$ ${command}\nexit ${exitCode}${cwd ? ` · ${shortenPath(cwd)}` : ""}`;
+      });
+      ctx.addSystemMessage("```\n" + lines.join("\n\n") + "\n```");
     }),
 
   "/sessions": (args, ctx) =>
@@ -344,15 +654,7 @@ const COMMANDS: Record<string, Handler> = {
         ctx.addSystemMessage("No saved sessions.");
         return;
       }
-      const sessions: SessionInfo[] = raw.map((s) => ({
-        name: String(s.name ?? ""),
-        started: String(s.started ?? ""),
-        activeModel: String(s.active_model ?? "?"),
-        models: Array.isArray(s.models) ? (s.models as string[]) : [],
-        messages: typeof s.messages === "number" ? s.messages : 0,
-        mode: String(s.mode ?? "manual"),
-      }));
-      ctx.openSessionPicker(sessions);
+      ctx.openSessionPicker(normalizeSessions(raw));
     }),
 
   "/resume": async (args, ctx) => {
@@ -365,23 +667,25 @@ const COMMANDS: Record<string, Handler> = {
           ctx.addSystemMessage("No saved sessions.");
           return;
         }
-        const sessions: SessionInfo[] = raw.map((s) => ({
-          name: String(s.name ?? ""),
-          started: String(s.started ?? ""),
-          activeModel: String(s.active_model ?? "?"),
-          models: Array.isArray(s.models) ? (s.models as string[]) : [],
-          messages: typeof s.messages === "number" ? s.messages : 0,
-          mode: String(s.mode ?? "manual"),
-        }));
-        ctx.openSessionPicker(sessions);
+        ctx.openSessionPicker(normalizeSessions(raw));
       });
     }
     return runCmd("/resume", args, ctx, (result) => {
-      const r = result as { resumed?: string; models?: string[]; messages_restored?: number } | null;
+      const r = result as {
+        resumed?: string;
+        models?: string[];
+        messages_restored?: number;
+        messages?: unknown;
+        subagents?: unknown;
+        warnings?: string[];
+      } | null;
       if (r?.resumed) {
-        ctx.addSystemMessage(
-          `Resumed **${r.resumed}** — ${r.messages_restored} messages restored`,
-        );
+        ctx.replaceMessages(normalizeMessages(r.messages));
+        ctx.replaceSubagents(normalizeSubagents(r.subagents));
+        ctx.addSystemMessage(`Resumed **${r.resumed}** — ${r.messages_restored} messages restored`);
+        for (const warning of r.warnings ?? []) {
+          ctx.addSystemMessage(`Warning: ${warning}`);
+        }
       }
     });
   },

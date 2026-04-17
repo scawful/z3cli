@@ -9,8 +9,10 @@ import * as path from "node:path";
 import * as os from "node:os";
 
 export type UIMode = "chat" | "plan" | "review" | "build" | "admin";
+export type UITheme = "gold" | "green" | "red" | "blue";
 
 const UI_MODES: readonly UIMode[] = ["chat", "plan", "review", "build", "admin"];
+const UI_THEMES: readonly UITheme[] = ["gold", "green", "red", "blue"];
 
 export interface UISettings {
   modeColoredBorder: boolean;     // TitleBar border color reflects routing mode
@@ -21,6 +23,7 @@ export interface UISettings {
   showFocusFile: boolean;         // Show active focus file in status bar
   showBroadcastModels: boolean;   // Show broadcast model list in title bar
   uiMode: UIMode;                 // Interaction mode (Shift+Tab to cycle)
+  theme: UITheme;                 // UI color theme
 }
 
 export const DEFAULT_SETTINGS: UISettings = {
@@ -32,6 +35,7 @@ export const DEFAULT_SETTINGS: UISettings = {
   showFocusFile: true,
   showBroadcastModels: true,
   uiMode: "chat",
+  theme: "gold",
 };
 
 const SETTINGS_PATH = path.join(os.homedir(), ".config", "z3cli", "ui-settings.json");
@@ -65,7 +69,7 @@ export function useSettings() {
     });
   }, []);
 
-  const setSetting = useCallback((key: keyof UISettings, value: boolean) => {
+  const setSetting = useCallback((key: keyof UISettings, value: any) => {
     setSettings((prev) => {
       const next = { ...prev, [key]: value };
       saveSettings(next);
@@ -88,5 +92,14 @@ export function useSettings() {
     });
   }, []);
 
-  return { settings, toggleSetting, setSetting, resetSettings, cycleMode };
+  const cycleTheme = useCallback(() => {
+    setSettings((prev) => {
+      const idx = UI_THEMES.indexOf(prev.theme);
+      const next = { ...prev, theme: UI_THEMES[(idx + 1) % UI_THEMES.length]! };
+      saveSettings(next);
+      return next;
+    });
+  }, []);
+
+  return { settings, toggleSetting, setSetting, resetSettings, cycleMode, cycleTheme };
 }

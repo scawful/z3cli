@@ -56,7 +56,14 @@ export function modelOptInLabel(model: Pick<ModelInfo, "name" | "modelId" | "rol
 }
 
 export function modelPickerDescription(model: Pick<ModelInfo, "name" | "modelId" | "role">): string {
-  const parts = [model.role.trim(), modelOptInLabel(model)].filter(Boolean);
+  const role = model.role.trim().toLowerCase();
+  let shortRole = role;
+  if (role === "orchestrator") shortRole = "orch";
+  else if (role === "specialist") shortRole = "spec";
+  else if (role === "planner") shortRole = "plan";
+  else if (role === "executor") shortRole = "act";
+
+  const parts = [shortRole, modelOptInLabel(model)].filter(Boolean);
   return parts.join(" · ");
 }
 

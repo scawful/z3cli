@@ -4,17 +4,18 @@
 
 import React from "react";
 import { Box, Text } from "ink";
-import { colors, symbols, modelColor, modelSymbol } from "../theme/index.js";
+import { symbols, modelColor, modelSymbol } from "../theme/index.js";
 import type { AppConfig } from "../ipc/protocol.js";
+import { useSettingsContext } from "../contexts/SettingsContext.js";
+import { shortenPath } from "../utils/path.js";
 
 interface WelcomeBannerProps {
   config: AppConfig;
 }
 
 export function WelcomeBanner({ config }: WelcomeBannerProps): React.ReactElement {
-  const shortWorkspace = config.workspace
-    .replace(/^\/Users\/[^/]+/, "~")
-    .replace(/\/src\/hobby\//, "/");
+  const { colors } = useSettingsContext();
+  const shortWorkspace = shortenPath(config.workspace).replace(/\/src\/hobby\//, "/");
   const romName = config.romPath
     ? config.romPath.split("/").pop() ?? ""
     : "";
@@ -22,74 +23,71 @@ export function WelcomeBanner({ config }: WelcomeBannerProps): React.ReactElemen
 
   return (
     <Box
-      borderStyle="round"
+      width="100%"
+      borderStyle="double"
       borderColor={colors.triforce}
       paddingX={2}
-      paddingY={0}
+      paddingY={1}
       flexDirection="column"
     >
-      {/* Triforce + title */}
-      <Box flexDirection="column" alignItems="center">
-        <Text bold color={colors.triforce}>
-          {"    "}{symbols.triforce}
-        </Text>
-        <Text bold color={colors.triforce}>
-          {"   "}{symbols.triforce} {symbols.triforce}
-        </Text>
-        <Text> </Text>
-        <Box gap={1}>
-          <Text bold color={colors.triforce}>z3cli</Text>
-          <Text dimColor>v{config.version}</Text>
+      {/* Title & File Select Header */}
+      <Box justifyContent="center" marginBottom={1}>
+        <Text bold color={colors.triforce}>{symbols.triforce} SELECT A FILE {symbols.triforce}</Text>
+      </Box>
+
+      {/* Save Slot Appearance */}
+      <Box borderStyle="bold" borderColor={colors.triforce} paddingX={1} flexDirection="column">
+        <Box justifyContent="space-between">
+          <Box gap={1}>
+            <Text bold color={colors.triforce}>FILE 1</Text>
+            <Text color={colors.text}>z3cli-v{config.version}</Text>
+          </Box>
+          <Box gap={1}>
+            <Text color={colors.heartFull}>{symbols.heart.repeat(10)}</Text>
+            <Text color={colors.rupeeGreen}>{symbols.rupee} 000</Text>
+          </Box>
         </Box>
-        <Text dimColor>Oracle of Secrets Development Kit</Text>
-      </Box>
 
-      <Text> </Text>
+        <Box gap={1} marginTop={1}>
+          <Text dimColor>QUEST:</Text>
+          <Text color={colors.nayru}>{shortWorkspace}</Text>
+          {romName ? (
+            <>
+              <Text dimColor>{symbols.dot}</Text>
+              <Text color={colors.veran}>{romName}</Text>
+            </>
+          ) : null}
+        </Box>
 
-      {/* Config */}
-      <Box gap={1} paddingLeft={2}>
-        <Text>{shortWorkspace}</Text>
-        {romName ? (
-          <>
-            <Text dimColor>{symbols.dot}</Text>
-            <Text>{romName}</Text>
-          </>
-        ) : null}
-        <Text dimColor>{symbols.dot}</Text>
-        <Text dimColor>{config.backend}</Text>
-        <Text dimColor>{symbols.dot}</Text>
-        <Text dimColor>{config.mode}</Text>
-      </Box>
-      {config.servers.length > 0 ? (
-        <Box gap={1} paddingLeft={2}>
-          <Text dimColor>
+        <Box gap={1}>
+          <Text dimColor>GEAR:</Text>
+          <Text color={modelColor(config.activeModel, colors)} bold>
+            {modelSymbol(config.activeModel)} {config.activeModel}
+          </Text>
+          <Text dimColor>({config.mode})</Text>
+        </Box>
+
+        <Box gap={1}>
+          <Text dimColor>ITEMS:</Text>
+          <Text color={colors.oracleTools}>
             {config.servers.length} servers {symbols.dot} {config.toolCount} tools
           </Text>
         </Box>
-      ) : null}
-
-      {/* Active model */}
-      <Box gap={1} paddingLeft={2}>
-        <Text color={modelColor(config.activeModel)} bold>
-          {modelSymbol(config.activeModel)} {config.activeModel}
-        </Text>
-        <Text dimColor>active</Text>
-        {loadedCount > 1 ? (
-          <>
-            <Text dimColor>{symbols.dot}</Text>
-            <Text dimColor>{loadedCount} loaded</Text>
-          </>
-        ) : null}
       </Box>
 
       <Text> </Text>
 
       {/* Help hints */}
-      <Text dimColor>
-        {"  "}<Text color={colors.text}>/help</Text> commands {symbols.dot}{" "}
-        <Text color={colors.text}>Tab</Text> complete {symbols.dot}{" "}
-        <Text color={colors.text}>Esc</Text> cancel
-      </Text>
+      <Box justifyContent="center">
+        <Text dimColor>
+          <Text color={colors.text}>/help</Text> {symbols.dot}{" "}
+          <Text color={colors.text}>Ctrl+P</Text> {symbols.dot}{" "}
+          <Text color={colors.text}>@file</Text> {symbols.dot}{" "}
+          <Text color={colors.text}>!cmd</Text> {symbols.dot}{" "}
+          <Text color={colors.text}>Tab</Text> {symbols.dot}{" "}
+          <Text color={colors.text}>Esc</Text>
+        </Text>
+      </Box>
     </Box>
   );
 }

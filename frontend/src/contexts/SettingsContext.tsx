@@ -8,13 +8,18 @@
 
 import { createContext, useContext } from "react";
 import type { UISettings } from "../hooks/useSettings.js";
+import type { AppConfig } from "../ipc/protocol.js";
 
 export interface SettingsContextValue {
   settings: UISettings;
+  colors: any; // Dynamic themed colors
+  config?: AppConfig | null;
+  execCommand?: (cmd: string, args: string[]) => void;
   toggleSetting: (key: keyof UISettings) => void;
-  setSetting: (key: keyof UISettings, value: boolean) => void;
+  setSetting: (key: keyof UISettings, value: any) => void;
   resetSettings: () => void;
   cycleMode: () => void;
+  cycleTheme: () => void;
 }
 
 export const SettingsContext = createContext<SettingsContextValue | null>(null);
