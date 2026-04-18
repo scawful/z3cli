@@ -20,6 +20,8 @@ export interface SettingsContextValue {
   resetSettings: () => void;
   cycleMode: () => void;
   cycleTheme: () => void;
+  cycleThinkingMode: () => void;
+  cycleThinkingDetail: () => void;
 }
 
 export const SettingsContext = createContext<SettingsContextValue | null>(null);

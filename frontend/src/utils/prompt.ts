@@ -19,6 +19,15 @@ export interface ConstructCandidate extends ConstructRef {
   label: string;
   token: string;
   aliases: string;
+  source?: string;
+  detail?: string;
+}
+
+export interface ConstructSearchResult {
+  matches: ConstructCandidate[];
+  ambiguous: boolean;
+  exactCount: number;
+  totalCount: number;
 }
 
 export interface PaletteEntry {
@@ -80,6 +89,15 @@ function normalizeConstructKey(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
+function parseConstructInt(value: string): number | null {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  if (/^0x[0-9a-f]+$/.test(normalized)) return Number.parseInt(normalized, 16);
+  if (/^\$[0-9a-f]+$/.test(normalized)) return Number.parseInt(normalized.slice(1), 16);
+  if (/^\d+$/.test(normalized)) return Number.parseInt(normalized, 10);
+  return null;
+}
+
 function constructSlug(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
@@ -101,6 +119,18 @@ function parseMarkdownTableRow(line: string): string[] {
 
 function normalizeTableHeader(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
+function mergeDistinct(parts: Array<string | undefined>, separator: string): string {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  for (const rawPart of parts) {
+    const part = (rawPart ?? "").trim();
+    if (!part || seen.has(part)) continue;
+    seen.add(part);
+    merged.push(part);
+  }
+  return merged.join(separator);
 }
 
 export function constructToken(ref: Pick<ConstructRef, "kind" | "query"> & { id?: string; token?: string }): string {
@@ -237,6 +267,7 @@ export function buildConstructCandidates(payload: unknown): ConstructCandidate[]
         label,
         token,
         aliases: `${kind} ${entryId} ${label}`,
+        source: "resource labels",
       });
     }
   }
@@ -276,6 +307,7 @@ export function buildSpriteCatalogConstructCandidates(markdown: string): Constru
     if (!label) continue;
     if (kind !== "object") continue;
     const id = constructSlug(label);
+    const detail = [row.location, row.status].filter(Boolean).join(" | ");
     candidates.push({
       kind,
       query: id,
@@ -283,6 +315,8 @@ export function buildSpriteCatalogConstructCandidates(markdown: string): Constru
       label,
       token: `#${kind}:${id}`,
       aliases: [kind, section, label, row.location, row.status, row.notes].filter(Boolean).join(" "),
+      source: "sprite catalog",
+      detail,
     });
   }
 
@@ -302,11 +336,121 @@ export function mergeConstructCandidates(...groups: ConstructCandidate[][]): Con
       merged.set(key, {
         ...existing,
         ...candidate,
-        aliases: [existing.aliases, candidate.aliases].filter(Boolean).join(" "),
+        aliases: mergeDistinct([existing.aliases, candidate.aliases], " "),
+        source: mergeDistinct([existing.source, candidate.source], " + ") || undefined,
+        detail: mergeDistinct([existing.detail, candidate.detail], " | ") || undefined,
       });
     }
   }
   return [...merged.values()].sort((a, b) => a.token.localeCompare(b.token));
+}
+
+interface RankedConstructCandidate {
+  candidate: ConstructCandidate;
+  score: number;
+  tier: number;
+}
+
+function rankConstructCandidate(candidate: ConstructCandidate, query: string): RankedConstructCandidate | null {
+  const normalizedQuery = normalizeConstructKey(normalizeConstructQuery(query));
+  if (!normalizedQuery) {
+    return {
+      candidate,
+      score: 10_000 + candidate.token.length,
+      tier: 9,
+    };
+  }
+
+  const numericQuery = parseConstructInt(query);
+  const numericId = parseConstructInt(candidate.id);
+  if (numericQuery !== null && numericId !== null && numericQuery === numericId) {
+    return { candidate, score: 0, tier: 0 };
+  }
+
+  const idKey = normalizeConstructKey(candidate.id);
+  const labelKey = normalizeConstructKey(candidate.label);
+  const tokenKey = normalizeConstructKey(candidate.token);
+  const aliasKey = normalizeConstructKey(candidate.aliases);
+  const sourceKey = normalizeConstructKey(`${candidate.source ?? ""} ${candidate.detail ?? ""}`);
+  const exactKeys = [idKey, labelKey, tokenKey];
+  if (exactKeys.includes(normalizedQuery)) {
+    return { candidate, score: exactKeys.indexOf(normalizedQuery), tier: 0 };
+  }
+  if (aliasKey === normalizedQuery) {
+    return { candidate, score: 4, tier: 0 };
+  }
+
+  const orderedPrefixFields = [
+    { key: idKey, base: 10 },
+    { key: labelKey, base: 20 },
+    { key: tokenKey, base: 30 },
+    { key: aliasKey, base: 40 },
+  ];
+  for (const field of orderedPrefixFields) {
+    if (field.key.startsWith(normalizedQuery)) {
+      return { candidate, score: field.base + field.key.length, tier: 1 };
+    }
+  }
+
+  const orderedContainsFields = [
+    { key: idKey, base: 50 },
+    { key: labelKey, base: 70 },
+    { key: tokenKey, base: 90 },
+    { key: aliasKey, base: 110 },
+    { key: sourceKey, base: 130 },
+  ];
+  for (const field of orderedContainsFields) {
+    const index = field.key.indexOf(normalizedQuery);
+    if (index >= 0) {
+      return { candidate, score: field.base + index + field.key.length, tier: 2 };
+    }
+  }
+
+  const orderedSubsequenceFields = [
+    { key: idKey, base: 200 },
+    { key: labelKey, base: 240 },
+    { key: aliasKey, base: 280 },
+  ];
+  for (const field of orderedSubsequenceFields) {
+    const subsequence = subsequenceScore(field.key, normalizedQuery);
+    if (subsequence !== null) {
+      return { candidate, score: field.base + subsequence + field.key.length, tier: 3 };
+    }
+  }
+
+  return null;
+}
+
+function hasAmbiguousTopMatches(ranked: RankedConstructCandidate[]): boolean {
+  if (ranked.length <= 1) return false;
+  const [first, second] = ranked;
+  if (!first || !second) return false;
+  if (first.tier === 0) {
+    return second.tier === 0;
+  }
+  if (first.tier !== second.tier) return false;
+  return second.score <= first.score + 12;
+}
+
+export function searchConstructs(
+  candidates: ConstructCandidate[],
+  kind: string,
+  query: string,
+): ConstructSearchResult {
+  const normalizedKind = normalizeConstructKind(kind) ?? kind;
+  const normalizedQuery = normalizeConstructKey(normalizeConstructQuery(query));
+  const ranked = candidates
+    .filter((candidate) => candidate.kind === normalizedKind)
+    .map((candidate) => rankConstructCandidate(candidate, query))
+    .filter((entry): entry is RankedConstructCandidate => entry !== null)
+    .sort((a, b) => a.score - b.score || a.candidate.token.localeCompare(b.candidate.token));
+  const exactCount = ranked.filter((entry) => entry.tier === 0).length;
+  return {
+    matches: ranked.slice(0, 200).map((entry) => entry.candidate),
+    ambiguous: Boolean(normalizedQuery) && (exactCount > 1 || hasAmbiguousTopMatches(ranked)),
+    exactCount,
+    totalCount: ranked.length,
+  };
 }
 
 export function filterConstructs(
@@ -314,19 +458,7 @@ export function filterConstructs(
   kind: string,
   query: string,
 ): ConstructCandidate[] {
-  const normalizedKind = normalizeConstructKind(kind) ?? kind;
-  const normalizedQuery = normalizeConstructQuery(query).toLowerCase();
-  return candidates
-    .filter((candidate) => candidate.kind === normalizedKind)
-    .map((candidate) => {
-      const haystack = `${candidate.id} ${candidate.label} ${candidate.aliases}`.toLowerCase();
-      const score = scoreFileMatch(haystack, normalizedQuery);
-      return score === null ? null : { candidate, score };
-    })
-    .filter((entry): entry is { candidate: ConstructCandidate; score: number } => entry !== null)
-    .sort((a, b) => a.score - b.score || a.candidate.token.localeCompare(b.candidate.token))
-    .slice(0, 200)
-    .map((entry) => entry.candidate);
+  return searchConstructs(candidates, kind, query).matches;
 }
 
 export function filterPalette(entries: PaletteEntry[], query: string): PaletteEntry[] {

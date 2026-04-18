@@ -73,23 +73,29 @@ export function StreamingMessage({
   activeToolCall,
 }: StreamingMessageProps): React.ReactElement {
   const { colors, settings } = useSettingsContext();
-  const plainAnsi = content ? highlightHexAddresses(content) : "";
-  const visibleThinking = showStreamingThinking(settings.showThinking) ? thinkingContent : "";
+  const plainAnsi = settings.transcriptShowMessages && content ? highlightHexAddresses(content) : "";
+  const visibleThinking = settings.transcriptShowReasoning && showStreamingThinking(settings.showThinking)
+    ? thinkingContent
+    : "";
+  const visibleToolCall = settings.transcriptShowTools ? activeToolCall : null;
+  const hiddenByFilters = !plainAnsi && !visibleThinking && !visibleToolCall;
 
   return (
     <Box flexDirection="column" paddingX={1}>
       {visibleThinking ? <ThinkingTraceBlock content={visibleThinking} mode="tail" label="live reasoning" /> : null}
-      {content ? (
+      {plainAnsi ? (
         <Text wrap="wrap">{plainAnsi}</Text>
       ) : null}
-      {activeToolCall ? (
+      {visibleToolCall ? (
         <ToolCallSpinner
-          name={activeToolCall.name}
-          server={activeToolCall.server}
-          elapsed={activeToolCall.elapsed}
+          name={visibleToolCall.name}
+          server={visibleToolCall.server}
+          elapsed={visibleToolCall.elapsed}
           colors={colors}
         />
-      ) : content ? null : !visibleThinking ? (
+      ) : plainAnsi ? null : hiddenByFilters ? (
+        <Text dimColor>stream hidden by transcript filters</Text>
+      ) : !visibleThinking ? (
         <ThinkingIndicator colors={colors} />
       ) : null}
     </Box>

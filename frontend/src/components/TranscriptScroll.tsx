@@ -8,11 +8,14 @@ import { Box, Text } from "ink";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 import { MessageBubble } from "./MessageBubble.js";
 import { StreamingMessage } from "./StreamingMessage.js";
+import { TranscriptFilterBar } from "./TranscriptFilterBar.js";
 import { WelcomeBanner } from "./WelcomeBanner.js";
 import { SubagentPanel } from "./SubagentPanel.js";
 import { symbols } from "../theme/index.js";
 import type { AppConfig } from "../ipc/protocol.js";
-import type { MessageGroup } from "../utils/transcript.js";
+import { useSettingsContext } from "../contexts/SettingsContext.js";
+import { showTranscriptThinking } from "../utils/thinking.js";
+import { filterMessageGroups, type MessageGroup } from "../utils/transcript.js";
 import type { SubagentEntry } from "../utils/subagentState.js";
 
 export interface TranscriptScrollProps {
@@ -28,6 +31,8 @@ export interface TranscriptScrollProps {
   activeToolCall: { name: string; server: string; elapsed: number } | null;
   subagents: SubagentEntry[];
   error: string | null;
+  /** Hide the welcome banner even on empty transcript (e.g. session resume queued). */
+  suppressWelcome?: boolean;
 }
 
 export function TranscriptScroll({
@@ -43,8 +48,16 @@ export function TranscriptScroll({
   activeToolCall,
   subagents,
   error,
+  suppressWelcome = false,
 }: TranscriptScrollProps): React.ReactElement {
+  const { settings } = useSettingsContext();
   const atBottomRef = useRef(true);
+  const visibleGroups = React.useMemo(() => filterMessageGroups(groupedMessages, {
+    showMessages: settings.transcriptShowMessages,
+    showReasoning: settings.transcriptShowReasoning && showTranscriptThinking(settings.showThinking),
+    showTools: settings.transcriptShowTools,
+  }), [groupedMessages, settings.showThinking, settings.transcriptShowMessages, settings.transcriptShowReasoning, settings.transcriptShowTools]);
+  const visibleSubagents = settings.transcriptShowSubagents ? subagents : [];
 
   const onScroll = useCallback(
     (offset: number) => {
@@ -79,24 +92,28 @@ export function TranscriptScroll({
     return () => clearTimeout(t);
   }, [
     scrollRef,
-    groupedMessages,
+    visibleGroups,
     messagesLength,
     streamingContent,
     streamingThinking,
     isStreaming,
     error,
-    subagents,
+    visibleSubagents,
+    settings.collapseReasoning,
+    settings.showThinking,
+    settings.thinkingDetail,
   ]);
 
-  const showWelcome = messagesLength === 0 && !isStreaming;
+  const showWelcome = messagesLength === 0 && !isStreaming && !suppressWelcome;
 
   return (
     <Box height={viewportHeight} width="100%" flexDirection="column">
+      <TranscriptFilterBar />
       <ScrollView ref={scrollRef} width="100%" flexGrow={1} onScroll={onScroll}>
-        {groupedMessages.map((group) => {
-          const hasFrame = group.messages.length > 1
+        {visibleGroups.map((group) => {
+          const showTurnHeader = group.messages.length > 1
             || group.messages.some((message) => message.role === "tool");
-          if (!hasFrame) {
+          if (!showTurnHeader) {
             const message = group.messages[0]!;
             return (
               <Box key={group.id} flexDirection="column" width="100%">
@@ -113,10 +130,6 @@ export function TranscriptScroll({
           return (
             <Box
               key={group.id}
-              marginTop={1}
-              borderStyle="round"
-              borderColor={themeColors.triforce}
-              paddingX={1}
               flexDirection="column"
               width="100%"
             >
@@ -139,9 +152,9 @@ export function TranscriptScroll({
           </Box>
         ) : null}
 
-        {subagents.length > 0 ? (
+        {visibleSubagents.length > 0 ? (
           <Box key="subagents" flexDirection="column" width="100%">
-            <SubagentPanel entries={subagents} />
+            <SubagentPanel entries={visibleSubagents} />
           </Box>
         ) : null}
 

@@ -41,6 +41,7 @@ const SETTINGS_BY_TAB: Record<TabType, SettingItem[]> = {
     { key: "theme", label: "UI Theme", description: "Cycle visual color palette" },
     { key: "showThinking", label: "Reasoning Visibility", description: "Choose where model reasoning appears" },
     { key: "thinkingDetail", label: "Reasoning Detail", description: "Toggle truncated previews versus full reasoning" },
+    { key: "collapseReasoning", label: "Reasoning Summaries", description: "Collapse reasoning blocks into one-line transcript summaries" },
   ],
   Items: [
     { key: "backend_tools", label: "Master Sword (Tools)", description: "Toggle all tool bridge access" },
@@ -53,6 +54,10 @@ const SETTINGS_BY_TAB: Record<TabType, SettingItem[]> = {
   ],
   Map: [
     { key: "showFocusFile", label: "Focus File Indicator", description: "Show active focus file in status bar" },
+    { key: "transcriptShowMessages", label: "Transcript Messages", description: "Show user, system, and assistant reply text" },
+    { key: "transcriptShowReasoning", label: "Transcript Reasoning", description: "Show reasoning traces inside transcript history" },
+    { key: "transcriptShowTools", label: "Transcript Tools", description: "Show tool calls and tool results in transcript history" },
+    { key: "transcriptShowSubagents", label: "Transcript Subagents", description: "Show the side-quest subagent panel in the transcript" },
   ],
 };
 

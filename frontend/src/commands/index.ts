@@ -64,6 +64,11 @@ const BOOLEAN_SETTING_KEYS: ReadonlySet<keyof UISettings> = new Set([
   "coloredToolArgs",
   "showFocusFile",
   "showBroadcastModels",
+  "collapseReasoning",
+  "transcriptShowMessages",
+  "transcriptShowReasoning",
+  "transcriptShowTools",
+  "transcriptShowSubagents",
 ]);
 
 // ---------------------------------------------------------------------------

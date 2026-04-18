@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   buildThinkingDisplay,
   buildThinkingPreview,
+  buildThinkingSummary,
   prefixThinkingLines,
   showStreamingThinking,
   showSubagentThinking,
@@ -52,6 +53,14 @@ test("buildThinkingDisplay expands reasoning fully when detail is full", () => {
   assert.equal(display.text, "one\ntwo\nthree");
   assert.equal(display.truncated, false);
   assert.equal(display.lineCount, 3);
+});
+
+test("buildThinkingSummary collapses reasoning into a compact single-line summary", () => {
+  const summary = buildThinkingSummary("one\ntwo\nthree", { mode: "head" });
+
+  assert.equal(summary.text, "one / two");
+  assert.equal(summary.truncated, true);
+  assert.equal(summary.overflowLabel, "1 more lines");
 });
 
 test("prefixThinkingLines visually separates reasoning lines", () => {

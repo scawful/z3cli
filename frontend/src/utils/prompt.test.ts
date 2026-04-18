@@ -11,6 +11,7 @@ import {
   filterConstructs,
   filterFiles,
   filterPalette,
+  searchConstructs,
   scoreFileMatch,
   sessionSlug,
 } from "./prompt.js";
@@ -94,6 +95,23 @@ test("filterConstructs ranks project label matches within the requested namespac
   const filtered = filterConstructs(candidates, "room", "glacia");
   assert.equal(filtered[0]?.token, "#room:0x45");
   assert.equal(filterConstructs(candidates, "sprite", "village")[0]?.token, "#sprite:0x07");
+  assert.equal(filterConstructs(candidates, "room", "0x45")[0]?.token, "#room:0x45");
+  assert.equal(filtered[0]?.source, "resource labels");
+});
+
+test("searchConstructs flags ambiguous top matches", () => {
+  const candidates = buildConstructCandidates({
+    room: {
+      "0x45": "Glacia Estate (Jail Cells)",
+      "0x46": "Glade Ruins",
+      "0x47": "Zora Temple",
+    },
+  });
+
+  const result = searchConstructs(candidates, "room", "gla");
+  assert.equal(result.ambiguous, true);
+  assert.equal(result.totalCount, 2);
+  assert.deepEqual(result.matches.map((candidate) => candidate.token), ["#room:0x46", "#room:0x45"]);
 });
 
 test("buildSpriteCatalogConstructCandidates exposes object refs from sprite catalog markdown", () => {
@@ -111,5 +129,7 @@ test("buildSpriteCatalogConstructCandidates exposes object refs from sprite cata
     label: "Minecart",
     token: "#object:minecart",
     aliases: "object Objects Minecart D6 (Goron Mines) ✅ Done Complex track persistence",
+    source: "sprite catalog",
+    detail: "D6 (Goron Mines) | ✅ Done",
   }]);
 });

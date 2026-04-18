@@ -112,3 +112,23 @@ export function buildThinkingDisplay(
     lineCount: trimmed.split("\n").length,
   };
 }
+
+export function buildThinkingSummary(
+  content: string,
+  options: ThinkingPreviewOptions = {},
+): ThinkingPreview {
+  const preview = buildThinkingPreview(content, {
+    lineLimit: 2,
+    charLimit: 160,
+    ...options,
+  });
+  if (!preview.text) return preview;
+  return {
+    ...preview,
+    text: preview.text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .join(" / "),
+  };
+}

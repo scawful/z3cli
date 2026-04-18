@@ -115,6 +115,12 @@ function ConstructRefList({
 export function MessageBubble({ message }: MessageBubbleProps): React.ReactElement {
   const { settings, colors } = useSettingsContext();
   const { role, content, toolName, toolServer, toolArguments, model, attachments, constructRefs, thinking } = message;
+  const showMessageBody = settings.transcriptShowMessages;
+  const showReasoning = settings.transcriptShowReasoning && showTranscriptThinking(settings.showThinking);
+
+  if (!settings.transcriptShowTools && role === "tool") {
+    return <></>;
+  }
 
   if (role === "tool" && toolArguments !== undefined && !content) {
     const server = toolServer ?? "";
@@ -183,6 +189,9 @@ export function MessageBubble({ message }: MessageBubbleProps): React.ReactEleme
   }
 
   if (role === "user") {
+    if (!showMessageBody) {
+      return <></>;
+    }
     return (
       <Box
         marginTop={1}
@@ -215,6 +224,9 @@ export function MessageBubble({ message }: MessageBubbleProps): React.ReactEleme
   }
 
   if (role === "system") {
+    if (!showMessageBody) {
+      return <></>;
+    }
     return (
       <Box
         marginTop={1}
@@ -237,8 +249,9 @@ export function MessageBubble({ message }: MessageBubbleProps): React.ReactEleme
   }
 
   // Assistant
-  const visibleThinking = showTranscriptThinking(settings.showThinking) ? thinking : undefined;
-  if (!content.trim() && !visibleThinking) {
+  const visibleThinking = showReasoning ? thinking : undefined;
+  const visibleContent = showMessageBody ? content : "";
+  if (!visibleContent.trim() && !visibleThinking) {
     return <></>;
   }
   const mc = model ? modelColor(model, colors) : colors.assistant;
@@ -266,7 +279,7 @@ export function MessageBubble({ message }: MessageBubbleProps): React.ReactEleme
       </Box>
       <Box flexDirection="column" paddingLeft={1}>
         {visibleThinking ? <ThinkingTraceBlock content={visibleThinking} mode="head" label="reasoning trace" /> : null}
-        {content.trim() ? <Markdown>{content}</Markdown> : null}
+        {visibleContent.trim() ? <Markdown>{visibleContent}</Markdown> : null}
       </Box>
     </Box>
   );

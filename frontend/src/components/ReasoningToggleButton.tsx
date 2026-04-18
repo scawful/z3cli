@@ -1,6 +1,6 @@
 /**
  * Bracketed key-hint pill that expands/collapses reasoning blocks.
- * Visual only; Ctrl+R globally toggles `settings.thinkingDetail` from App.tsx.
+ * Visual only; Ctrl+R globally toggles `settings.collapseReasoning` from App.tsx.
  */
 
 import React from "react";
@@ -9,7 +9,7 @@ import { useSettingsContext } from "../contexts/SettingsContext.js";
 
 export function ReasoningToggleButton(): React.ReactElement {
   const { colors, settings } = useSettingsContext();
-  const label = settings.thinkingDetail === "full" ? "collapse" : "expand";
+  const label = settings.collapseReasoning ? "expand" : "collapse";
   return (
     <Text>
       <Text dimColor>[</Text>

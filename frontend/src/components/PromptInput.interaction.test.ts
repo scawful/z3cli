@@ -266,6 +266,63 @@ test("PromptInput inserts #refs from the interactive picker", async () => {
   }
 });
 
+test("PromptInput shows construct disambiguation metadata before attach", async () => {
+  const restoreTTY = setTTY(true);
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "z3cli-prompt-"));
+  fs.mkdirSync(path.join(workspace, "Docs", "Dev", "Planning"), { recursive: true });
+  fs.writeFileSync(
+    path.join(workspace, "Docs", "Dev", "Planning", "oracle_resource_labels.json"),
+    JSON.stringify({
+      room: {
+        "0x45": "Glacia Estate (Jail Cells)",
+        "0x46": "Glade Ruins",
+      },
+    }),
+    "utf8",
+  );
+
+  let draftRefs: ConstructRef[] = [];
+  const app = renderPromptInput({
+    mode: "manual",
+    model: "nayru",
+    models: MODEL_FIXTURE,
+    workspace,
+    disabled: false,
+    onSubmit: () => {},
+    onDraftConstructRefsChange: (refs: ConstructRef[]) => {
+      draftRefs = refs;
+    },
+  });
+
+  try {
+    await sleep(250);
+    await typeText(app.stdin, "#room:gla");
+
+    await waitFor(() => {
+      const frame = normalizeFrame(app.lastFrame());
+      assert.ok(frame.includes("Disambiguate reference"));
+      assert.ok(frame.includes("2 close matches - choose one or keep typing"));
+      assert.ok(frame.includes("resource labels"));
+    }, 4000);
+
+    app.stdin.write("\r");
+
+    await waitFor(() => {
+      assert.deepEqual(draftRefs, [{
+        kind: "room",
+        query: "0x46",
+        token: "#room:0x46",
+        id: "0x46",
+        label: "Glade Ruins",
+      }]);
+    }, 4000);
+  } finally {
+    app.unmount();
+    restoreTTY();
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
 test("PromptInput removes the last attached file with Backspace on an empty prompt", async () => {
   const restoreTTY = setTTY(true);
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "z3cli-prompt-"));

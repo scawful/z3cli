@@ -117,7 +117,9 @@ function SubagentRow({
   const preview = buildSubagentPreview(entry.text, entry.status);
   const showPreview = preview.text.length > 0;
   const showError = entry.status === "error" && entry.error;
-  const showThinking = showSubagentThinking(settings.showThinking, entry.status) && !showError;
+  const showThinking = settings.transcriptShowReasoning
+    && showSubagentThinking(settings.showThinking, entry.status)
+    && !showError;
   const thinkingPreview = showThinking
     ? buildSubagentThinkingPreview(entry.thinking, entry.status, settings.thinkingDetail)
     : { text: "", truncated: false };

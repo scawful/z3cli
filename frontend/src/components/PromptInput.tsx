@@ -27,10 +27,10 @@ import {
   constructToken,
   extractMentionedConstructRefs,
   extractMentionedFiles,
-  filterConstructs,
   filterFiles,
   mergeConstructCandidates,
   filterPalette,
+  searchConstructs,
   sessionDate,
   sessionMatches,
   sessionSlug,
@@ -348,10 +348,18 @@ export function PromptInput({
     return [...merged.values()];
   }, [attachedConstructRefs, mentionedConstructRefs]);
   const constructMention = useMemo(() => activeConstructMention(value, cursor), [value, cursor]);
-  const constructMatches = useMemo(() => {
-    if (selector || !constructMention) return [];
-    return filterConstructs(constructCandidates, constructMention.kind, constructMention.query);
+  const constructSearch = useMemo(() => {
+    if (selector || !constructMention) {
+      return {
+        matches: [] as ConstructCandidate[],
+        ambiguous: false,
+        exactCount: 0,
+        totalCount: 0,
+      };
+    }
+    return searchConstructs(constructCandidates, constructMention.kind, constructMention.query);
   }, [constructCandidates, constructMention, selector]);
+  const constructMatches = constructSearch.matches;
   const fileMention = useMemo(() => activeFileMention(value, cursor), [value, cursor]);
   const fileMatches = useMemo(() => {
     if (selector || !fileMention) return [];
@@ -359,6 +367,26 @@ export function PromptInput({
   }, [fileMention, selector, workspaceFiles]);
   const showFilePicker = selector === null && fileMention !== null;
   const showConstructPicker = selector === null && constructMention !== null;
+  const constructPickerTitle = constructSearch.ambiguous ? "Disambiguate reference" : "Game reference";
+  const constructStatus = useMemo(() => {
+    if (!constructMention || constructLoadError) return "";
+    const query = constructMention.query.trim();
+    if (!query) return `browse ${constructMention.kind} refs`;
+    if (constructSearch.totalCount === 0) return "no project refs match that query";
+    if (constructSearch.ambiguous) {
+      const visibleCount = Math.min(constructSearch.totalCount, 200);
+      return `${visibleCount} close matches - choose one or keep typing`;
+    }
+    if (constructSearch.exactCount === 1) return "exact project match - Enter attaches";
+    if (constructSearch.totalCount === 1) return "best project match - Enter attaches";
+    return `${Math.min(constructSearch.totalCount, 200)} matches - Enter attaches the highlighted ref`;
+  }, [constructLoadError, constructMention, constructSearch]);
+  const constructStatusColor = useMemo(() => {
+    if (!constructMention || constructLoadError) return colors.dim;
+    if (!constructMention.query.trim()) return colors.dim;
+    if (constructSearch.totalCount === 0 || constructSearch.ambiguous) return colors.warning;
+    return colors.success;
+  }, [colors.dim, colors.success, colors.warning, constructLoadError, constructMention, constructSearch]);
   const paletteEntries = useMemo((): PaletteEntry[] => {
     const entries: PaletteEntry[] = buildBasePaletteEntries();
     if (focusFile) {
@@ -1373,13 +1401,19 @@ export function PromptInput({
           marginBottom={1}
         >
           <Box gap={1} marginBottom={1}>
-            <Text bold color={colors.triforce}>{symbols.triforce} Game reference</Text>
+            <Text bold color={colors.triforce}>{symbols.triforce} {constructPickerTitle}</Text>
             <Text color={colors.text}>#{constructMention?.kind}:{constructMention?.query || ""}</Text>
+            {constructSearch.totalCount > 0 ? <Text dimColor>({constructSearch.totalCount})</Text> : null}
           </Box>
           <Box marginBottom={1}>
             <Text dimColor>project: </Text>
             <Text dimColor>{shortenPath(workspace)}</Text>
           </Box>
+          {constructStatus ? (
+            <Box marginBottom={1}>
+              <Text color={constructStatusColor}>{constructStatus}</Text>
+            </Box>
+          ) : null}
           {constructLoadError ? (
             <Text color={colors.warning}>  construct index unavailable: {constructLoadError}</Text>
           ) : null}
@@ -1397,16 +1431,24 @@ export function PromptInput({
             const isAttached = attachedConstructRefs.some((ref) => (
               ref.kind === candidate.kind && (ref.id ?? ref.query) === candidate.id
             ));
+            const candidateMeta = [candidate.source, candidate.detail].filter(Boolean).join(" · ");
             return (
-              <Box key={candidate.token} gap={1}>
-                <Text color={isSelected ? colors.triforce : colors.dim}>
-                  {isSelected ? symbols.arrowRight : " "}
-                </Text>
-                <Text color={isSelected ? colors.text : colors.muted} bold={isSelected}>
-                  {candidate.token}
-                </Text>
-                <Text dimColor>{candidate.label}</Text>
-                {isAttached ? <Text color={colors.success}>attached</Text> : null}
+              <Box key={candidate.token} flexDirection="column">
+                <Box gap={1}>
+                  <Text color={isSelected ? colors.triforce : colors.dim}>
+                    {isSelected ? symbols.arrowRight : " "}
+                  </Text>
+                  <Text color={isSelected ? colors.text : colors.muted} bold={isSelected}>
+                    {candidate.token}
+                  </Text>
+                  <Text dimColor>{candidate.label}</Text>
+                  {isAttached ? <Text color={colors.success}>attached</Text> : null}
+                </Box>
+                {candidateMeta ? (
+                  <Box paddingLeft={2}>
+                    <Text color={isSelected ? colors.accent : colors.muted}>{candidateMeta}</Text>
+                  </Box>
+                ) : null}
               </Box>
             );
           })}
@@ -1414,7 +1456,10 @@ export function PromptInput({
             <Text dimColor>  {symbols.triforceSmall} {constructMatches.length - constructEnd} more below</Text>
           ) : null}
           <Box marginTop={1}>
-            <Text dimColor>type to refine {symbols.dot} ↑↓ navigate {symbols.dot} Tab/Enter attach</Text>
+            <Text dimColor>
+              type to refine {symbols.dot} ↑↓ navigate {symbols.dot} Tab/Enter attach
+              {constructSearch.ambiguous ? ` ${symbols.dot} ambiguous matches stay visible until you choose` : ""}
+            </Text>
           </Box>
         </Box>
 

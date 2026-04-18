@@ -501,3 +501,32 @@ test("dispatchCommand applies reasoning detail enum values", async () => {
 
   assert.deepEqual(setCalls, [["thinkingDetail", "full"]]);
 });
+
+test("dispatchCommand applies transcript filter boolean settings", async () => {
+  const setCalls: Array<[string, unknown]> = [];
+
+  await dispatchCommand("/settings", ["transcriptShowTools", "off"], {
+    config: null,
+    settings: {
+      theme: "gold",
+      uiMode: "chat",
+      transcriptShowTools: true,
+    } as any,
+    addSystemMessage: () => {},
+    replaceMessages: () => {},
+    replaceSubagents: () => {},
+    updateConfig: () => {},
+    sendCommand: async () => null,
+    sendMessage: async () => {},
+    setSetting: (key, value) => {
+      setCalls.push([key, value]);
+    },
+    resetSettings: () => {},
+    openSettings: () => {},
+    openHelp: () => {},
+    openSessionPicker: () => {},
+    exit: () => {},
+  });
+
+  assert.deepEqual(setCalls, [["transcriptShowTools", false]]);
+});

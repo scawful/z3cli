@@ -42,6 +42,7 @@ import {
   computeContextPanelLayout,
   computeTranscriptViewportHeight,
   groupMessages,
+  resolveTranscriptHotkey,
   shouldShowKeyboardLegend,
 } from "../utils/transcript.js";
 import { estimateContextWindow } from "../utils/models.js";
@@ -147,6 +148,8 @@ export function App({ pythonPath, backendArgs, batchCommands, onSummaryUpdate }:
           <Text color={colors.triforce}>[Ctrl+P]</Text> Palette {symbols.dot}{" "}
           <Text color={colors.triforce}>[Tab]</Text> Complete {symbols.dot}{" "}
           <Text color={colors.triforce}>[Shift+Tab]</Text> Mode {symbols.dot}{" "}
+          <Text color={colors.triforce}>[Ctrl+R]</Text> Summary {symbols.dot}{" "}
+          <Text color={colors.triforce}>[Alt+M/R/T/A]</Text> Filters {symbols.dot}{" "}
           <Text color={colors.triforce}>[PgUp/PgDn/Mouse]</Text> Scroll
         </Text>
       </Box>
@@ -261,11 +264,13 @@ export function App({ pythonPath, backendArgs, batchCommands, onSummaryUpdate }:
     },
   );
 
-  // Ctrl+R toggles thinking/reasoning detail between preview and full.
+  // Transcript hotkeys toggle reasoning collapse plus the message/reason/tool/subagent filters.
   useInput(
     (input, key) => {
-      const ctrlChar = key.ctrl ? input.toLowerCase() : "";
-      if (ctrlChar === "r" || input === "\x12") cycleThinkingDetail();
+      const action = resolveTranscriptHotkey(input, key);
+      if (action) {
+        toggleSetting(action);
+      }
     },
     {
       isActive:
