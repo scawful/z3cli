@@ -1,6 +1,7 @@
 import unittest
 import os
 from pathlib import Path
+from unittest.mock import patch
 
 from rich.console import Console
 
@@ -198,10 +199,31 @@ class ModeAndAliasTests(unittest.IsolatedAsyncioTestCase):
             system_prompt="Oracle continuity and Zelda workflow notes.",
         )
 
-        names = [str(item["name"]) for item in visible_model_infos(state)]
+        with patch("z3cli.app.shared_runtime.available_models", return_value=[]), patch(
+            "z3cli.app.shared_runtime.loaded_models",
+            return_value=[],
+        ):
+            names = [str(item["name"]) for item in visible_model_infos(state)]
 
         self.assertIn("oracle", names)
         self.assertNotIn("scawfulbot", names)
+
+    def test_visible_model_infos_hide_unavailable_local_models(self) -> None:
+        state = _state()
+        state.models["oracle-coder-preview"] = _model(
+            "oracle-coder-preview",
+            role="future internal coder preview",
+            tags=["oracle"],
+        )
+        state.models["oracle-coder-preview"].hide_if_unavailable = True
+
+        with patch("z3cli.app.shared_runtime.available_models", return_value=[
+            {"id": "oracle", "path": "oracle"},
+        ]), patch("z3cli.app.shared_runtime.loaded_models", return_value=[]):
+            names = [str(item["name"]) for item in visible_model_infos(state)]
+
+        self.assertIn("oracle", names)
+        self.assertNotIn("oracle-coder-preview", names)
 
     def test_resolve_model_name_prefers_exact_registry_entries_over_legacy_alias_map(self) -> None:
         models = _state().models

@@ -530,10 +530,12 @@ def resolve_request_model_name(state: Any, target: Any) -> str:
 
 def _studio_runtime_inventory(
     state: Any,
-) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]], dict[str, dict[str, Any]], bool]:
+    inventory_ok = False
     try:
         available_entries = available_models(state.host, state.port) if state.backend_name == "studio" else []
         loaded_entries = loaded_models(state.host, state.port) if state.backend_name == "studio" else []
+        inventory_ok = state.backend_name == "studio"
     except Exception:
         available_entries = []
         loaded_entries = []
@@ -567,7 +569,31 @@ def _studio_runtime_inventory(
             loaded_lookup.setdefault(identifier, runtime_info)
         if isinstance(model_key, str) and model_key:
             loaded_lookup.setdefault(model_key, runtime_info)
-    return runtime_infos, loaded_lookup, available_lookup
+    return runtime_infos, loaded_lookup, available_lookup, inventory_ok
+
+
+def _model_has_runtime_presence(
+    model: Any,
+    loaded_lookup: dict[str, dict[str, Any]],
+    available_lookup: dict[str, dict[str, Any]],
+    inventory_ok: bool,
+) -> bool:
+    if getattr(model, "is_cloud", False):
+        return bool(model.resolve_api_key())
+    if getattr(model, "provider", "") == "llamacpp":
+        return True
+    if not inventory_ok:
+        return True
+    if not bool(getattr(model, "hide_if_unavailable", False)):
+        return True
+    if not loaded_lookup and not available_lookup:
+        return True
+    return (
+        loaded_lookup.get(model.name) is not None
+        or loaded_lookup.get(model.model_id) is not None
+        or available_lookup.get(model.model_id) is not None
+        or available_lookup.get(model.name) is not None
+    )
 
 
 def loaded_model_runtime_infos(state: Any) -> list[dict[str, Any]]:
@@ -580,21 +606,22 @@ def loaded_model_runtime_infos(state: Any) -> list[dict[str, Any]]:
                 "display_name": model_name,
                 "status": "pinned",
             }]
-    runtime_infos, _loaded_lookup, _available_lookup = _studio_runtime_inventory(state)
+    runtime_infos, _loaded_lookup, _available_lookup, _inventory_ok = _studio_runtime_inventory(state)
     return runtime_infos
 
 
 def visible_model_infos(state: Any) -> list[dict[str, Any]]:
-    _runtime_infos, loaded_lookup, available_lookup = _studio_runtime_inventory(state)
+    _runtime_infos, loaded_lookup, available_lookup, inventory_ok = _studio_runtime_inventory(state)
     visible = {
         model.name: model
         for model in list_visible_zelda_models(state.models).values()
+        if _model_has_runtime_presence(model, loaded_lookup, available_lookup, inventory_ok)
     }
     active_model = state.models.get(getattr(state, "active_model", ""))
-    if active_model is not None:
+    if active_model is not None and _model_has_runtime_presence(active_model, loaded_lookup, available_lookup, inventory_ok):
         visible[active_model.name] = active_model
     for model in state.models.values():
-        if model.is_cloud and model.resolve_api_key():
+        if model.is_cloud and _model_has_runtime_presence(model, loaded_lookup, available_lookup, inventory_ok):
             visible[model.name] = model
 
     infos: list[dict[str, Any]] = []
@@ -626,13 +653,14 @@ def visible_model_infos(state: Any) -> list[dict[str, Any]]:
 
 
 def z3ui_model_infos(state: Any) -> list[dict[str, Any]]:
-    _runtime_infos, loaded_lookup, available_lookup = _studio_runtime_inventory(state)
+    _runtime_infos, loaded_lookup, available_lookup, inventory_ok = _studio_runtime_inventory(state)
     infos: list[dict[str, Any]] = []
     for model in sorted(
         (
             model
             for model in list_visible_zelda_models(state.models).values()
             if is_z3ui_model_entry(model) and not blocked_model_reason(model)
+            and _model_has_runtime_presence(model, loaded_lookup, available_lookup, inventory_ok)
         ),
         key=lambda item: z3ui_model_sort_key(item.name),
     ):

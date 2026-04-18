@@ -232,7 +232,11 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
                 ),
             }
 
-            params = build_ready_params(state)
+            with patch("z3cli.app.shared_runtime.available_models", return_value=[]), patch(
+                "z3cli.app.shared_runtime.loaded_models",
+                return_value=[],
+            ):
+                params = build_ready_params(state)
             names = [str(item["name"]) for item in params["models"]]
 
             self.assertEqual(
@@ -270,7 +274,11 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
             ),
         }
 
-        params = build_ready_params(state)
+        with patch("z3cli.app.shared_runtime.available_models", return_value=[]), patch(
+            "z3cli.app.shared_runtime.loaded_models",
+            return_value=[],
+        ):
+            params = build_ready_params(state)
 
         self.assertEqual([str(item["name"]) for item in params["models"]], ["oracle"])
 
@@ -291,7 +299,34 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
             ),
         }
 
-        params = build_ready_params(state)
+        with patch("z3cli.app.shared_runtime.available_models", return_value=[]), patch(
+            "z3cli.app.shared_runtime.loaded_models",
+            return_value=[],
+        ):
+            params = build_ready_params(state)
+
+        self.assertEqual([str(item["name"]) for item in params["models"]], ["oracle", "oracle-fast"])
+
+    def test_build_ready_params_hides_unavailable_local_models(self) -> None:
+        state = ServeState()
+        state.models = {
+            "oracle": ModelConfig(name="oracle", model_id="oracle", role="planner", tools_enabled=True),
+            "oracle-fast": ModelConfig(name="oracle-fast", model_id="oracle-fast", role="fast", tools_enabled=True),
+            "oracle-coder-preview": ModelConfig(
+                name="oracle-coder-preview",
+                model_id="qwen25-oracle-coder-14b-v1",
+                role="future coder preview",
+                tags=["oracle", "z3ui"],
+                hide_if_unavailable=True,
+                tools_enabled=True,
+            ),
+        }
+
+        with patch("z3cli.app.shared_runtime.available_models", return_value=[
+            {"id": "oracle", "path": "oracle"},
+            {"id": "oracle-fast", "path": "oracle-fast"},
+        ]), patch("z3cli.app.shared_runtime.loaded_models", return_value=[]):
+            params = build_ready_params(state)
 
         self.assertEqual([str(item["name"]) for item in params["models"]], ["oracle", "oracle-fast"])
 
@@ -308,7 +343,11 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
             ),
         }
 
-        params = build_ready_params(state)
+        with patch("z3cli.app.shared_runtime.available_models", return_value=[]), patch(
+            "z3cli.app.shared_runtime.loaded_models",
+            return_value=[],
+        ):
+            params = build_ready_params(state)
 
         self.assertEqual(
             [str(item["name"]) for item in params["models"]],
@@ -508,7 +547,10 @@ role = "avatar alias"
                 encoding="utf-8",
             )
 
-            with patch("z3cli.app.serve.ensure_server"), patch(
+            with patch("z3cli.app.shared_runtime.available_models", return_value=[]), patch(
+                "z3cli.app.shared_runtime.loaded_models",
+                return_value=[],
+            ), patch("z3cli.app.serve.ensure_server"), patch(
                 "z3cli.core.session.DEFAULT_SESSION_DIR",
                 root / "sessions",
             ):
@@ -545,7 +587,10 @@ rollout_block_reason = "nayru is still gated"
                 encoding="utf-8",
             )
 
-            with patch("z3cli.app.serve.ensure_server"), patch(
+            with patch("z3cli.app.shared_runtime.available_models", return_value=[]), patch(
+                "z3cli.app.shared_runtime.loaded_models",
+                return_value=[],
+            ), patch("z3cli.app.serve.ensure_server"), patch(
                 "z3cli.core.session.DEFAULT_SESSION_DIR",
                 root / "sessions",
             ):
@@ -618,6 +663,35 @@ role = "planner"
         self.assertEqual(
             responses[-1],
             (102, None, "Model 'avatar' is not available in z3ui. Choose one of: oracle"),
+        )
+        self.assertEqual(state.active_model, "oracle")
+
+    async def test_handle_command_model_rejects_unavailable_local_entries(self) -> None:
+        state = ServeState()
+        state.active_model = "oracle"
+        state.models = {
+            "oracle": ModelConfig(name="oracle", model_id="oracle", role="planner"),
+            "oracle-coder-preview": ModelConfig(
+                name="oracle-coder-preview",
+                model_id="qwen25-oracle-coder-14b-v1",
+                role="future coder preview",
+                tags=["oracle", "z3ui"],
+                hide_if_unavailable=True,
+            ),
+        }
+
+        responses: list[tuple[int, object, str | None]] = []
+        with patch("z3cli.app.shared_runtime.available_models", return_value=[
+            {"id": "oracle", "path": "oracle"},
+        ]), patch("z3cli.app.shared_runtime.loaded_models", return_value=[]), patch(
+            "z3cli.app.serve._respond",
+            side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
+        ):
+            await handle_command(state, 103, {"cmd": "/model", "args": ["oracle-coder-preview"]})
+
+        self.assertEqual(
+            responses[-1],
+            (103, None, "Model 'oracle-coder-preview' is not available in z3ui. Choose one of: oracle"),
         )
         self.assertEqual(state.active_model, "oracle")
 

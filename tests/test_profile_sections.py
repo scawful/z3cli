@@ -336,6 +336,7 @@ model_id = "qwen25-oracle-coder-7b-v1"
 visibility = "hidden"
 spawn_only = true
 spawnable_by = ["oracle", "oracle-fast"]
+hide_if_unavailable = true
 tags = ["oracle"]
                 """.strip(),
             )
@@ -348,4 +349,5 @@ tags = ["oracle"]
             self.assertEqual(worker.visibility, "hidden")
             self.assertTrue(worker.spawn_only)
             self.assertEqual(worker.spawnable_by, ["oracle", "oracle-fast"])
+            self.assertTrue(worker.hide_if_unavailable)
             self.assertNotIn("oracle-coder", config_mod.list_zelda_models(models))

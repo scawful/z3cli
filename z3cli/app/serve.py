@@ -51,7 +51,7 @@ from z3cli.app.ipc_schema import (
 from z3cli.core.config import (
     API_BASE, MCP_CONFIG_PATH, REGISTRY_PATH, ModelConfig, Z3UI_MODEL_ORDER,
     direct_model_selection_error,
-    is_z3ui_model, is_z3ui_model_entry, z3ui_model_sort_key,
+    is_z3ui_model, is_z3ui_model_entry,
     load_registry, list_zelda_models, rollout_warnings,
 )
 from z3cli.core.engine import (
@@ -142,17 +142,7 @@ _REASONING_PREFIX_RE = re.compile(
 
 
 def _allowed_z3ui_model_names(state: "ServeState") -> list[str]:
-    return [
-        model.name
-        for model in sorted(
-            (
-                model
-                for model in state.models.values()
-                if is_z3ui_model_entry(model) and not blocked_model_reason(model)
-            ),
-            key=lambda item: z3ui_model_sort_key(item.name),
-        )
-    ]
+    return [str(model["name"]) for model in z3ui_model_infos(state)]
 
 
 def _z3ui_model_policy_error(state: "ServeState", model_name: str) -> str:
@@ -169,16 +159,21 @@ def _z3ui_model_policy_error(state: "ServeState", model_name: str) -> str:
 def _coerce_z3ui_active_model(state: "ServeState", requested_name: str) -> str | None:
     current_name = state.active_model
     current_model = state.models.get(state.active_model)
-    if is_z3ui_model_entry(current_model) and not blocked_model_reason(current_model):
-        return None
     allowed = _allowed_z3ui_model_names(state)
+    if current_name in allowed:
+        return None
     if allowed:
         fallback_model = allowed[0]
         display_name = requested_name or current_name
         state.active_model = fallback_model
-        if is_z3ui_model_entry(current_model):
+        if is_z3ui_model_entry(current_model) and blocked_model_reason(current_model):
             return (
                 f"Model '{display_name}' is rollout-gated in z3ui. "
+                f"Using '{fallback_model}' instead."
+            )
+        if is_z3ui_model_entry(current_model):
+            return (
+                f"Model '{display_name}' is not currently available in z3ui. "
                 f"Using '{fallback_model}' instead."
             )
         return (
@@ -2419,6 +2414,9 @@ async def handle_command(state: ServeState, req_id: int, params: dict) -> None:
         if alias:
             state.model_alias_resolutions += 1
         if not is_z3ui_model_entry(state.models.get(next_model)):
+            _respond(req_id, error=_z3ui_model_policy_error(state, next_model))
+            return
+        if next_model not in _allowed_z3ui_model_names(state):
             _respond(req_id, error=_z3ui_model_policy_error(state, next_model))
             return
         ensure_model_available(state.models.get(next_model))

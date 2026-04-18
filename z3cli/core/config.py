@@ -18,11 +18,7 @@ def _default_registry_path() -> Path:
     override = os.environ.get("Z3CLI_REGISTRY", "").strip()
     if override:
         return Path(override)
-    # Check project config first, then legacy path
-    project = Path(__file__).resolve().parents[2] / "config" / "chat_registry.toml"
-    if project.exists():
-        return project
-    return Path.home() / "src/lab/afs-scawful/config/chat_registry.toml"
+    return Path(__file__).resolve().parents[2] / "config" / "chat_registry.toml"
 
 
 REGISTRY_PATH = _default_registry_path()
@@ -177,6 +173,7 @@ class ModelConfig:
     visibility: str = ""
     spawn_only: bool = False
     spawnable_by: list[str] = field(default_factory=list)
+    hide_if_unavailable: bool = False
     aliases: list[str] = field(default_factory=list)
 
     @property
@@ -615,6 +612,7 @@ def load_registry(
                 for parent in (raw_model.get("spawnable_by") or [])
                 if _normalize_profile_name(str(parent))
             ],
+            hide_if_unavailable=bool(raw_model.get("hide_if_unavailable", False)),
             aliases=[
                 str(alias).strip().lower()
                 for alias in (raw_model.get("aliases") or [])

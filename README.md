@@ -26,7 +26,7 @@ Current implementation status and recent work: [`docs/cli-current-state.md`](doc
 
 ## Defaults
 
-- chat registry: `~/src/lab/afs-scawful/config/chat_registry.toml`
+- chat registry: `config/chat_registry.toml`
 - LM Studio MCP config: `~/.lmstudio/mcp.json`
 - studio API base: `http://127.0.0.1:1234/v1`
 - llama.cpp API base: `http://127.0.0.1:8080/v1`
@@ -35,6 +35,7 @@ Current implementation status and recent work: [`docs/cli-current-state.md`](doc
 - Public model portfolio note: [`docs/MODEL_PORTFOLIO_PUBLIC.md`](docs/MODEL_PORTFOLIO_PUBLIC.md)
 - Halext experimental page draft: [`docs/halext-model-lab-draft.md`](docs/halext-model-lab-draft.md)
 - Internal RL threshold policy: [`docs/ZELDA_RLHF_THRESHOLD_POLICY.md`](docs/ZELDA_RLHF_THRESHOLD_POLICY.md)
+- override registry with `--registry /path/to/chat_registry.toml` or `Z3CLI_REGISTRY`
 
 ## Start
 
