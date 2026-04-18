@@ -106,6 +106,34 @@ class DinAdapter(ToolAdapter):
                 },
             ),
             AdapterTool(
+                name="read_context",
+                description="Read a workspace source file before proposing optimizations.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "File path relative to the workspace root",
+                        },
+                    },
+                    "required": ["path"],
+                },
+            ),
+            AdapterTool(
+                name="check_diagnostics",
+                description="Get language-server diagnostics for an ASM source file.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "file": {
+                            "type": "string",
+                            "description": "Path to the ASM file to inspect",
+                        },
+                    },
+                    "required": ["file"],
+                },
+            ),
+            AdapterTool(
                 name="set_breakpoint",
                 description="Set a breakpoint at an address to pause execution for analysis.",
                 parameters={
@@ -131,41 +159,51 @@ class DinAdapter(ToolAdapter):
         if name == "profile_routine":
             addr = arguments["address"]
             lines = arguments.get("lines", 20)
-            disasm, mem = await self._call_many([
-                ("get_disassembly", {"address": addr, "lines": lines}),
-                ("emu_read_memory", {"address": addr, "length": 64}),
+            disasm, mem = await self._call_many_on([
+                ("emulator", "mesen_disasm", {"address": addr, "count": lines}),
+                ("emulator", "mesen_memory_read", {"address": addr, "length": 64}),
             ])
             return f"## Disassembly at {addr}\n{disasm}\n\n## Raw bytes\n{mem}"
 
         if name == "read_memory":
-            return await self._call("emu_read_memory", {
+            return await self._call_on("emulator", "mesen_memory_read", {
                 "address": arguments["address"],
                 "length": arguments.get("length", 16),
             })
 
         if name == "step_trace":
-            count = arguments.get("count", 1)
-            mode = arguments.get("mode", "into")
-            parts = []
+            # mesen-control action=step runs a single instruction. into/over
+            # semantics collapse to the same single-step call; step count
+            # is emulated by looping.
+            count = int(arguments.get("count", 1) or 1)
+            parts: list[str] = []
             for i in range(count):
-                step_result = await self._call("step_emulator", {"mode": mode})
-                state = await self._call("emu_get_state", {})
+                step_result = await self._call_on("emulator", "mesen_control", {"action": "step"})
+                state = await self._call_on("emulator", "mesen_cpu", {})
                 parts.append(f"Step {i + 1}:\n{step_result}\n{state}")
             return "\n---\n".join(parts)
 
         if name == "disasm_at":
-            return await self._call("get_disassembly", {
+            return await self._call_on("emulator", "mesen_disasm", {
                 "address": arguments["address"],
-                "lines": arguments.get("lines", 30),
+                "count": arguments.get("lines", 30),
             })
 
         if name == "lookup_symbol":
-            return await self._call("lookup", {"query": arguments["query"]})
+            return await self._call_on("symbols", "z3lsp_symbols", {"query": arguments["query"]})
+
+        if name == "read_context":
+            return await self._call_on("workspace", "workspace_read", {"path": arguments["path"]})
+
+        if name == "check_diagnostics":
+            return await self._call_on("symbols", "z3lsp_diagnostics", {"file": arguments["file"]})
 
         if name == "set_breakpoint":
-            return await self._call("add_breakpoint", {
+            bp_type_map = {"execute": "exec", "read": "read", "write": "write"}
+            return await self._call_on("emulator", "mesen_breakpoint", {
+                "action": "add",
                 "address": arguments["address"],
-                "type": arguments.get("type", "execute"),
+                "type": bp_type_map.get(arguments.get("type", "execute"), "exec"),
             })
 
         return await super()._dispatch(name, arguments)

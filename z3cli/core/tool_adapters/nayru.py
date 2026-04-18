@@ -104,29 +104,37 @@ class NayruAdapter(ToolAdapter):
     async def _dispatch(self, name: str, arguments: dict) -> str:
         if name == "explain_routine":
             query = arguments["query"]
-            lookup_result = await self._call("lookup", {"query": query})
-            usages = await self._call("find_usages", {"symbol": query})
-            return f"## Reference: {query}\n{lookup_result}\n\n## Usages\n{usages}"
+            # Prefer the LSP for symbol lookups (always available in a z3dk
+            # workspace). The reference bridge supplies supplementary prose
+            # when an MCP server like book-of-mudora is wired.
+            lookup = await self._call_on("symbols", "z3lsp_symbols", {"query": query})
+            refs = await self._call_on("reference", "find_usages", {"symbol": query})
+            return f"## Reference: {query}\n{lookup}\n\n## Usages\n{refs}"
 
         if name == "search_reference":
-            return await self._call("search", {"query": arguments["query"]})
+            # Dialogue/message search via z3ed, plus MCP reference search
+            # when available. Concatenating gives the model a richer hit set.
+            query = arguments["query"]
+            msg = await self._call_on("rom", "message_search", {"query": query})
+            ref = await self._call_on("reference", "search", {"query": query})
+            return f"## In-ROM messages\n{msg}\n\n## Reference / docs\n{ref}"
 
         if name == "describe_room":
             room = arguments["room"]
-            desc, objects, sprites = await self._call_many([
-                ("dungeon_describe_room", {"room": room}),
-                ("dungeon_list_objects", {"room": room}),
-                ("dungeon_list_sprites", {"room": room}),
+            desc, objects, sprites = await self._call_many_on([
+                ("rom", "dungeon_describe_room", {"room": room}),
+                ("rom", "dungeon_list_objects", {"room": room}),
+                ("rom", "dungeon_list_sprites", {"room": room}),
             ])
             return f"## Room {room}\n{desc}\n\n## Objects\n{objects}\n\n## Sprites\n{sprites}"
 
         if name == "read_context":
-            return await self._call("context.read", {"path": arguments["path"]})
+            return await self._call_on("workspace", "workspace_read", {"path": arguments["path"]})
 
         if name == "search_memory":
-            return await self._call("memory.search", {"query": arguments["query"]})
+            return await self._call_on("reference", "memory.search", {"query": arguments["query"]})
 
         if name == "consult_docs":
-            return await self._call("consult_reference", {"topic": arguments["topic"]})
+            return await self._call_on("reference", "consult_reference", {"topic": arguments["topic"]})
 
         return await super()._dispatch(name, arguments)

@@ -2,7 +2,7 @@
 
 Veran is the broadest specialist with the largest tool surface (~10).
 She handles cross-cutting analysis across dungeon, overworld, ROM,
-and debugging domains.
+and debugging domains, including transactional patch-test workflows.
 """
 
 from __future__ import annotations
@@ -12,9 +12,108 @@ from z3cli.core.tool_adapters.base import AdapterTool, ToolAdapter
 
 class VeranAdapter(ToolAdapter):
     PROFILE_NAME = "veran"
+    WRITE_TOOLS = frozenset({"asm_patch_test", "hook_try"})
 
     def _define_tools(self) -> list[AdapterTool]:
         return [
+            AdapterTool(
+                name="asm_patch_test",
+                description="Run the full transactional patch-test loop: lint a patch, assemble it against a temp ROM, load an optional scenario, run assertions, and return structured results.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "patch_path": {"type": "string", "description": "Path to the ASM patch file."},
+                        "rom_path_override": {
+                            "type": "string",
+                            "description": "Optional ROM path to use instead of the active session ROM.",
+                        },
+                        "scenario": {
+                            "type": "string",
+                            "description": "Optional named test state to load before execution.",
+                        },
+                        "frames": {"type": "integer", "default": 120},
+                        "breakpoints": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Optional breakpoint addresses for the emulator run.",
+                        },
+                        "assertions": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Assertion expressions to evaluate after execution.",
+                        },
+                        "capture_screenshot": {"type": "boolean", "default": False},
+                        "restore_after": {"type": "boolean", "default": True},
+                        "include": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Optional z3asm include directories.",
+                        },
+                        "define": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Optional z3asm defines such as FEATURE=1.",
+                        },
+                        "emit_targets": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Optional z3asm emit targets forwarded to lint and assemble.",
+                        },
+                    },
+                    "required": ["patch_path"],
+                },
+            ),
+            AdapterTool(
+                name="hook_try",
+                description="Validate a hook target when reference tooling is available, then assemble and run the hook against a temp ROM in one structured workflow.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "patch_path": {"type": "string", "description": "Path to the ASM hook patch file."},
+                        "address": {
+                            "type": "string",
+                            "description": "Hook target address or symbol name to validate before assembly.",
+                        },
+                        "rom_path_override": {
+                            "type": "string",
+                            "description": "Optional ROM path to use instead of the active session ROM.",
+                        },
+                        "scenario": {
+                            "type": "string",
+                            "description": "Optional named test state to load before execution.",
+                        },
+                        "frames": {"type": "integer", "default": 120},
+                        "breakpoints": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Optional breakpoint addresses for the emulator run.",
+                        },
+                        "assertions": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Assertion expressions to evaluate after execution.",
+                        },
+                        "capture_screenshot": {"type": "boolean", "default": False},
+                        "restore_after": {"type": "boolean", "default": True},
+                        "include": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Optional z3asm include directories.",
+                        },
+                        "define": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Optional z3asm defines such as FEATURE=1.",
+                        },
+                        "emit_targets": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Optional z3asm emit targets forwarded to lint and assemble.",
+                        },
+                    },
+                    "required": ["patch_path", "address"],
+                },
+            ),
             AdapterTool(
                 name="inspect_room",
                 description="Full dungeon room inspection: description, objects, sprites, chests, and header.",
@@ -125,14 +224,20 @@ class VeranAdapter(ToolAdapter):
         ]
 
     async def _dispatch(self, name: str, arguments: dict) -> str:
+        if name == "asm_patch_test":
+            return await self._call_on("workflow", "asm_patch_test", dict(arguments))
+
+        if name == "hook_try":
+            return await self._call_on("workflow", "hook_try", dict(arguments))
+
         if name == "inspect_room":
             room = arguments["room"]
-            desc, objects, sprites, chests, header = await self._call_many([
-                ("dungeon_describe_room", {"room": room}),
-                ("dungeon_list_objects", {"room": room}),
-                ("dungeon_list_sprites", {"room": room}),
-                ("dungeon_list_chests", {"room": room}),
-                ("dungeon_room_header", {"room": room}),
+            desc, objects, sprites, chests, header = await self._call_many_on([
+                ("rom", "dungeon_describe_room", {"room": room}),
+                ("rom", "dungeon_list_objects", {"room": room}),
+                ("rom", "dungeon_list_sprites", {"room": room}),
+                ("rom", "dungeon_list_chests", {"room": room}),
+                ("rom", "dungeon_room_header", {"room": room}),
             ])
             return (
                 f"## Room {room}\n{desc}\n\n## Header\n{header}\n\n"
@@ -141,44 +246,52 @@ class VeranAdapter(ToolAdapter):
 
         if name == "inspect_overworld":
             map_id = arguments["map_id"]
-            desc, sprites, warps = await self._call_many([
-                ("overworld_describe_map", {"map_id": map_id}),
-                ("overworld_list_sprites", {"map_id": map_id}),
-                ("overworld_list_warps", {"map_id": map_id}),
+            desc, sprites, warps = await self._call_many_on([
+                ("rom", "overworld_describe_map", {"map_id": map_id}),
+                ("rom", "overworld_list_sprites", {"map_id": map_id}),
+                ("rom", "overworld_list_warps", {"map_id": map_id}),
             ])
             return f"## Overworld {map_id}\n{desc}\n\n## Sprites\n{sprites}\n\n## Warps\n{warps}"
 
         if name == "read_memory":
-            return await self._call("emu_read_memory", {
+            return await self._call_on("emulator", "mesen_memory_read", {
                 "address": arguments["address"],
                 "length": arguments.get("length", 16),
             })
 
         if name == "disasm_at":
-            return await self._call("get_disassembly", {
+            return await self._call_on("emulator", "mesen_disasm", {
                 "address": arguments["address"],
-                "lines": arguments.get("lines", 30),
+                "count": arguments.get("lines", 30),
             })
 
         if name == "lookup_symbol":
-            return await self._call("lookup", {"query": arguments["query"]})
+            return await self._call_on("symbols", "z3lsp_symbols", {"query": arguments["query"]})
 
         if name == "search_reference":
-            return await self._call("search", {"query": arguments["query"]})
+            query = arguments["query"]
+            msg = await self._call_on("rom", "message_search", {"query": query})
+            ref = await self._call_on("reference", "search", {"query": query})
+            return f"## In-ROM messages\n{msg}\n\n## Reference / docs\n{ref}"
 
         if name == "check_diagnostics":
-            return await self._call("z3lsp_diagnostics", {"file": arguments["file"]})
+            return await self._call_on("symbols", "z3lsp_diagnostics", {"file": arguments["file"]})
 
         if name == "rom_doctor":
-            return await self._call("rom_doctor", {})
+            return await self._call_on("rom", "rom_doctor", {})
 
         if name == "read_context":
-            return await self._call("context.read", {"path": arguments["path"]})
+            return await self._call_on("workspace", "workspace_read", {"path": arguments["path"]})
 
         if name == "validate_hook":
+            # Prefer the z3asm lint path when available — the hook's ASM
+            # source file is the canonical place to validate register
+            # widths, bank safety, and ABI concerns. Fall back to the
+            # reference bridge when only MCP semantics exist.
+            file_arg = arguments.get("file")
+            if file_arg:
+                return await self._call_on("asm", "z3asm_lint", {"patch_path": file_arg})
             args = {"address": arguments["address"]}
-            if "file" in arguments:
-                args["file"] = arguments["file"]
-            return await self._call("validate_hook", args)
+            return await self._call_on("reference", "validate_hook", args)
 
         return await super()._dispatch(name, arguments)

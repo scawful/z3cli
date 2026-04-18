@@ -76,17 +76,25 @@ class HyliaAdapter(ToolAdapter):
     async def _dispatch(self, name: str, arguments: dict) -> str:
         if name == "lookup_reference":
             query = arguments["query"]
-            lookup = await self._call("lookup", {"query": query})
-            search = await self._call("search", {"query": query})
-            return f"## Lookup: {query}\n{lookup}\n\n## Related\n{search}"
+            lsp = await self._call_on("symbols", "z3lsp_symbols", {"query": query})
+            msg = await self._call_on("rom", "message_search", {"query": query})
+            ref = await self._call_on("reference", "search", {"query": query})
+            return (
+                f"## Lookup: {query}\n{lsp}\n\n"
+                f"## Messages\n{msg}\n\n## Reference\n{ref}"
+            )
 
         if name == "search_history":
-            return await self._call("search", {"query": arguments["query"]})
+            # Search across message text and reference docs for lore lookups.
+            query = arguments["query"]
+            msg = await self._call_on("rom", "message_search", {"query": query})
+            ref = await self._call_on("reference", "search", {"query": query})
+            return f"## Messages\n{msg}\n\n## Reference\n{ref}"
 
         if name == "consult_docs":
-            return await self._call("consult_reference", {"topic": arguments["topic"]})
+            return await self._call_on("reference", "consult_reference", {"topic": arguments["topic"]})
 
         if name == "read_context":
-            return await self._call("context.read", {"path": arguments["path"]})
+            return await self._call_on("workspace", "workspace_read", {"path": arguments["path"]})
 
         return await super()._dispatch(name, arguments)

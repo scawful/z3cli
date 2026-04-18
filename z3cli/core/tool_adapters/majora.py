@@ -84,26 +84,32 @@ class MajoraAdapter(ToolAdapter):
 
     async def _dispatch(self, name: str, arguments: dict) -> str:
         if name == "find_usages":
-            return await self._call("find_usages", {"symbol": arguments["symbol"]})
+            # Prefer LSP for symbol search; fall back to reference bridge.
+            query = arguments["symbol"]
+            lsp = await self._call_on("symbols", "z3lsp_symbols", {"query": query})
+            ref = await self._call_on("reference", "find_usages", {"symbol": query})
+            return f"## LSP symbols\n{lsp}\n\n## Reference usages\n{ref}"
 
         if name == "search_symbols":
-            return await self._call("z3lsp_symbols", {"query": arguments["query"]})
+            return await self._call_on("symbols", "z3lsp_symbols", {"query": arguments["query"]})
 
         if name == "rom_analysis":
-            args = {}
+            # rom-doctor is the closest z3ed analog; preserves the "run
+            # aggregate ROM health checks" intent. The focus parameter is
+            # passed through so the reference bridge can consume it.
+            args: dict = {}
             if "focus" in arguments:
                 args["focus"] = arguments["focus"]
-            return await self._call("rom_analysis", args)
+            doctor = await self._call_on("rom", "rom_doctor", args)
+            return doctor
 
         if name == "cross_reference":
             symbol = arguments["symbol"]
-            lookup = await self._call("lookup", {"query": symbol})
-            usages = await self._call("find_usages", {"symbol": symbol})
-
-            parts = [f"## {symbol}\n{lookup}\n\n## Usages\n{usages}"]
+            lsp = await self._call_on("symbols", "z3lsp_symbols", {"query": symbol})
+            parts = [f"## {symbol}\n{lsp}"]
 
             if "file" in arguments and "line" in arguments and "column" in arguments:
-                refs = await self._call("z3lsp_references", {
+                refs = await self._call_on("symbols", "z3lsp_references", {
                     "file": arguments["file"],
                     "line": arguments["line"],
                     "column": arguments["column"],
@@ -116,17 +122,17 @@ class MajoraAdapter(ToolAdapter):
             area_type = arguments["type"]
             area_id = arguments["id"]
             if area_type == "dungeon":
-                desc, objects, sprites = await self._call_many([
-                    ("dungeon_describe_room", {"room": area_id}),
-                    ("dungeon_list_objects", {"room": area_id}),
-                    ("dungeon_list_sprites", {"room": area_id}),
+                desc, objects, sprites = await self._call_many_on([
+                    ("rom", "dungeon_describe_room", {"room": area_id}),
+                    ("rom", "dungeon_list_objects", {"room": area_id}),
+                    ("rom", "dungeon_list_sprites", {"room": area_id}),
                 ])
                 return f"## Dungeon Room {area_id}\n{desc}\n\n## Objects\n{objects}\n\n## Sprites\n{sprites}"
             else:
-                desc, sprites, warps = await self._call_many([
-                    ("overworld_describe_map", {"map_id": area_id}),
-                    ("overworld_list_sprites", {"map_id": area_id}),
-                    ("overworld_list_warps", {"map_id": area_id}),
+                desc, sprites, warps = await self._call_many_on([
+                    ("rom", "overworld_describe_map", {"map_id": area_id}),
+                    ("rom", "overworld_list_sprites", {"map_id": area_id}),
+                    ("rom", "overworld_list_warps", {"map_id": area_id}),
                 ])
                 return f"## Overworld {area_id}\n{desc}\n\n## Sprites\n{sprites}\n\n## Warps\n{warps}"
 
