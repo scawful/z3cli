@@ -10,17 +10,17 @@ test("normalizeSettings repairs invalid persisted enum and boolean values", () =
     showThinking: "always" as any,
     thinkingDetail: "giant" as any,
     collapseReasoning: "nope" as any,
-    transcriptShowMessages: "yes" as any,
     showTimestamps: "yes" as any,
     toolsIndicator: false,
-  });
+    transcriptShowMessages: false,
+  } as any);
 
   assert.equal(settings.theme, "gold");
   assert.equal(settings.uiMode, "chat");
   assert.equal(settings.showThinking, "transcript");
   assert.equal(settings.thinkingDetail, "preview");
   assert.equal(settings.collapseReasoning, true);
-  assert.equal(settings.transcriptShowMessages, true);
+  assert.equal(Object.prototype.hasOwnProperty.call(settings, "transcriptShowMessages"), false);
   assert.equal(settings.showTimestamps, true);
   assert.equal(settings.toolsIndicator, false);
 });

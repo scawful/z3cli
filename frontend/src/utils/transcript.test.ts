@@ -8,8 +8,8 @@ import {
   computeTranscriptViewportHeight,
   filterMessageGroups,
   groupMessages,
+  isReasoningCollapseHotkey,
   isTranscriptMessageVisible,
-  resolveTranscriptHotkey,
   shouldShowContextPanel,
   shouldShowKeyboardLegend,
   CONTEXT_PANEL_COMPACT_COLUMNS,
@@ -32,7 +32,7 @@ test("groupMessages keeps tool activity inside the originating turn", () => {
   assert.equal(grouped[1]?.turnId, "turn-2");
 });
 
-test("isTranscriptMessageVisible treats reasoning as a separate transcript category", () => {
+test("isTranscriptMessageVisible keeps assistant replies visible separately from reasoning", () => {
   const assistant: Message = {
     id: "a1",
     role: "assistant",
@@ -42,23 +42,17 @@ test("isTranscriptMessageVisible treats reasoning as a separate transcript categ
   };
 
   assert.equal(isTranscriptMessageVisible(assistant, {
-    showMessages: true,
     showReasoning: false,
-    showTools: true,
   }), true);
   assert.equal(isTranscriptMessageVisible(assistant, {
-    showMessages: false,
     showReasoning: true,
-    showTools: true,
   }), true);
   assert.equal(isTranscriptMessageVisible(assistant, {
-    showMessages: false,
     showReasoning: false,
-    showTools: true,
-  }), false);
+  }), true);
 });
 
-test("filterMessageGroups drops hidden tool messages and keeps reasoning-only assistant entries", () => {
+test("filterMessageGroups keeps transcript messages while still preserving reasoning-only assistant entries", () => {
   const grouped = groupMessages([
     { id: "u1", role: "user", content: "inspect this", timestamp: 1, turnId: "turn-1" },
     { id: "a1", role: "assistant", content: "", thinking: "reasoning only", timestamp: 2, turnId: "turn-1" },
@@ -66,23 +60,32 @@ test("filterMessageGroups drops hidden tool messages and keeps reasoning-only as
   ]);
 
   const filtered = filterMessageGroups(grouped, {
-    showMessages: false,
     showReasoning: true,
-    showTools: false,
   });
 
   assert.equal(filtered.length, 1);
-  assert.deepEqual(filtered[0]?.messages.map((message) => message.id), ["a1"]);
+  assert.deepEqual(filtered[0]?.messages.map((message) => message.id), ["u1", "a1", "t1"]);
 });
 
-test("resolveTranscriptHotkey maps Ctrl+R and Alt filter shortcuts", () => {
-  assert.equal(resolveTranscriptHotkey("r", { ctrl: true, meta: false }), "collapseReasoning");
-  assert.equal(resolveTranscriptHotkey("\x12", { ctrl: false, meta: false }), "collapseReasoning");
-  assert.equal(resolveTranscriptHotkey("m", { meta: true, ctrl: false }), "transcriptShowMessages");
-  assert.equal(resolveTranscriptHotkey("r", { meta: true, ctrl: false }), "transcriptShowReasoning");
-  assert.equal(resolveTranscriptHotkey("t", { meta: true, ctrl: false }), "transcriptShowTools");
-  assert.equal(resolveTranscriptHotkey("a", { meta: true, ctrl: false }), "transcriptShowSubagents");
-  assert.equal(resolveTranscriptHotkey("x", { meta: true, ctrl: false }), null);
+test("assistant replies stay visible alongside the rest of the turn", () => {
+  const grouped = groupMessages([
+    { id: "u1", role: "user", content: "inspect this", timestamp: 1, turnId: "turn-1" },
+    { id: "a1", role: "assistant", content: "here is the fix", timestamp: 2, turnId: "turn-1" },
+  ]);
+
+  const filtered = filterMessageGroups(grouped, {
+    showReasoning: false,
+  });
+
+  assert.equal(filtered.length, 1);
+  assert.deepEqual(filtered[0]?.messages.map((message) => message.id), ["u1", "a1"]);
+});
+
+test("isReasoningCollapseHotkey only keeps the Ctrl+R shortcut", () => {
+  assert.equal(isReasoningCollapseHotkey("r", { ctrl: true }), true);
+  assert.equal(isReasoningCollapseHotkey("\x12", { ctrl: false }), true);
+  assert.equal(isReasoningCollapseHotkey("r", { ctrl: false }), false);
+  assert.equal(isReasoningCollapseHotkey("m", { ctrl: false }), false);
 });
 
 test("shouldShowContextPanel hides when settings open or terminal too narrow", () => {

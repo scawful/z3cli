@@ -42,7 +42,7 @@ import {
   computeContextPanelLayout,
   computeTranscriptViewportHeight,
   groupMessages,
-  resolveTranscriptHotkey,
+  isReasoningCollapseHotkey,
   shouldShowKeyboardLegend,
 } from "../utils/transcript.js";
 import { estimateContextWindow } from "../utils/models.js";
@@ -95,6 +95,12 @@ export interface StreamingCancelHotkeyState {
   hasPendingReview: boolean;
 }
 
+export const KEYBOARD_LEGEND_ITEMS = [
+  { key: "[Ctrl+P]", label: "Palette" },
+  { key: "[Tab]", label: "Complete" },
+  { key: "[Shift+Tab]", label: "Mode" },
+] as const;
+
 export function classifyPromptSubmission(
   text: string,
   attachments: AttachmentMeta[] = [],
@@ -144,14 +150,16 @@ export function App({ pythonPath, backendArgs, batchCommands, onSummaryUpdate }:
   function KeyboardLegend({ colors }: { colors: any }): React.ReactElement {
     return (
       <Box width="100%" paddingX={1} marginTop={0}>
-        <Text dimColor>
-          <Text color={colors.triforce}>[Ctrl+P]</Text> Palette {symbols.dot}{" "}
-          <Text color={colors.triforce}>[Tab]</Text> Complete {symbols.dot}{" "}
-          <Text color={colors.triforce}>[Shift+Tab]</Text> Mode {symbols.dot}{" "}
-          <Text color={colors.triforce}>[Ctrl+R]</Text> Summary {symbols.dot}{" "}
-          <Text color={colors.triforce}>[Alt+M/R/T/A]</Text> Filters {symbols.dot}{" "}
-          <Text color={colors.triforce}>[PgUp/PgDn/Mouse]</Text> Scroll
-        </Text>
+        <Box gap={1} flexWrap="wrap">
+          {KEYBOARD_LEGEND_ITEMS.map((item, index) => (
+            <React.Fragment key={item.key}>
+              {index > 0 ? <Text dimColor>{symbols.dot}</Text> : null}
+              <Text dimColor>
+                <Text color={colors.triforce}>{item.key}</Text> {item.label}
+              </Text>
+            </React.Fragment>
+          ))}
+        </Box>
       </Box>
     );
   }
@@ -264,12 +272,10 @@ export function App({ pythonPath, backendArgs, batchCommands, onSummaryUpdate }:
     },
   );
 
-  // Transcript hotkeys toggle reasoning collapse plus the message/reason/tool/subagent filters.
   useInput(
     (input, key) => {
-      const action = resolveTranscriptHotkey(input, key);
-      if (action) {
-        toggleSetting(action);
+      if (isReasoningCollapseHotkey(input, key)) {
+        toggleSetting("collapseReasoning");
       }
     },
     {

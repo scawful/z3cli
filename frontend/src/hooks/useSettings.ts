@@ -32,10 +32,6 @@ export interface UISettings {
   showThinking: ShowThinkingMode; // Where model reasoning is visible
   thinkingDetail: ThinkingDetailMode; // Whether reasoning blocks are previewed or fully expanded
   collapseReasoning: boolean;     // Show reasoning blocks as one-line summaries by default
-  transcriptShowMessages: boolean; // Show user/system/assistant message bodies in transcript
-  transcriptShowReasoning: boolean; // Show assistant/subagent reasoning traces in transcript
-  transcriptShowTools: boolean;   // Show tool calls and tool results in transcript
-  transcriptShowSubagents: boolean; // Show the subagent side-quest panel in transcript
 }
 
 export const DEFAULT_SETTINGS: UISettings = {
@@ -52,10 +48,6 @@ export const DEFAULT_SETTINGS: UISettings = {
   showThinking: "transcript",
   thinkingDetail: "preview",
   collapseReasoning: true,
-  transcriptShowMessages: true,
-  transcriptShowReasoning: true,
-  transcriptShowTools: true,
-  transcriptShowSubagents: true,
 };
 
 const SETTINGS_PATH = path.join(os.homedir(), ".config", "z3cli", "ui-settings.json");
@@ -118,18 +110,6 @@ export function normalizeSettings(raw: Partial<UISettings> | null | undefined): 
     collapseReasoning: isBoolean(merged.collapseReasoning)
       ? merged.collapseReasoning
       : DEFAULT_SETTINGS.collapseReasoning,
-    transcriptShowMessages: isBoolean(merged.transcriptShowMessages)
-      ? merged.transcriptShowMessages
-      : DEFAULT_SETTINGS.transcriptShowMessages,
-    transcriptShowReasoning: isBoolean(merged.transcriptShowReasoning)
-      ? merged.transcriptShowReasoning
-      : DEFAULT_SETTINGS.transcriptShowReasoning,
-    transcriptShowTools: isBoolean(merged.transcriptShowTools)
-      ? merged.transcriptShowTools
-      : DEFAULT_SETTINGS.transcriptShowTools,
-    transcriptShowSubagents: isBoolean(merged.transcriptShowSubagents)
-      ? merged.transcriptShowSubagents
-      : DEFAULT_SETTINGS.transcriptShowSubagents,
   };
 }
 

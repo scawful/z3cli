@@ -8,7 +8,6 @@ import { Box, Text } from "ink";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 import { MessageBubble } from "./MessageBubble.js";
 import { StreamingMessage } from "./StreamingMessage.js";
-import { TranscriptFilterBar } from "./TranscriptFilterBar.js";
 import { WelcomeBanner } from "./WelcomeBanner.js";
 import { SubagentPanel } from "./SubagentPanel.js";
 import { symbols } from "../theme/index.js";
@@ -53,11 +52,9 @@ export function TranscriptScroll({
   const { settings } = useSettingsContext();
   const atBottomRef = useRef(true);
   const visibleGroups = React.useMemo(() => filterMessageGroups(groupedMessages, {
-    showMessages: settings.transcriptShowMessages,
-    showReasoning: settings.transcriptShowReasoning && showTranscriptThinking(settings.showThinking),
-    showTools: settings.transcriptShowTools,
-  }), [groupedMessages, settings.showThinking, settings.transcriptShowMessages, settings.transcriptShowReasoning, settings.transcriptShowTools]);
-  const visibleSubagents = settings.transcriptShowSubagents ? subagents : [];
+    showReasoning: showTranscriptThinking(settings.showThinking),
+  }), [groupedMessages, settings.showThinking]);
+  const visibleSubagents = subagents;
 
   const onScroll = useCallback(
     (offset: number) => {
@@ -108,7 +105,6 @@ export function TranscriptScroll({
 
   return (
     <Box height={viewportHeight} width="100%" flexDirection="column">
-      <TranscriptFilterBar />
       <ScrollView ref={scrollRef} width="100%" flexGrow={1} onScroll={onScroll}>
         {visibleGroups.map((group) => {
           const showTurnHeader = group.messages.length > 1

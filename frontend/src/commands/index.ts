@@ -64,12 +64,13 @@ const BOOLEAN_SETTING_KEYS: ReadonlySet<keyof UISettings> = new Set([
   "coloredToolArgs",
   "showFocusFile",
   "showBroadcastModels",
+  "showDiagnostics",
   "collapseReasoning",
-  "transcriptShowMessages",
-  "transcriptShowReasoning",
-  "transcriptShowTools",
-  "transcriptShowSubagents",
 ]);
+
+type EnumSettingKey = "theme" | "uiMode" | "showThinking" | "thinkingDetail";
+
+const ENUM_SETTING_KEYS = new Set<EnumSettingKey>(["theme", "uiMode", "showThinking", "thinkingDetail"]);
 
 // ---------------------------------------------------------------------------
 // File-local helpers
@@ -391,26 +392,22 @@ const COMMANDS: Record<string, Handler> = {
       }
       return;
     }
-    if (key === "theme" || key === "uiMode" || key === "showThinking" || key === "thinkingDetail") {
-      const nextValue = parseEnumSetting(key, args[1]);
+    if (ENUM_SETTING_KEYS.has(args[0] as EnumSettingKey)) {
+      const enumKey = args[0] as EnumSettingKey;
+      const nextValue = parseEnumSetting(enumKey, args[1]);
       if (nextValue !== null) {
-        ctx.setSetting(key, nextValue);
-        ctx.addSystemMessage(`Setting **${key}** → **${nextValue}**`);
+        ctx.setSetting(enumKey, nextValue);
+        ctx.addSystemMessage(`Setting **${enumKey}** → **${nextValue}**`);
       } else {
         ctx.addSystemMessage(
-          `**${key}** is currently **${ctx.settings[key]}**\n\n${settingUsage(key)}`,
+          `**${enumKey}** is currently **${ctx.settings[enumKey]}**\n\n${settingUsage(enumKey)}`,
         );
       }
       return;
     }
-    const rows = Object.entries(ctx.settings).map(
-      ([k, v]) => `| ${k} | ${String(v)} |`,
-    );
     ctx.addSystemMessage(
-      "**UI Settings** — use `/settings <key> on|off` for booleans, or set enum values directly.\n\n" +
-      "| Setting | Value |\n|---------|-------|\n" +
-      rows.join("\n") +
-      "\n\nUse `/settings reset` to restore defaults.",
+      `Unknown setting: \`${args[0]}\`\n\n` +
+      "Run `/settings` to open the settings panel or `/settings reset` to restore defaults.",
     );
   },
 

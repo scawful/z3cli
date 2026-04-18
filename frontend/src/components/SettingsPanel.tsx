@@ -54,10 +54,7 @@ const SETTINGS_BY_TAB: Record<TabType, SettingItem[]> = {
   ],
   Map: [
     { key: "showFocusFile", label: "Focus File Indicator", description: "Show active focus file in status bar" },
-    { key: "transcriptShowMessages", label: "Transcript Messages", description: "Show user, system, and assistant reply text" },
-    { key: "transcriptShowReasoning", label: "Transcript Reasoning", description: "Show reasoning traces inside transcript history" },
-    { key: "transcriptShowTools", label: "Transcript Tools", description: "Show tool calls and tool results in transcript history" },
-    { key: "transcriptShowSubagents", label: "Transcript Subagents", description: "Show the side-quest subagent panel in the transcript" },
+    { key: "showDiagnostics", label: "Diagnostics Card", description: "Expand telemetry and diagnostics in the context rail" },
   ],
 };
 

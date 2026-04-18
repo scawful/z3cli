@@ -9,6 +9,7 @@ import { ThinkingTraceBlock } from "./ThinkingTraceBlock.js";
 import { symbols } from "../theme/index.js";
 import { useSettingsContext } from "../contexts/SettingsContext.js";
 import { useAnimatedFrame } from "../hooks/useAnimatedFrame.js";
+import type { ShowThinkingMode } from "../hooks/useSettings.js";
 import { showStreamingThinking } from "../utils/thinking.js";
 
 // ---------------------------------------------------------------------------
@@ -67,18 +68,48 @@ interface StreamingMessageProps {
   activeToolCall: { name: string; server: string; elapsed: number } | null;
 }
 
+export interface StreamingVisibilitySettings {
+  showThinking: ShowThinkingMode;
+}
+
+export function resolveStreamingMessageState(
+  settings: StreamingVisibilitySettings,
+  content: string,
+  thinkingContent: string,
+  activeToolCall: { name: string; server: string; elapsed: number } | null,
+): {
+  plainAnsi: string;
+  visibleThinking: string;
+  visibleToolCall: { name: string; server: string; elapsed: number } | null;
+  showThinkingIndicator: boolean;
+} {
+  const plainAnsi = content ? highlightHexAddresses(content) : "";
+  const visibleThinking = showStreamingThinking(settings.showThinking)
+    ? thinkingContent
+    : "";
+  const visibleToolCall = activeToolCall;
+  return {
+    plainAnsi,
+    visibleThinking,
+    visibleToolCall,
+    showThinkingIndicator: !plainAnsi && !visibleThinking && !visibleToolCall,
+  };
+}
+
 export function StreamingMessage({
   content,
   thinkingContent,
   activeToolCall,
 }: StreamingMessageProps): React.ReactElement {
   const { colors, settings } = useSettingsContext();
-  const plainAnsi = settings.transcriptShowMessages && content ? highlightHexAddresses(content) : "";
-  const visibleThinking = settings.transcriptShowReasoning && showStreamingThinking(settings.showThinking)
-    ? thinkingContent
-    : "";
-  const visibleToolCall = settings.transcriptShowTools ? activeToolCall : null;
-  const hiddenByFilters = !plainAnsi && !visibleThinking && !visibleToolCall;
+  const {
+    plainAnsi,
+    visibleThinking,
+    visibleToolCall,
+    showThinkingIndicator,
+  } = resolveStreamingMessageState({
+    showThinking: settings.showThinking,
+  }, content, thinkingContent, activeToolCall);
 
   return (
     <Box flexDirection="column" paddingX={1}>
@@ -93,9 +124,7 @@ export function StreamingMessage({
           elapsed={visibleToolCall.elapsed}
           colors={colors}
         />
-      ) : plainAnsi ? null : hiddenByFilters ? (
-        <Text dimColor>stream hidden by transcript filters</Text>
-      ) : !visibleThinking ? (
+      ) : plainAnsi ? null : showThinkingIndicator ? (
         <ThinkingIndicator colors={colors} />
       ) : null}
     </Box>

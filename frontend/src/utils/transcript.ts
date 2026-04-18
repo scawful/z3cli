@@ -56,42 +56,15 @@ export function groupMessages(messages: Message[]): MessageGroup[] {
 }
 
 export interface TranscriptMessageVisibility {
-  showMessages: boolean;
   showReasoning: boolean;
-  showTools: boolean;
 }
 
-export type TranscriptHotkeyAction =
-  | "collapseReasoning"
-  | "transcriptShowMessages"
-  | "transcriptShowReasoning"
-  | "transcriptShowTools"
-  | "transcriptShowSubagents";
-
-export function resolveTranscriptHotkey(
+export function isReasoningCollapseHotkey(
   input: string,
-  key: { ctrl?: boolean; meta?: boolean },
-): TranscriptHotkeyAction | null {
+  key: { ctrl?: boolean },
+): boolean {
   const normalized = input.toLowerCase();
-  if ((key.ctrl && normalized === "r") || input === "\x12") {
-    return "collapseReasoning";
-  }
-  if (!key.meta) {
-    return null;
-  }
-  if (normalized === "m") {
-    return "transcriptShowMessages";
-  }
-  if (normalized === "r") {
-    return "transcriptShowReasoning";
-  }
-  if (normalized === "t") {
-    return "transcriptShowTools";
-  }
-  if (normalized === "a") {
-    return "transcriptShowSubagents";
-  }
-  return null;
+  return (key.ctrl && normalized === "r") || input === "\x12";
 }
 
 function messageHasDisplayContent(message: Message): boolean {
@@ -113,14 +86,11 @@ export function isTranscriptMessageVisible(
   visibility: TranscriptMessageVisibility,
 ): boolean {
   if (message.role === "tool") {
-    return visibility.showTools && messageHasDisplayContent(message);
+    return messageHasDisplayContent(message);
   }
   if (message.role === "assistant") {
-    return (visibility.showMessages && messageHasDisplayContent(message))
+    return messageHasDisplayContent(message)
       || (visibility.showReasoning && Boolean(message.thinking?.trim()));
-  }
-  if (!visibility.showMessages) {
-    return false;
   }
   return messageHasDisplayContent(message);
 }

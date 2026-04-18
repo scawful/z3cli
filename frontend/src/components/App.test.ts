@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  KEYBOARD_LEGEND_ITEMS,
   classifyPromptSubmission,
   shouldEnableStreamingCancelHotkeys,
 } from "./App.js";
@@ -92,5 +93,16 @@ test("shouldEnableStreamingCancelHotkeys disables global cancel while a modal is
       hasPendingReview: true,
     }),
     false,
+  );
+});
+
+test("keyboard legend keeps only the compact core shortcuts", () => {
+  assert.deepEqual(
+    KEYBOARD_LEGEND_ITEMS,
+    [
+      { key: "[Ctrl+P]", label: "Palette" },
+      { key: "[Tab]", label: "Complete" },
+      { key: "[Shift+Tab]", label: "Mode" },
+    ],
   );
 });

@@ -115,12 +115,7 @@ function ConstructRefList({
 export function MessageBubble({ message }: MessageBubbleProps): React.ReactElement {
   const { settings, colors } = useSettingsContext();
   const { role, content, toolName, toolServer, toolArguments, model, attachments, constructRefs, thinking } = message;
-  const showMessageBody = settings.transcriptShowMessages;
-  const showReasoning = settings.transcriptShowReasoning && showTranscriptThinking(settings.showThinking);
-
-  if (!settings.transcriptShowTools && role === "tool") {
-    return <></>;
-  }
+  const showReasoning = showTranscriptThinking(settings.showThinking);
 
   if (role === "tool" && toolArguments !== undefined && !content) {
     const server = toolServer ?? "";
@@ -189,9 +184,6 @@ export function MessageBubble({ message }: MessageBubbleProps): React.ReactEleme
   }
 
   if (role === "user") {
-    if (!showMessageBody) {
-      return <></>;
-    }
     return (
       <Box
         marginTop={1}
@@ -224,9 +216,6 @@ export function MessageBubble({ message }: MessageBubbleProps): React.ReactEleme
   }
 
   if (role === "system") {
-    if (!showMessageBody) {
-      return <></>;
-    }
     return (
       <Box
         marginTop={1}
@@ -250,7 +239,7 @@ export function MessageBubble({ message }: MessageBubbleProps): React.ReactEleme
 
   // Assistant
   const visibleThinking = showReasoning ? thinking : undefined;
-  const visibleContent = showMessageBody ? content : "";
+  const visibleContent = content;
   if (!visibleContent.trim() && !visibleThinking) {
     return <></>;
   }

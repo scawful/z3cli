@@ -502,25 +502,24 @@ test("dispatchCommand applies reasoning detail enum values", async () => {
   assert.deepEqual(setCalls, [["thinkingDetail", "full"]]);
 });
 
-test("dispatchCommand applies transcript filter boolean settings", async () => {
-  const setCalls: Array<[string, unknown]> = [];
+test("dispatchCommand rejects removed transcript filter settings", async () => {
+  const messages: string[] = [];
 
   await dispatchCommand("/settings", ["transcriptShowTools", "off"], {
     config: null,
     settings: {
       theme: "gold",
       uiMode: "chat",
-      transcriptShowTools: true,
     } as any,
-    addSystemMessage: () => {},
+    addSystemMessage: (content) => {
+      messages.push(content);
+    },
     replaceMessages: () => {},
     replaceSubagents: () => {},
     updateConfig: () => {},
     sendCommand: async () => null,
     sendMessage: async () => {},
-    setSetting: (key, value) => {
-      setCalls.push([key, value]);
-    },
+    setSetting: () => {},
     resetSettings: () => {},
     openSettings: () => {},
     openHelp: () => {},
@@ -528,5 +527,5 @@ test("dispatchCommand applies transcript filter boolean settings", async () => {
     exit: () => {},
   });
 
-  assert.deepEqual(setCalls, [["transcriptShowTools", false]]);
+  assert.match(messages[0] ?? "", /Unknown setting: `transcriptShowTools`/);
 });
