@@ -130,6 +130,34 @@ const JSON_KEY_PREVIEW_LIMIT = 4;
 const YAML_KEY_PREVIEW_LIMIT = 4;
 const TOML_ENTRY_PREVIEW_LIMIT = 4;
 const MARKDOWN_HEADING_PREVIEW_LIMIT = 4;
+const ORG_HEADING_PREVIEW_LIMIT = 4;
+const DOC_METADATA_PREVIEW_LIMIT = 4;
+const DOC_PREVIEW_LINE_LIMIT = 3;
+const ORG_TAG_PREVIEW_LIMIT = 4;
+const FRONTMATTER_META_PRIORITY = [
+  "status",
+  "tags",
+  "updated",
+  "date",
+  "draft",
+  "owner",
+  "author",
+  "project",
+  "workspace",
+  "category",
+  "series",
+  "slug",
+] as const;
+const ORG_TODO_KEYWORDS = new Set([
+  "TODO",
+  "DONE",
+  "NEXT",
+  "WAITING",
+  "BLOCKED",
+  "CANCELLED",
+  "FIXME",
+  "NOTE",
+]);
 
 function normalizeConstructKind(kind: string): string | null {
   return CONSTRUCT_KIND_ALIASES[kind.trim().toLowerCase()] ?? null;
@@ -219,6 +247,20 @@ function summarizePreviewList(prefix: string, values: string[], limit: number): 
   const visible = unique.slice(0, limit).join(", ");
   const suffix = unique.length > limit ? ` +${unique.length - limit}` : "";
   return truncateSnippetLine(`${prefix}: ${visible}${suffix}`);
+}
+
+function summarizePreviewPairs(prefix: string, values: string[], limit: number, charLimit: number = FILE_PREVIEW_SNIPPET_LIMIT): string | undefined {
+  const unique = [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+  if (unique.length === 0) return undefined;
+  const visible = unique.slice(0, limit).join(" · ");
+  const suffix = unique.length > limit ? ` +${unique.length - limit}` : "";
+  return truncateSnippetLine(`${prefix}: ${visible}${suffix}`, charLimit);
+}
+
+function compactPreviewLines(lines: Array<string | undefined>, limit: number = DOC_PREVIEW_LINE_LIMIT): string | undefined {
+  const compacted = lines.map((line) => line?.trim()).filter((line): line is string => Boolean(line));
+  if (compacted.length === 0) return undefined;
+  return compacted.slice(0, limit).join("\n");
 }
 
 function sanitizeFileSnippet(text: string): string | undefined {
@@ -322,11 +364,110 @@ function buildTomlSnippet(text: string): string | undefined {
   return summarizePreviewList(tables.length > 0 ? "tables" : "keys", tables.length > 0 ? tables : keys, TOML_ENTRY_PREVIEW_LIMIT);
 }
 
+interface MarkdownFrontmatterSummary {
+  title?: string;
+  metaLine?: string;
+  teaser?: string;
+  body: string;
+}
+
+interface OrgHeadingSummary {
+  title: string;
+  todo?: string;
+  tags: string[];
+}
+
+function parseFrontmatterArrayValue(rawValue: string): string {
+  const normalized = rawValue.trim();
+  if (!normalized.startsWith("[") || !normalized.endsWith("]")) {
+    return normalized.replace(/^['"]|['"]$/g, "");
+  }
+  return normalized
+    .slice(1, -1)
+    .split(",")
+    .map((item) => item.trim().replace(/^['"]|['"]$/g, ""))
+    .filter(Boolean)
+    .join(", ");
+}
+
+function extractMarkdownFrontmatter(text: string): MarkdownFrontmatterSummary | null {
+  if (!text || text.includes("\0")) return null;
+  const lines = text.split(/\r?\n/);
+  if (lines[0]?.trim() !== "---") {
+    return null;
+  }
+  let closingIndex = -1;
+  for (let index = 1; index < lines.length; index += 1) {
+    const trimmed = lines[index]?.trim();
+    if (trimmed === "---" || trimmed === "...") {
+      closingIndex = index;
+      break;
+    }
+  }
+  if (closingIndex <= 0) {
+    return null;
+  }
+
+  const entries = new Map<string, string>();
+  let activeListKey = "";
+  for (const rawLine of lines.slice(1, closingIndex)) {
+    const line = rawLine.replace(/\t/g, "    ");
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const listMatch = trimmed.match(/^[-*]\s+(.+)$/);
+    if (activeListKey && listMatch?.[1]) {
+      const existing = entries.get(activeListKey) ?? "";
+      const nextValue = listMatch[1].trim().replace(/^['"]|['"]$/g, "");
+      entries.set(activeListKey, existing ? `${existing}, ${nextValue}` : nextValue);
+      continue;
+    }
+    if (/^\s/.test(line)) {
+      activeListKey = "";
+      continue;
+    }
+    const match = trimmed.match(/^([A-Za-z0-9_.-]+|"(?:[^"\\]|\\.)+"|'[^']+')\s*:\s*(.*)$/);
+    if (!match) {
+      activeListKey = "";
+      continue;
+    }
+    const key = match[1]?.replace(/^['"]|['"]$/g, "").toLowerCase() ?? "";
+    const rawValue = match[2] ?? "";
+    entries.set(key, parseFrontmatterArrayValue(rawValue));
+    activeListKey = rawValue.trim() ? "" : key;
+  }
+
+  const title = entries.get("title") || entries.get("name") || entries.get("slug") || undefined;
+  const metaParts = FRONTMATTER_META_PRIORITY
+    .map((key) => {
+      const value = entries.get(key);
+      return value ? `${key}=${value}` : "";
+    })
+    .filter(Boolean);
+  const fallbackMeta = metaParts.length === 0
+    ? summarizePreviewList("frontmatter", [...entries.keys()].filter((key) => key !== "title"), DOC_METADATA_PREVIEW_LIMIT)
+    : undefined;
+  const teaser = entries.get("summary") || entries.get("description") || entries.get("excerpt") || "";
+
+  return {
+    ...(title ? { title: cleanMarkdownCell(title) } : {}),
+    ...(metaParts.length > 0
+      ? { metaLine: summarizePreviewPairs("meta", metaParts, DOC_METADATA_PREVIEW_LIMIT, 96) }
+      : fallbackMeta
+        ? { metaLine: fallbackMeta }
+        : {}),
+    ...(teaser ? { teaser: truncateSnippetLine(cleanMarkdownCell(teaser), 64) } : {}),
+    body: lines.slice(closingIndex + 1).join("\n"),
+  };
+}
+
 function buildMarkdownSnippet(text: string): string | undefined {
   if (!text || text.includes("\0")) return undefined;
+  const frontmatter = extractMarkdownFrontmatter(text);
+  const bodyText = frontmatter?.body ?? text;
   const headings: string[] = [];
+  const paragraphs: string[] = [];
   let inFence = false;
-  for (const rawLine of text.split(/\r?\n/)) {
+  for (const rawLine of bodyText.split(/\r?\n/)) {
     const trimmed = rawLine.trim();
     if (/^(```|~~~)/.test(trimmed)) {
       inFence = !inFence;
@@ -336,9 +477,160 @@ function buildMarkdownSnippet(text: string): string | undefined {
     const headingMatch = trimmed.match(/^#{1,6}\s+(.+)$/);
     if (headingMatch?.[1]) {
       headings.push(cleanMarkdownCell(headingMatch[1]));
+      continue;
     }
+    if (/^[-*+]\s+/.test(trimmed)) continue;
+    paragraphs.push(cleanMarkdownCell(trimmed));
   }
-  return summarizePreviewList("headings", headings, MARKDOWN_HEADING_PREVIEW_LIMIT);
+  const lines: string[] = [];
+  const titleLine = frontmatter?.title || headings[0];
+  if (titleLine) {
+    lines.push(truncateSnippetLine(`doc: ${titleLine}`));
+  }
+  const headingSummary = summarizePreviewList(
+    "sections",
+    titleLine === headings[0] ? headings.slice(1) : headings,
+    MARKDOWN_HEADING_PREVIEW_LIMIT,
+  );
+  if (frontmatter?.metaLine) {
+    lines.push(frontmatter.metaLine);
+  }
+  if (headingSummary) {
+    lines.push(headingSummary);
+  }
+  const teaser = frontmatter?.teaser || paragraphs.find((paragraph) => paragraph && paragraph !== titleLine);
+  if (teaser) {
+    lines.push(truncateSnippetLine(teaser, 64));
+  }
+  return compactPreviewLines(lines);
+}
+
+function parseOrgHeadingSummary(trimmed: string): OrgHeadingSummary | null {
+  const headingMatch = trimmed.match(/^\*+\s+(.+)$/);
+  if (!headingMatch?.[1]) {
+    return null;
+  }
+  let body = headingMatch[1].trim();
+  const tagsMatch = body.match(/\s+(:[A-Za-z0-9_@#%:-]+:)$|^(:[A-Za-z0-9_@#%:-]+:)$/);
+  let tags: string[] = [];
+  if (tagsMatch?.[1]) {
+    tags = tagsMatch[1].split(":").filter(Boolean);
+    body = body.slice(0, body.length - tagsMatch[1].length).trim();
+  }
+  const todoMatch = body.match(/^([A-Z][A-Z0-9_-]+)\b/);
+  const todo = todoMatch?.[1] && ORG_TODO_KEYWORDS.has(todoMatch[1]) ? todoMatch[1] : undefined;
+  if (todo) {
+    body = body.slice(todo.length).trim();
+  }
+  body = body.replace(/^\[#.[^\]]*\]\s*/, "").trim();
+  body = body.replace(/^(?:\[[^\]]+\]|\([^\)]+\))\s*/, "").trim();
+  const title = cleanMarkdownCell(body);
+  if (!title) {
+    return null;
+  }
+  return { title, ...(todo ? { todo } : {}), tags };
+}
+
+function buildOrgTodoTagSummary(todoCounts: Map<string, number>, tags: string[]): string | undefined {
+  const todoParts = [...todoCounts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, DOC_METADATA_PREVIEW_LIMIT)
+    .map(([todo, count]) => `${todo}=${count}`);
+  const uniqueTags = [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))];
+  if (todoParts.length > 0 && uniqueTags.length > 0) {
+    const visibleTags = uniqueTags.slice(0, ORG_TAG_PREVIEW_LIMIT).join(", ");
+    const suffix = uniqueTags.length > ORG_TAG_PREVIEW_LIMIT ? ` +${uniqueTags.length - ORG_TAG_PREVIEW_LIMIT}` : "";
+    return truncateSnippetLine(`todo: ${todoParts.join(" · ")} · tags=${visibleTags}${suffix}`, 96);
+  }
+  if (todoParts.length > 0) {
+    return summarizePreviewPairs("todo", todoParts, DOC_METADATA_PREVIEW_LIMIT, 96);
+  }
+  return summarizePreviewList("tags", uniqueTags, ORG_TAG_PREVIEW_LIMIT);
+}
+
+function buildOrgSnippet(text: string): string | undefined {
+  if (!text || text.includes("\0")) return undefined;
+  const headings: string[] = [];
+  const paragraphs: string[] = [];
+  const propertyEntries: string[] = [];
+  const todoCounts = new Map<string, number>();
+  const tagValues: string[] = [];
+  let title = "";
+  let inBlock = false;
+  let inProperties = false;
+  for (const rawLine of text.split(/\r?\n/)) {
+    const trimmed = rawLine.trim();
+    if (!trimmed) continue;
+    const lower = trimmed.toLowerCase();
+    if (lower.startsWith("#+begin_")) {
+      inBlock = true;
+      continue;
+    }
+    if (lower.startsWith("#+end_")) {
+      inBlock = false;
+      continue;
+    }
+    if (inBlock) continue;
+    if (lower === ":properties:") {
+      inProperties = true;
+      continue;
+    }
+    if (lower === ":end:" && inProperties) {
+      inProperties = false;
+      continue;
+    }
+    if (lower.startsWith("#+title:")) {
+      title = cleanMarkdownCell(trimmed.slice(8));
+      continue;
+    }
+    if (inProperties) {
+      const propertyMatch = trimmed.match(/^:([^:]+):\s*(.*)$/);
+      if (propertyMatch?.[1]) {
+        const key = propertyMatch[1].trim().toUpperCase();
+        const value = cleanMarkdownCell(propertyMatch[2] ?? "");
+        propertyEntries.push(value ? `${key}=${truncateSnippetLine(value, 24)}` : key);
+      }
+      continue;
+    }
+    if (trimmed.startsWith("#+")) continue;
+    const headingSummary = parseOrgHeadingSummary(trimmed);
+    if (headingSummary) {
+      headings.push(headingSummary.title);
+      if (headingSummary.todo) {
+        todoCounts.set(headingSummary.todo, (todoCounts.get(headingSummary.todo) ?? 0) + 1);
+      }
+      tagValues.push(...headingSummary.tags);
+      continue;
+    }
+    if (/^[-+]\s+/.test(trimmed)) continue;
+    paragraphs.push(cleanMarkdownCell(trimmed));
+  }
+  const lines: string[] = [];
+  const titleLine = title || headings[0];
+  if (titleLine) {
+    lines.push(truncateSnippetLine(`doc: ${titleLine}`));
+  }
+  const propertySummary = summarizePreviewPairs("props", propertyEntries, DOC_METADATA_PREVIEW_LIMIT, 96);
+  if (propertySummary) {
+    lines.push(propertySummary);
+  }
+  const todoTagSummary = buildOrgTodoTagSummary(todoCounts, tagValues);
+  if (todoTagSummary) {
+    lines.push(todoTagSummary);
+  }
+  const headingSummary = summarizePreviewList(
+    "headings",
+    title ? headings : headings.slice(1),
+    ORG_HEADING_PREVIEW_LIMIT,
+  );
+  if (headingSummary) {
+    lines.push(headingSummary);
+  }
+  const teaser = paragraphs.find((paragraph) => paragraph && paragraph !== titleLine);
+  if (teaser) {
+    lines.push(truncateSnippetLine(teaser, 64));
+  }
+  return compactPreviewLines(lines);
 }
 
 function candidateMatchesRef(candidate: ConstructCandidate, ref: ConstructRef): boolean {
@@ -759,6 +1051,8 @@ export function buildFilePreviewMeta(filePath: string, content: string): FilePre
           ? buildTomlSnippet(content) ?? sanitizeFileSnippet(content)
           : extension === "md"
             ? buildMarkdownSnippet(content) ?? sanitizeFileSnippet(content)
+            : extension === "org"
+              ? buildOrgSnippet(content) ?? sanitizeFileSnippet(content)
       : sanitizeFileSnippet(content);
   return {
     typeLabel: fileExtensionLabel(filePath),

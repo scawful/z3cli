@@ -229,6 +229,7 @@ test("buildFilePreviewMeta summarizes markdown headings outside code fences", ()
     "README.md",
     [
       "# Oracle of Secrets",
+      "A Zelda hacking workspace for Oracle and ALTTP experiments.",
       "",
       "## Build",
       "```md",
@@ -242,7 +243,81 @@ test("buildFilePreviewMeta summarizes markdown headings outside code fences", ()
 
   assert.deepEqual(preview, {
     typeLabel: "md",
-    snippet: "headings: Oracle of Secrets, Build, Debugging, Notes +1",
+    snippet: "doc: Oracle of Secrets\nsections: Build, Debugging, Notes, Appendix\nA Zelda hacking workspace for Oracle and ALTTP experiments.",
+  });
+});
+
+test("buildFilePreviewMeta uses markdown frontmatter for doc metadata summaries", () => {
+  const preview = buildFilePreviewMeta(
+    "docs/guide.md",
+    [
+      "---",
+      "title: Dungeon Hook Notes",
+      "status: draft",
+      "tags:",
+      "  - asm",
+      "  - zelda",
+      "owner: nayru",
+      "project: oracle-of-secrets",
+      "slug: dungeon-hook-notes",
+      "updated: 2026-04-18",
+      "summary: Notes for validating hook callsites.",
+      "---",
+      "# Fallback Heading",
+      "## Checklist",
+    ].join("\n"),
+  );
+
+  assert.deepEqual(preview, {
+    typeLabel: "md",
+    snippet: "doc: Dungeon Hook Notes\nmeta: status=draft · tags=asm, zelda · updated=2026-04-18 · owner=nayru +2\nsections: Fallback Heading, Checklist",
+  });
+});
+
+test("buildFilePreviewMeta summarizes org titles with TODO and tag rollups", () => {
+  const preview = buildFilePreviewMeta(
+    "Docs/notes.org",
+    [
+      "#+title: Debug Notebook",
+      "",
+      "* TODO Crash triage :bug:",
+      "Track the black-screen repro and compare savestates.",
+      "* TODO Hooks :asm:",
+      "#+begin_src asm",
+      "* ignored source heading",
+      "#+end_src",
+      "* DONE References :docs:",
+      "* Follow-up",
+      "* Appendix",
+    ].join("\n"),
+  );
+
+  assert.deepEqual(preview, {
+    typeLabel: "org",
+    snippet: "doc: Debug Notebook\ntodo: TODO=2 · DONE=1 · tags=bug, asm, docs\nheadings: Crash triage, Hooks, References, Follow-up +1",
+  });
+});
+
+test("buildFilePreviewMeta summarizes org property drawers before fallback headings", () => {
+  const preview = buildFilePreviewMeta(
+    "Docs/handoff.org",
+    [
+      "#+title: Room Handoff",
+      "* Active Issues",
+      ":PROPERTIES:",
+      ":CREATED: [2026-04-18]",
+      ":CUSTOM_ID: room-handoff",
+      ":ROM: oos168",
+      ":STATUS: active",
+      ":END:",
+      "Track the remaining room edge cases.",
+      "* Follow-up",
+    ].join("\n"),
+  );
+
+  assert.deepEqual(preview, {
+    typeLabel: "org",
+    snippet: "doc: Room Handoff\nprops: CREATED=[2026-04-18] · CUSTOM_ID=room-handoff · ROM=oos168 · STATUS=active\nheadings: Active Issues, Follow-up",
   });
 });
 
