@@ -13,14 +13,14 @@ implementations remain intentionally out-of-band. The goal is to make the
 surface area stable enough for tooling and docs while keeping internals
 iterative.
 
-- `oracle` is the canonical Zelda workflow lane
-- `oracle-fast` is the lower-latency lane for quick checks and light edits
+- `oracle` is the canonical Zelda workflow model
+- `oracle-fast` is the lower-latency model for quick checks and light edits
 - legacy compatibility aliases still resolve so old notes/scripts do not break
 
 ## Experimental Focus
 
 ▲ Contract stability over implementation churn  
-▲ Behavioral consistency across modes and fast/slow lanes  
+▲ Behavioral consistency across modes and fast/slow models  
 ▲ Observability on model choice, routing, and tool call outcomes  
 ▲ Safe incremental rollout of new specialists and aliases  
 
@@ -46,9 +46,9 @@ iterative.
 
 ## Early signals worth showing
 
-▲ Local command/repl and serve flows share the same lane model (`oracle` / `oracle-fast`)  
+▲ Local command/repl and serve flows share the same model contract (`oracle` / `oracle-fast`)  
 ▲ Model-scoped history prevents context bleed between specialists  
-▲ Legacy names map to canonical lanes without confusing end users  
+▲ Legacy names map to canonical model aliases without confusing end users  
 ▲ The project is already usable as a public case study for model routing in
   ROM-hacking tooling
 
@@ -102,8 +102,8 @@ different title if you prefer:
     },
     {
       "type": "markdown",
-      "title": "Current Lanes",
-      "body": "- `oracle`: primary long-form lane\n- `oracle-fast`: latency-focused quick lane\n- legacy aliases preserved as compatibility adapters"
+      "title": "Current Models",
+      "body": "- `oracle`: primary long-form model\n- `oracle-fast`: latency-focused quick model\n- legacy aliases preserved as compatibility adapters"
     }
   ]
 }

@@ -3,19 +3,26 @@
 z3cli exposes a **public routing contract** for model names while keeping
 deployments and checkpoints private.
 
-This page is safe to publish publicly and acts as a portfolio note for
-`github.com/scawful/z3cli` or a future `halext.org` write-up.
+This page is now more operator-facing than public-sanitized. It keeps the
+canonical Oracle model names, but it no longer tries to hide the concrete local
+developer model variants that are useful in day-to-day z3cli work.
 
 ## What is exposed in this repo
 
-- Canonical lanes:
-  - `oracle` — primary long-form Zelda workflow lane
-  - `oracle-fast` — lower-latency fast path
-- Legacy compatibility aliases are accepted for continuity:
-  - `oracle-main-plan`, `oracle-main-act`, `oracle-tools`
-  - `switchhook`, `switchhook-plan`, `switchhook-act`
-- Specialist names are visible only as stable aliases that map to internally
-  configured implementations at runtime.
+- Canonical models:
+  - `oracle` — `8B corrective Oracle · q4km`
+  - `oracle-fast` — `8-9B fast Oracle · live alias`
+- Heavy model:
+  - `oracle-pro` — `27B switchhook Oracle · q4km`
+- Direct local developer variants:
+  - `qwen3-oracle-8b` / `oracle-q8` — `8B corrective Oracle · q8_0`
+  - `nayru` / `nayru-q8` — `9B Qwen3.5 explainer · q8_0`
+  - `farore` / `farore-q8` — `9B Qwen3.5 debug/FIM · q8_0`
+  - `farore-q4km` — `9B Qwen3.5 debug/FIM · q4km`
+  - `majora` / `majora-q4km` — `9B Qwen3.5 architecture · q4km`
+  - `hylia` / `hylia-q8` — `9B Qwen3.5 lore/history · q8_0`
+  - `hylia-q4km` — `9B Qwen3.5 lore/history · q4km`
+- Legacy compatibility aliases still resolve quietly, but the real working names are the ones above.
 
 ## Public capabilities snapshot
 
@@ -31,22 +38,19 @@ This page is safe to publish publicly and acts as a portfolio note for
 
 ## Why this split is intentional
 
-- The repo documents the **behavioral contract** (commands, modes, aliases, routing)
-  and not the underlying private model artifacts.
-- Alias names and routing semantics can stay stable while checkpoints evolve.
-- This lets you show capability progress publicly without exposing:
-  - model IDs / checkpoint names
-  - provider credentials
-  - training data provenance
-  - proprietary evals and rollout gates
+- The repo still documents the behavioral contract first, but for local
+  operator use it now also exposes the concrete model IDs and quant variants.
+- Alias names and routing semantics can still stay stable while checkpoints
+  evolve.
 
 ## Public one-minute summary
 
 - `oracle` is the canonical entry point for sustained Zelda work.
-- `oracle-fast` is intentionally narrower/faster for quick interactions.
-- Legacy names still resolve to avoid breakage in existing notes/scripts.
-- Specialists are accessible through the same catalog contract but their concrete
-  definitions are intentionally runtime-local.
+- `oracle-fast` is the intentionally narrower/faster quick model.
+- `oracle-pro` is the explicit heavy-model opt-in and is not the default local path.
+- The local Qwen3.5 specialist bench is intentionally visible in z3cli:
+  `nayru`, `farore`, `farore-q4km`, `majora`, `hylia`, and `hylia-q4km`.
+- The concrete definitions are local and developer-oriented rather than hidden.
 
 ## Where to publish full detail
 

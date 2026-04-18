@@ -1,0 +1,35 @@
+[settings]
+enforce = false
+
+[aliases.oracle]
+note = "8B corrective Oracle · q4km"
+
+[aliases.oracle-fast]
+note = "8-9B fast Oracle · live alias"
+
+[aliases.oracle-pro]
+note = "27B switchhook Oracle · q4km"
+
+[aliases.qwen3-oracle-8b]
+note = "8B corrective Oracle · q8_0"
+
+[aliases.nayru]
+note = "9B Qwen3.5 explainer · q8_0"
+
+[aliases.farore]
+note = "9B Qwen3.5 debug/FIM · q8_0"
+
+[aliases.farore-q4km]
+note = "9B Qwen3.5 debug/FIM · q4km"
+
+[aliases.majora]
+note = "9B Qwen3.5 architecture · q4km"
+
+[aliases.hylia]
+note = "9B Qwen3.5 lore/history · q8_0"
+
+[aliases.hylia-q4km]
+note = "9B Qwen3.5 lore/history · q4km"
+
+[aliases.veran]
+note = "9B Qwen3.5 deep analysis · q8_0 (install to enable)"
