@@ -154,6 +154,7 @@ _OBJECT_METADATA_FILES = {
     "water": Path("Docs/Debugging/Issues/WaterCollision_Handoff.md"),
     "water_script": Path("scripts/Generate/generate_water_gate_runtime_tables.py"),
 }
+_YAZE_ROOM_OBJECT_HEADER = Path("src/zelda3/dungeon/room_object.h")
 _SPRITE_CATALOG_SECTION_KINDS = {
     "Bosses": "sprite",
     "Enemies": "sprite",
@@ -1042,6 +1043,74 @@ def _catalog_match_keys(entry: dict[str, str]) -> set[str]:
     return {key for key in keys if key}
 
 
+def _display_relative_path(root: Path, target: Path) -> str:
+    try:
+        return os.path.relpath(target, root)
+    except Exception:
+        return str(target)
+
+
+def _extract_c_string_entries(array_body: str) -> list[str]:
+    values: list[str] = []
+    for match in re.finditer(r'"((?:\\.|[^"\\])*)"', array_body, re.DOTALL):
+        raw = str(match.group(1) or "")
+        values.append(raw.replace(r'\"', '"').replace(r'\\', '\\'))
+    return values
+
+
+def _discover_yaze_room_object_header(root: Path) -> Path | None:
+    candidates = [
+        root / _YAZE_ROOM_OBJECT_HEADER,
+        root / "yaze" / _YAZE_ROOM_OBJECT_HEADER,
+        root.parent / "yaze" / _YAZE_ROOM_OBJECT_HEADER,
+        root.parent.parent / "yaze" / _YAZE_ROOM_OBJECT_HEADER,
+    ]
+    seen: set[Path] = set()
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if resolved.is_file():
+            return resolved
+    return None
+
+
+@lru_cache(maxsize=16)
+def _load_yaze_canonical_object_names(workspace: str) -> dict[str, dict[str, str]]:
+    root = Path(workspace).expanduser().resolve()
+    header_path = _discover_yaze_room_object_header(root)
+    if header_path is None:
+        return {}
+    try:
+        text = header_path.read_text(encoding="utf-8")
+    except Exception:
+        return {}
+
+    array_specs = [
+        ("Type1RoomObjectNames", 0x000),
+        ("Type2RoomObjectNames", 0x100),
+        ("Type3RoomObjectNames", 0xF80),
+    ]
+    names: dict[str, dict[str, str]] = {}
+    source = _display_relative_path(root, header_path)
+    for array_name, base_id in array_specs:
+        match = re.search(
+            rf"{array_name}\[\]\s*=\s*\{{(?P<body>.*?)\}};",
+            text,
+            re.DOTALL,
+        )
+        if match is None:
+            continue
+        for index, label in enumerate(_extract_c_string_entries(str(match.group("body") or ""))):
+            object_id = base_id + index
+            names[_format_construct_id(object_id)] = {
+                "label": _clean_markdown_cell(label),
+                "source": source,
+            }
+    return names
+
+
 @lru_cache(maxsize=16)
 def _load_workspace_sprite_catalog(workspace: str) -> dict[str, list[dict[str, str]]]:
     root = Path(workspace).expanduser().resolve()
@@ -1229,6 +1298,17 @@ def _load_workspace_object_id_metadata(workspace: str) -> dict[str, dict[str, An
                 entry["subtypes"].append(subtype_text)
         if source and source not in entry["sources"]:
             entry["sources"].append(source)
+
+    for object_id, canonical in _load_yaze_canonical_object_names(str(root)).items():
+        try:
+            numeric_id = int(object_id, 16)
+        except ValueError:
+            continue
+        upsert(
+            numeric_id,
+            str(canonical.get("label") or f"Object {object_id}"),
+            source=str(canonical.get("source") or ""),
+        )
 
     handler_path = root / _OBJECT_METADATA_FILES["handler"]
     if handler_path.is_file():

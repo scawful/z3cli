@@ -123,7 +123,34 @@ class FakeRomBridge:
         return None
 
 
+def write_minimal_yaze_object_header(
+    root: Path,
+    *,
+    type1: list[str],
+    type2: list[str] | None = None,
+    type3: list[str] | None = None,
+) -> None:
+    header_dir = root / "yaze" / "src" / "zelda3" / "dungeon"
+    header_dir.mkdir(parents=True, exist_ok=True)
+    type2 = type2 or ["Extended Object"]
+    type3 = type3 or ["Special Object"]
+
+    def render(name: str, values: list[str]) -> str:
+        body = "\n".join(f'    "{value}",' for value in values)
+        return f"constexpr static inline const char* {name}[] = {{\n{body}\n}};"
+
+    (header_dir / "room_object.h").write_text(
+        "\n\n".join([
+            render("Type1RoomObjectNames", type1),
+            render("Type2RoomObjectNames", type2),
+            render("Type3RoomObjectNames", type3),
+        ]),
+        encoding="utf-8",
+    )
+
+
 class RuntimeAttachmentTests(unittest.TestCase):
+
     def test_auto_lsp_context_scales_with_model_size(self) -> None:
         small = resolve_lsp_context_settings("auto", model=None)
         medium = resolve_lsp_context_settings(
@@ -284,6 +311,29 @@ class RuntimeAttachmentTests(unittest.TestCase):
             self.assertEqual(len(refs), 2)
             self.assertEqual(refs[0]["label"], "Floor tiles")
             self.assertEqual(refs[1]["label"], "big key door")
+
+    def test_resolve_message_construct_refs_prefers_canonical_yaze_object_names(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp) / "oracle-of-secrets"
+            workspace.mkdir(parents=True, exist_ok=True)
+            docs_dir = workspace / "Docs" / "World" / "Dungeons"
+            docs_dir.mkdir(parents=True, exist_ok=True)
+            (docs_dir / "TestDungeon_Map.md").write_text(
+                "\n".join([
+                    "| Room | Notes |",
+                    "|------|-------|",
+                    "| Key Objects | Floor tiles (0x22×5) |",
+                ]),
+                encoding="utf-8",
+            )
+            type1 = [f"Object {index:02X}" for index in range(0x23)]
+            type1[0x22] = "Canonical Rail"
+            write_minimal_yaze_object_header(Path(tmp), type1=type1)
+
+            refs = resolve_message_construct_refs(workspace, "inspect #object:0x22")
+
+            self.assertEqual(len(refs), 1)
+            self.assertEqual(refs[0]["label"], "Canonical Rail")
 
     def test_enrich_prompt_with_construct_refs_appends_context_block(self) -> None:
         prompt = "inspect this room"
@@ -462,6 +512,20 @@ class RuntimeAttachmentAsyncTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("Object ID: 0x22", enriched[0]["context_pack"])
             self.assertIn("Aliases: Floor tiles", enriched[0]["context_pack"])
             self.assertIn("TestDungeon_Map.md", enriched[0]["context_pack"])
+
+    async def test_add_construct_context_packs_uses_canonical_yaze_object_names(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp) / "oracle-of-secrets"
+            workspace.mkdir(parents=True, exist_ok=True)
+            type1 = [f"Object {index:02X}" for index in range(0x23)]
+            type1[0x22] = "Canonical Rail"
+            write_minimal_yaze_object_header(Path(tmp), type1=type1)
+
+            refs = [{"kind": "object", "query": "0x22", "id": "0x22", "label": "Canonical Rail", "token": "#object:0x22"}]
+            enriched = await add_construct_context_packs(refs, bridge=None, workspace=workspace)
+
+            self.assertIn("Object ID: 0x22", enriched[0]["context_pack"])
+            self.assertIn("../yaze/src/zelda3/dungeon/room_object.h", enriched[0]["context_pack"])
 
     async def test_enrich_prompt_with_attachments_renders_context_pack_before_file(self) -> None:
         prompt = "inspect this file"
