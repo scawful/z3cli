@@ -118,6 +118,32 @@ test("dispatchCommand opens the help panel for /help", async () => {
   assert.equal(opened, 1);
 });
 
+test("dispatchCommand opens the model manager for /model-manager", async () => {
+  let opened = 0;
+
+  await dispatchCommand("/model-manager", [], {
+    config: null,
+    settings: {} as any,
+    addSystemMessage: () => {},
+    replaceMessages: () => {},
+    replaceSubagents: () => {},
+    updateConfig: () => {},
+    sendCommand: async () => null,
+    sendMessage: async () => {},
+    setSetting: () => {},
+    resetSettings: () => {},
+    openSettings: () => {},
+    openHelp: () => {},
+    openModelManager: () => {
+      opened += 1;
+    },
+    openSessionPicker: () => {},
+    exit: () => {},
+  });
+
+  assert.equal(opened, 1);
+});
+
 test("dispatchCommand keeps local tool toggle state in sync", async () => {
   const messages: string[] = [];
   const updates: Array<Record<string, unknown>> = [];

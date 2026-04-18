@@ -9,11 +9,20 @@
 import React from "react";
 import { Box, Text } from "ink";
 import { modelColor, modelSymbol, symbols } from "../theme/index.js";
+import { ThinkingTraceBlock } from "./ThinkingTraceBlock.js";
 import { useSettingsContext } from "../contexts/SettingsContext.js";
 import { useAnimatedFrame } from "../hooks/useAnimatedFrame.js";
 import { buildSubagentForest, type SubagentEntry, type SubagentTreeNode } from "../utils/subagentState.js";
+import { buildThinkingDisplay, showSubagentThinking } from "../utils/thinking.js";
 
 const PREVIEW_LINES = 4;
+const PREVIEW_CHARS = 240;
+
+export interface SubagentPreview {
+  text: string;
+  truncated: boolean;
+  overflowLabel?: string;
+}
 
 function statusIndicator(status: SubagentEntry["status"], colors: any): { symbol: string; color: string } {
   switch (status) {
@@ -33,10 +42,57 @@ function formatDuration(startedAt: number, finishedAt?: number): string {
   return `${mins}m${rem > 0 ? `${rem}s` : ""}`;
 }
 
-function lastLines(text: string, count: number): string {
-  const lines = text.split("\n");
-  if (lines.length <= count) return text.trim();
-  return lines.slice(-count).join("\n").trim();
+export function buildSubagentPreview(
+  text: string,
+  status: SubagentEntry["status"],
+  count: number = PREVIEW_LINES,
+): SubagentPreview {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return { text: "", truncated: false };
+  }
+  const lines = trimmed.split("\n");
+  const lineTruncated = lines.length > count;
+  const visible = lineTruncated
+    ? status === "running"
+      ? lines.slice(-count)
+      : lines.slice(0, count)
+    : lines;
+  const previewText = visible.join("\n").trim();
+  const charOverflow = Math.max(0, previewText.length - PREVIEW_CHARS);
+  if (!lineTruncated && charOverflow === 0) {
+    return { text: previewText, truncated: false };
+  }
+  const textPreview = charOverflow > 0
+    ? status === "running"
+      ? previewText.slice(-PREVIEW_CHARS).trimStart()
+      : previewText.slice(0, PREVIEW_CHARS).trimEnd()
+    : previewText;
+  return {
+    text: textPreview,
+    truncated: true,
+    overflowLabel: lineTruncated
+      ? `${lines.length - count} more lines`
+      : `${charOverflow} more chars`,
+  };
+}
+
+export function buildSubagentThinkingPreview(
+  thinking: string,
+  status: SubagentEntry["status"],
+  detail: "preview" | "full",
+): SubagentPreview {
+  const mode = status === "running" ? "tail" : "head";
+  const preview = buildThinkingDisplay(thinking, detail, {
+    mode,
+    lineLimit: PREVIEW_LINES,
+    charLimit: PREVIEW_CHARS,
+  });
+  return {
+    text: preview.text,
+    truncated: preview.truncated,
+    overflowLabel: preview.overflowLabel,
+  };
 }
 
 function RunningSpinner({ color }: { color: string }): React.ReactElement {
@@ -51,20 +107,21 @@ function SubagentRow({
   entry: SubagentEntry;
   level: number;
 }): React.ReactElement {
-  const { colors } = useSettingsContext();
+  const { colors, settings } = useSettingsContext();
   const tint = modelColor(entry.model, colors);
   const marker = modelSymbol(entry.model);
   const indicator = statusIndicator(entry.status, colors);
   const duration = formatDuration(entry.startedAt, entry.finishedAt);
   const isNested = level > 0;
 
-  const preview =
-    entry.status === "running"
-      ? lastLines(entry.text, PREVIEW_LINES)
-      : entry.text.trim();
-
-  const showPreview = preview.length > 0;
+  const preview = buildSubagentPreview(entry.text, entry.status);
+  const showPreview = preview.text.length > 0;
   const showError = entry.status === "error" && entry.error;
+  const showThinking = showSubagentThinking(settings.showThinking, entry.status) && !showError;
+  const thinkingPreview = showThinking
+    ? buildSubagentThinkingPreview(entry.thinking, entry.status, settings.thinkingDetail)
+    : { text: "", truncated: false };
+  const showThinkingPreview = thinkingPreview.text.length > 0;
 
   return (
     <Box paddingLeft={level * 2} flexDirection="column">
@@ -110,8 +167,21 @@ function SubagentRow({
       {showError ? (
         <Text color={colors.error}>{entry.error}</Text>
       ) : null}
+      {showThinkingPreview ? (
+        <ThinkingTraceBlock
+          content={entry.thinking}
+          mode={entry.status === "running" ? "tail" : "head"}
+          label={`${entry.name} reasoning`}
+          compact
+        />
+      ) : null}
       {showPreview && !showError ? (
-        <Text dimColor>{preview}</Text>
+        <>
+          <Text dimColor>{preview.text}</Text>
+          {preview.truncated && preview.overflowLabel ? (
+            <Text dimColor>··· {preview.overflowLabel}</Text>
+          ) : null}
+        </>
       ) : null}
       </Box>
     </Box>

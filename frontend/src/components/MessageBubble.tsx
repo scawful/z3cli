@@ -8,7 +8,7 @@
 
 import React from "react";
 import { Box, Text } from "ink";
-import { Markdown, highlightHexAddresses } from "./Markdown.js";
+import { Markdown } from "./Markdown.js";
 import { JsonArgList } from "./JsonArgList.js";
 import {
   symbols,
@@ -25,8 +25,8 @@ import {
   summarizeToolResult,
 } from "../utils/tooling.js";
 import { constructToken } from "../utils/prompt.js";
-import { buildThinkingDisplay, showTranscriptThinking } from "../utils/thinking.js";
-import { ReasoningToggleButton } from "./ReasoningToggleButton.js";
+import { showTranscriptThinking } from "../utils/thinking.js";
+import { ThinkingTraceBlock } from "./ThinkingTraceBlock.js";
 
 interface MessageBubbleProps {
   message: Message;
@@ -104,38 +104,6 @@ function ConstructRefList({
           {ref.label ? <Text dimColor>{ref.label}</Text> : null}
         </Box>
       ))}
-    </Box>
-  );
-}
-
-function AssistantThinkingBlock({
-  thinking,
-}: {
-  thinking: string;
-}): React.ReactElement | null {
-  const { colors, settings } = useSettingsContext();
-  const preview = buildThinkingDisplay(thinking, settings.thinkingDetail, { mode: "head" });
-  if (!preview.text) return null;
-  return (
-    <Box
-      borderStyle="round"
-      borderColor={colors.dim}
-      paddingX={1}
-      marginBottom={1}
-      flexDirection="column"
-    >
-      <Box justifyContent="space-between">
-        <Box gap={1}>
-          <Text color={colors.muted}>{symbols.thinking[0]}</Text>
-          <Text dimColor>reasoning</Text>
-          {preview.lineCount > 6 ? <Text dimColor>({preview.lineCount} lines)</Text> : null}
-        </Box>
-        <ReasoningToggleButton />
-      </Box>
-      <Text dimColor>{highlightHexAddresses(preview.text)}</Text>
-      {preview.truncated && preview.overflowLabel ? (
-        <Text dimColor>··· {preview.overflowLabel}</Text>
-      ) : null}
     </Box>
   );
 }
@@ -297,7 +265,7 @@ export function MessageBubble({ message }: MessageBubbleProps): React.ReactEleme
           : null}
       </Box>
       <Box flexDirection="column" paddingLeft={1}>
-        {visibleThinking ? <AssistantThinkingBlock thinking={visibleThinking} /> : null}
+        {visibleThinking ? <ThinkingTraceBlock content={visibleThinking} mode="head" label="reasoning trace" /> : null}
         {content.trim() ? <Markdown>{content}</Markdown> : null}
       </Box>
     </Box>

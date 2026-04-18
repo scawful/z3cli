@@ -49,6 +49,7 @@ export interface CommandContext {
   resetSettings: () => void;
   openSettings: () => void;
   openHelp: () => void;
+  openModelManager?: () => void;
   openSessionPicker: (sessions: SessionInfo[]) => void;
   exit: () => void;
 }
@@ -339,6 +340,8 @@ const COMMANDS: Record<string, Handler> = {
   "/exit": async (_, ctx) => ctx.exit(),
 
   "/help": async (_, ctx) => ctx.openHelp(),
+
+  "/model-manager": async (_, ctx) => ctx.openModelManager?.(),
 
   "/models": async (_, ctx) => {
     if (!ctx.config) return;

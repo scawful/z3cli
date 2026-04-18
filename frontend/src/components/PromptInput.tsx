@@ -109,6 +109,7 @@ interface PromptInputProps {
   sessions?: SessionInfo[] | null;
   paletteTrigger?: number;
   onCycleMode?: () => void;
+  onOpenModelManager?: () => void;
   onSessionClose?: () => void;
   onDraftFilesChange?: (files: AttachmentMeta[]) => void;
   onDraftConstructRefsChange?: (refs: ConstructRef[]) => void;
@@ -133,6 +134,7 @@ export function PromptInput({
   sessions,
   paletteTrigger = 0,
   onCycleMode,
+  onOpenModelManager,
   onSessionClose,
   onDraftFilesChange,
   onDraftConstructRefsChange,
@@ -872,7 +874,11 @@ export function PromptInput({
         }
         if (isEnter) {
           const selected = filteredPalette[paletteIndex];
-          if (selected) submitAndRecord(selected.command);
+          if (selected?.key === "model-manager") {
+            onOpenModelManager?.();
+          } else if (selected) {
+            submitAndRecord(selected.command);
+          }
           setSelector(null);
           return;
         }
@@ -1021,6 +1027,10 @@ export function PromptInput({
         // Intercept bare /model and /mode
         if (trimmed.toLowerCase() === "/model") { openModelPicker(); return; }
         if (trimmed.toLowerCase() === "/mode") { openModePicker(); return; }
+        if (trimmed.toLowerCase() === "/loaded" || trimmed.toLowerCase() === "/model-manager") {
+          onOpenModelManager?.();
+          return;
+        }
         submitAndRecord(value);
         return;
       }

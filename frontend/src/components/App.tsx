@@ -25,6 +25,7 @@ import { PromptInput } from "./PromptInput.js";
 import { TitleBar } from "./TitleBar.js";
 import { SettingsPanel } from "./SettingsPanel.js";
 import { HelpPanel } from "./HelpPanel.js";
+import { ModelManagerPanel } from "./ModelManagerPanel.js";
 import { PermissionDialog } from "./PermissionDialog.js";
 import { ContextPanel } from "./ContextPanel.js";
 import { TranscriptScroll } from "./TranscriptScroll.js";
@@ -88,6 +89,7 @@ export interface StreamingCancelHotkeyState {
   rawModeSupported: boolean;
   settingsOpen: boolean;
   helpOpen: boolean;
+  modelManagerOpen: boolean;
   hasPendingPermission: boolean;
   hasPendingReview: boolean;
 }
@@ -122,6 +124,7 @@ export function shouldEnableStreamingCancelHotkeys(
     && state.isStreaming
     && !state.settingsOpen
     && !state.helpOpen
+    && !state.modelManagerOpen
     && !state.hasPendingPermission
     && !state.hasPendingReview
   );
@@ -152,6 +155,7 @@ export function App({ pythonPath, backendArgs, batchCommands, onSummaryUpdate }:
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [modelManagerOpen, setModelManagerOpen] = useState(false);
   const [pickerSessions, setPickerSessions] = useState<SessionInfo[] | null>(null);
   const [recentSessions, setRecentSessions] = useState<SessionInfo[]>([]);
   const [draftFiles, setDraftFiles] = useState<AttachmentMeta[]>([]);
@@ -215,6 +219,7 @@ export function App({ pythonPath, backendArgs, batchCommands, onSummaryUpdate }:
     resetSettings,
     openSettings: () => setSettingsOpen(true),
     openHelp: () => setHelpOpen(true),
+    openModelManager: () => setModelManagerOpen(true),
     openSessionPicker: (sessions: SessionInfo[]) => setPickerSessions(sessions),
     exit,
   }), [config, settings, addSystemMessage, replaceMessages, replaceSubagents, updateConfig, sendCommand, sendMessage, setSetting, resetSettings, exit]);
@@ -249,6 +254,7 @@ export function App({ pythonPath, backendArgs, batchCommands, onSummaryUpdate }:
         rawModeSupported: Boolean(process.stdin.isTTY),
         settingsOpen,
         helpOpen,
+        modelManagerOpen,
         hasPendingPermission: Boolean(pendingPermission),
         hasPendingReview: Boolean(pendingReview),
       }),
@@ -266,6 +272,7 @@ export function App({ pythonPath, backendArgs, batchCommands, onSummaryUpdate }:
         Boolean(process.stdin.isTTY)
         && !settingsOpen
         && !helpOpen
+        && !modelManagerOpen
         && !pendingPermission
         && !pendingReview,
     },
@@ -277,6 +284,7 @@ export function App({ pythonPath, backendArgs, batchCommands, onSummaryUpdate }:
     isActive:
       !settingsOpen
       && !helpOpen
+      && !modelManagerOpen
       && !pendingPermission
       && !pendingReview,
     sidePanelScrollRef: computeContextPanelLayout(terminalWidth, settingsOpen).visible
@@ -299,6 +307,7 @@ export function App({ pythonPath, backendArgs, batchCommands, onSummaryUpdate }:
         && !isStreaming
         && !settingsOpen
         && !helpOpen
+        && !modelManagerOpen
         && !pendingPermission
         && !pendingReview,
     },
@@ -481,6 +490,10 @@ export function App({ pythonPath, backendArgs, batchCommands, onSummaryUpdate }:
           ? <HelpPanel onClose={() => setHelpOpen(false)} />
           : null}
 
+        {modelManagerOpen
+          ? <ModelManagerPanel config={config} onClose={() => setModelManagerOpen(false)} />
+          : null}
+
         {pendingPermission && settings.uiMode !== "admin" ? (
           <PermissionDialog
             name={pendingPermission.name}
@@ -517,11 +530,12 @@ export function App({ pythonPath, backendArgs, batchCommands, onSummaryUpdate }:
             focusFile={config.focusFile}
           hasStickyPermissions={Object.keys(config.permissionRules ?? {}).length > 0}
           recentSessions={recentSessions}
-          disabled={isStreaming || settingsOpen || helpOpen || Boolean(pendingPermission) || Boolean(pendingReview)}
+          disabled={isStreaming || settingsOpen || helpOpen || modelManagerOpen || Boolean(pendingPermission) || Boolean(pendingReview)}
           isStreaming={isStreaming}
-          hint={settingsOpen ? `settings open ${symbols.dot} Esc to close` : helpOpen ? `Book of Mudora open ${symbols.dot} Esc to close` : undefined}
+          hint={settingsOpen ? `settings open ${symbols.dot} Esc to close` : helpOpen ? `Book of Mudora open ${symbols.dot} Esc to close` : modelManagerOpen ? `oracle register open ${symbols.dot} Esc to close` : undefined}
           sessions={pickerSessions}
           onCycleMode={cycleMode}
+          onOpenModelManager={() => setModelManagerOpen(true)}
           onSessionClose={() => setPickerSessions(null)}
           onDraftFilesChange={setDraftFiles}
           onDraftConstructRefsChange={setDraftConstructRefs}
