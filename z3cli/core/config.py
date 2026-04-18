@@ -174,6 +174,9 @@ class ModelConfig:
     lmstudio_ttl: int = 0
     allow_auto_load: bool = True
     rollout_block_reason: str = ""
+    visibility: str = ""
+    spawn_only: bool = False
+    spawnable_by: list[str] = field(default_factory=list)
     aliases: list[str] = field(default_factory=list)
 
     @property
@@ -301,17 +304,63 @@ def get_registry_aliases() -> dict[str, str]:
     return dict(_MODEL_ALIAS_MAP)
 
 
+def model_visibility(model: ModelConfig | None) -> str:
+    if model is None:
+        return "public"
+    visibility = _normalize_domain_mode_name(getattr(model, "visibility", ""))
+    return visibility or "public"
+
+
+def is_hidden_model(model: ModelConfig | None) -> bool:
+    return model_visibility(model) in {"hidden", "internal"}
+
+
+def is_spawn_only_model(model: ModelConfig | None) -> bool:
+    if model is None:
+        return False
+    if bool(getattr(model, "spawn_only", False)):
+        return True
+    return model_visibility(model) == "spawn-only"
+
+
+def direct_model_selection_error(model: ModelConfig | None) -> str | None:
+    if model is None:
+        return None
+    if is_spawn_only_model(model):
+        return f"Model '{model.name}' is internal-only and can only be invoked via delegation."
+    return None
+
+
+def can_spawn_model(parent_model: str, model: ModelConfig | None) -> bool:
+    if model is None:
+        return False
+    normalized_parent = _normalize_domain_mode_name(parent_model)
+    if is_spawn_only_model(model) and not normalized_parent:
+        return False
+    allowed_parents = {
+        _normalize_domain_mode_name(name)
+        for name in getattr(model, "spawnable_by", [])
+        if _normalize_domain_mode_name(name)
+    }
+    if allowed_parents and normalized_parent not in allowed_parents:
+        return False
+    return True
+
+
 def load_rollout_gates(path: Path | None = None) -> dict[str, RolloutGate]:
     path = path or _default_rollout_gates_path()
     if not path.exists():
         return {}
 
     with path.open("rb") as handle:
-        data = tomllib.load(handle)
+        loaded = tomllib.load(handle)
+    data: dict[str, Any] = loaded if isinstance(loaded, dict) else {}
 
-    settings = data.get("settings") if isinstance(data.get("settings"), dict) else {}
+    settings_obj = data.get("settings")
+    settings: dict[str, Any] = settings_obj if isinstance(settings_obj, dict) else {}
     default_enforce = bool(settings.get("enforce", True))
-    raw_aliases = data.get("aliases") if isinstance(data.get("aliases"), dict) else {}
+    aliases_obj = data.get("aliases")
+    raw_aliases: dict[str, Any] = aliases_obj if isinstance(aliases_obj, dict) else {}
 
     gates: dict[str, RolloutGate] = {}
     for alias, raw_gate in raw_aliases.items():
@@ -352,10 +401,13 @@ def _load_profile_sections(
 
 def _load_profile_defaults(data: dict[str, Any]) -> None:
     global _PROFILE_DEFAULTS
-    defaults = data.get("profile_defaults") if isinstance(data.get("profile_defaults"), dict) else {}
+    defaults_obj = data.get("profile_defaults")
+    defaults: dict[str, Any] = defaults_obj if isinstance(defaults_obj, dict) else {}
+    domain_default = defaults["domain"] if "domain" in defaults else "adaptive"
+    mode_default = defaults["mode"] if "mode" in defaults else "adaptive"
     _PROFILE_DEFAULTS = {
-        "domain": _normalize_profile_name(defaults.get("domain", "adaptive")) or "adaptive",
-        "mode": _normalize_profile_name(defaults.get("mode", "adaptive")) or "adaptive",
+        "domain": _normalize_profile_name(domain_default) or "adaptive",
+        "mode": _normalize_profile_name(mode_default) or "adaptive",
     }
 
 
@@ -427,7 +479,12 @@ def list_zelda_models(models: dict[str, ModelConfig], *, include_legacy: bool = 
     return {
         name: model
         for name, model in models.items()
-        if is_zelda_model(model) and (include_legacy or not is_legacy_zelda_model(name))
+        if (
+            is_zelda_model(model)
+            and not is_hidden_model(model)
+            and not is_spawn_only_model(model)
+            and (include_legacy or not is_legacy_zelda_model(name))
+        )
     }
 
 
@@ -457,6 +514,8 @@ def is_z3ui_model(name: str) -> bool:
 def is_z3ui_model_entry(model: ModelConfig | None) -> bool:
     if model is None or not model.is_local:
         return False
+    if is_hidden_model(model) or is_spawn_only_model(model):
+        return False
     if is_z3ui_model(model.name):
         return True
     tags_lower = {tag.lower() for tag in model.tags}
@@ -477,7 +536,8 @@ def load_registry(
         return models, routers
 
     with path.open("rb") as handle:
-        data = tomllib.load(handle)
+        loaded = tomllib.load(handle)
+    data: dict[str, Any] = loaded if isinstance(loaded, dict) else {}
 
     _load_profile_defaults(data)
 
@@ -548,6 +608,13 @@ def load_registry(
             lmstudio_ttl=int(lmstudio_load.get("ttl", 0) or 0),
             allow_auto_load=bool(raw_model.get("allow_auto_load", raw_model.get("lmstudio_auto_load", True))),
             rollout_block_reason=str(raw_model.get("rollout_block_reason", "") or "").strip(),
+            visibility=_normalize_domain_mode_name(raw_model.get("visibility", "")),
+            spawn_only=bool(raw_model.get("spawn_only", False)),
+            spawnable_by=[
+                _normalize_profile_name(str(parent))
+                for parent in (raw_model.get("spawnable_by") or [])
+                if _normalize_profile_name(str(parent))
+            ],
             aliases=[
                 str(alias).strip().lower()
                 for alias in (raw_model.get("aliases") or [])
@@ -601,7 +668,8 @@ def load_mcp_servers(
         return servers
 
     with path.open(encoding="utf-8") as handle:
-        data = json.load(handle)
+        loaded = json.load(handle)
+    data: dict[str, Any] = loaded if isinstance(loaded, dict) else {}
 
     for name, cfg in (data.get("mcpServers") or {}).items():
         if filter_names and name not in filter_names:

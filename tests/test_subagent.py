@@ -360,6 +360,38 @@ class SubagentBridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("nayru", names)
         self.assertIn("farore", names)
 
+    async def test_lists_specialists_exposes_spawn_only_worker_to_allowed_parent(self) -> None:
+        models = {
+            "oracle": make_model("oracle"),
+            "oracle-coder": make_model("oracle-coder"),
+        }
+        models["oracle-coder"].visibility = "hidden"
+        models["oracle-coder"].spawn_only = True
+        models["oracle-coder"].spawnable_by = ["oracle", "oracle-fast"]
+        runner = SubagentRunner()
+        bridge = SubagentBridge(runner=runner, models=models, parent_model="oracle")
+
+        raw = await bridge.call_tool("list_subagents", {})
+        data = json.loads(raw)
+
+        self.assertEqual([entry["name"] for entry in data["specialists"]], ["oracle-coder"])
+
+    async def test_lists_specialists_hide_spawn_only_worker_from_disallowed_parent(self) -> None:
+        models = {
+            "claude-sonnet": make_model("claude-sonnet"),
+            "oracle-coder": make_model("oracle-coder"),
+        }
+        models["oracle-coder"].visibility = "hidden"
+        models["oracle-coder"].spawn_only = True
+        models["oracle-coder"].spawnable_by = ["oracle", "oracle-fast"]
+        runner = SubagentRunner()
+        bridge = SubagentBridge(runner=runner, models=models, parent_model="claude-sonnet")
+
+        raw = await bridge.call_tool("list_subagents", {})
+        data = json.loads(raw)
+
+        self.assertEqual(data["specialists"], [])
+
     async def test_rejects_unknown_model(self) -> None:
         runner = SubagentRunner()
         bridge = SubagentBridge(runner=runner, models={})
@@ -451,6 +483,21 @@ class SubagentBridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(captured["model"], "nayru")
         self.assertEqual(captured["system_context"], "context:nayru:inspect this")
         self.assertEqual(json.loads(raw)["text"], "ok")
+
+    async def test_rejects_spawn_only_worker_for_disallowed_parent(self) -> None:
+        models = {"oracle-coder": make_model("oracle-coder")}
+        models["oracle-coder"].visibility = "hidden"
+        models["oracle-coder"].spawn_only = True
+        models["oracle-coder"].spawnable_by = ["oracle", "oracle-fast"]
+        runner = SubagentRunner()
+        bridge = SubagentBridge(runner=runner, models=models, parent_model="claude-sonnet")
+
+        result = await bridge.call_tool(
+            SPAWN_TOOL_NAME,
+            {"model": "oracle-coder", "prompt": "repair this hook"},
+        )
+
+        self.assertIn("not available", result)
 
     def test_exposes_two_tools(self) -> None:
         runner = SubagentRunner()

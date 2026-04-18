@@ -13,6 +13,8 @@ from typing import Any
 from z3cli.core.config import (
     ModelConfig,
     RouterConfig,
+    can_spawn_model,
+    direct_model_selection_error,
     get_registry_aliases,
     LEGACY_ZELDA_MODEL_NAMES,
     list_zelda_models,
@@ -90,6 +92,28 @@ HIGH_EFFORT_KEYWORDS = (
     "analysis",
     "cause",
     "why",
+)
+ORACLE_CODER_ALIAS = "oracle-coder"
+ORACLE_FAMILY_MODELS = {"oracle", "oracle-fast", "oracle-pro"}
+ORACLE_CODER_AUTHOR_KEYWORDS = (
+    "add ",
+    "author",
+    "change ",
+    "code",
+    "edit ",
+    "fill in",
+    "fim",
+    "fix ",
+    "generate",
+    "hook",
+    "implement",
+    "infill",
+    "patch",
+    "refactor",
+    "repair",
+    "replace",
+    "rewrite",
+    "write",
 )
 _ORACLE_FAST_LEGACY_ALIASES = {
     "oracle-main-fast": "oracle-fast",
@@ -662,13 +686,20 @@ def _preferred_startup_model(
 def ensure_model_available(model: ModelConfig | None) -> None:
     if model is None:
         raise RuntimeError("Unknown model configuration")
+    selection_error = direct_model_selection_error(model)
+    if selection_error:
+        raise RuntimeError(selection_error)
     reason = blocked_model_reason(model)
     if reason:
         raise RuntimeError(reason)
 
 
 def ensure_targets_available(targets: list[ModelConfig]) -> None:
-    blocked = [reason for target in targets if (reason := blocked_model_reason(target))]
+    blocked = [
+        reason
+        for target in targets
+        if (reason := direct_model_selection_error(target) or blocked_model_reason(target))
+    ]
     if blocked:
         raise RuntimeError(blocked[0])
 
@@ -816,6 +847,59 @@ def build_local_identity_prompt(model: ModelConfig) -> str:
         "Do not claim to be Claude, Anthropic, OpenAI, or ChatGPT.",
         "If the user asks who you are, answer with this local model or persona name and the fact that you are running locally in z3cli.",
     ])
+
+
+def _is_oracle_family_model(model: ModelConfig | None) -> bool:
+    if model is None:
+        return False
+    return _normalize_profile_name(model.name) in ORACLE_FAMILY_MODELS
+
+
+def prompt_prefers_oracle_coder(prompt: str) -> bool:
+    prompt_lower = prompt.lower()
+    if "```" in prompt:
+        return True
+    if any(keyword in prompt_lower for keyword in ORACLE_CODER_AUTHOR_KEYWORDS):
+        return True
+    _domain_name, mode_name, _effort = _infer_prompt_profiles(prompt)
+    return mode_name == "author"
+
+
+def build_oracle_coder_prompt(
+    model: ModelConfig,
+    prompt: str,
+    models: dict[str, ModelConfig],
+) -> str:
+    if not _is_oracle_family_model(model):
+        return ""
+    worker = models.get(ORACLE_CODER_ALIAS)
+    if worker is None or not can_spawn_model(model.name, worker):
+        return ""
+
+    authoring_request = prompt_prefers_oracle_coder(prompt)
+    lines = []
+    if authoring_request:
+        lines.append(
+            "This request is code-authoring work. Delegate the code-writing pass to `spawn_subagent` with model `oracle-coder` unless the user explicitly asked for analysis only.",
+        )
+    else:
+        lines.append(
+            "When a request turns into concrete code authoring, repair, hook writing, refactoring, infill, or repo-grounded patch synthesis, prefer delegating the authoring pass to `spawn_subagent` with model `oracle-coder`.",
+        )
+    lines.extend([
+        "Use tools yourself first when you still need current files, symbols, ROM context, or emulator evidence.",
+        "When you delegate, give `oracle-coder` a self-contained brief with the concrete files, constraints, ABI or width expectations, and the exact patch or replacement you want back.",
+        "After `oracle-coder` returns, verify or sanity-check the candidate patch before giving the final answer.",
+    ])
+    if _normalize_profile_name(model.name) == "oracle-fast":
+        lines.append(
+            "Quality-first policy: for real code changes, prefer `oracle-coder` even when you could draft the patch yourself.",
+        )
+    else:
+        lines.append(
+            "For trace-only, explain-only, or evidence-gathering turns, you can answer directly without delegating.",
+        )
+    return "\n".join(lines)
 
 
 def load_focus_file(

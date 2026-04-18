@@ -274,6 +274,27 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([str(item["name"]) for item in params["models"]], ["oracle"])
 
+    def test_build_ready_params_hides_spawn_only_internal_worker(self) -> None:
+        state = ServeState()
+        state.models = {
+            "oracle": ModelConfig(name="oracle", model_id="oracle", role="planner", tools_enabled=True),
+            "oracle-fast": ModelConfig(name="oracle-fast", model_id="oracle-fast", role="fast", tools_enabled=True),
+            "oracle-coder": ModelConfig(
+                name="oracle-coder",
+                model_id="qwen25-oracle-coder-7b-v1",
+                role="internal coding worker",
+                tags=["oracle", "z3ui"],
+                visibility="hidden",
+                spawn_only=True,
+                spawnable_by=["oracle", "oracle-fast"],
+                tools_enabled=True,
+            ),
+        }
+
+        params = build_ready_params(state)
+
+        self.assertEqual([str(item["name"]) for item in params["models"]], ["oracle", "oracle-fast"])
+
     def test_build_ready_params_includes_tagged_local_z3ui_models(self) -> None:
         state = ServeState()
         state.models = {
@@ -1189,6 +1210,74 @@ role = "context specialist"
             self.assertIsNotNone(engine.chat_kwargs)
             assert engine.chat_kwargs is not None
             self.assertFalse(engine.chat_kwargs["use_tools"])
+            state.session.close()
+
+    async def test_handle_chat_exposes_oracle_coder_to_oracle_fast_and_injects_quality_prompt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            session_dir = workspace / "sessions"
+            state = ServeState()
+            state.workspace = workspace
+            state.models = {
+                "oracle-fast": ModelConfig(
+                    name="oracle-fast",
+                    model_id="oracle-fast",
+                    role="fast local model",
+                    tools_enabled=True,
+                ),
+                "oracle-coder": ModelConfig(
+                    name="oracle-coder",
+                    model_id="qwen25-oracle-coder-7b-v1",
+                    role="internal coding worker",
+                    tags=["oracle"],
+                    visibility="hidden",
+                    spawn_only=True,
+                    spawnable_by=["oracle", "oracle-fast"],
+                    tools_enabled=True,
+                ),
+            }
+            state.active_model = "oracle-fast"
+            state.session = Session(session_dir)
+            state.session.start(
+                active_model=state.active_model,
+                backend=state.backend_name,
+                mode=state.mode,
+                workspace=str(state.workspace),
+                rom_path="",
+                tools_enabled=state.tools_enabled,
+                broadcast_models=state.broadcast_models,
+            )
+
+            class FakeEngine:
+                def __init__(self) -> None:
+                    self.bridge = None
+                    self.chat_kwargs: dict | None = None
+
+                def cancel(self) -> None:
+                    return None
+
+                async def chat(self, **kwargs):  # type: ignore[no-untyped-def]
+                    self.chat_kwargs = dict(kwargs)
+                    yield DoneEvent()
+
+            engine = FakeEngine()
+            state.get_engine = lambda _name: engine  # type: ignore[method-assign]
+
+            with patch("z3cli.app.serve.resolve_request_model_name", return_value="oracle-fast"), patch(
+                "z3cli.app.serve._notify",
+                side_effect=lambda method, params=None: None,
+            ):
+                await handle_chat(state, 16, {"message": "repair this asm hook"}, request_id="req-16")
+
+            self.assertIsNotNone(engine.chat_kwargs)
+            assert engine.chat_kwargs is not None
+            self.assertIn("Delegate the code-writing pass to `spawn_subagent` with model `oracle-coder`", engine.chat_kwargs["system"])
+            self.assertIn("Quality-first policy", engine.chat_kwargs["system"])
+            assert engine.bridge is not None
+            tool_names = [tool["function"]["name"] for tool in engine.bridge.get_openai_tools()]
+            self.assertIn("spawn_subagent", tool_names)
+            spawn_tool = next(tool for tool in engine.bridge.get_openai_tools() if tool["function"]["name"] == "spawn_subagent")
+            self.assertEqual(spawn_tool["function"]["parameters"]["properties"]["model"]["enum"], ["oracle-coder"])
             state.session.close()
 
     async def test_handle_chat_sanitizes_tool_backed_answer_and_anchors_evidence(self) -> None:

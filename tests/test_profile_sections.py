@@ -318,3 +318,34 @@ role = "legacy oracled view model"
             self.assertIn("oracle", visible_with_legacy)
             self.assertNotIn("legacy-oracle-view", visible)
             self.assertIn("legacy-oracle-view", visible_with_legacy)
+
+    def test_registry_parses_spawn_only_visibility_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            registry_path = self._write_registry(
+                tmp,
+                """
+[[models]]
+name = "oracle"
+provider = "studio"
+model_id = "gguf/zelda/main-1"
+
+[[models]]
+name = "oracle-coder"
+provider = "studio"
+model_id = "qwen25-oracle-coder-7b-v1"
+visibility = "hidden"
+spawn_only = true
+spawnable_by = ["oracle", "oracle-fast"]
+tags = ["oracle"]
+                """.strip(),
+            )
+            models, _ = config_mod.load_registry(
+                registry_path,
+                rollout_path=self._write_empty_rollout(tmp),
+            )
+
+            worker = models["oracle-coder"]
+            self.assertEqual(worker.visibility, "hidden")
+            self.assertTrue(worker.spawn_only)
+            self.assertEqual(worker.spawnable_by, ["oracle", "oracle-fast"])
+            self.assertNotIn("oracle-coder", config_mod.list_zelda_models(models))

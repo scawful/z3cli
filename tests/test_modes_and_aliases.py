@@ -16,6 +16,7 @@ from z3cli.app.runtime import (
     DEFAULT_ACTIVE_MODEL,
     DEFAULT_ORACLE_MAIN_MODEL,
     choose_startup_model,
+    ensure_model_available,
     normalize_mode,
     resolve_existing_model_name,
     resolve_model_name,
@@ -164,6 +165,29 @@ class ModeAndAliasTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("glados", visible)
         self.assertNotIn("oracle-mythic", visible)
         self.assertNotIn("oracle-avatar-debugger", visible)
+
+    def test_list_zelda_models_hide_spawn_only_internal_entries(self) -> None:
+        models = _state().models
+        models["oracle-coder"] = _model(
+            "oracle-coder",
+            role="internal coding worker",
+            tags=["oracle"],
+        )
+        models["oracle-coder"].visibility = "hidden"
+        models["oracle-coder"].spawn_only = True
+        models["oracle-coder"].spawnable_by = ["oracle", "oracle-fast"]
+
+        visible = list_zelda_models(models)
+
+        self.assertNotIn("oracle-coder", visible)
+
+    def test_ensure_model_available_rejects_spawn_only_internal_model(self) -> None:
+        model = _model("oracle-coder", role="internal coding worker", tags=["oracle"])
+        model.visibility = "hidden"
+        model.spawn_only = True
+
+        with self.assertRaisesRegex(RuntimeError, "internal-only"):
+            ensure_model_available(model)
 
     def test_visible_model_infos_use_filtered_operational_model_list(self) -> None:
         state = _state()

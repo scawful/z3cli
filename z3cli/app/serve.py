@@ -50,6 +50,7 @@ from z3cli.app.ipc_schema import (
 )
 from z3cli.core.config import (
     API_BASE, MCP_CONFIG_PATH, REGISTRY_PATH, ModelConfig, Z3UI_MODEL_ORDER,
+    direct_model_selection_error,
     is_z3ui_model, is_z3ui_model_entry, z3ui_model_sort_key,
     load_registry, list_zelda_models, rollout_warnings,
 )
@@ -73,7 +74,7 @@ from z3cli.app.runtime import (
     DEFAULT_WORKSPACE, LSP_CONTEXT_MODES, ORCHESTRATOR_MODE, SPECIALIST_NAMES, VALID_BACKENDS, VALID_MODES,
     add_attachment_context_packs,
     add_construct_context_packs,
-    build_harness_prompt, build_local_identity_prompt, build_orchestrator_prompt, build_tool_bias_prompt, build_tool_use_prompt, current_model_name,
+    build_harness_prompt, build_local_identity_prompt, build_oracle_coder_prompt, build_orchestrator_prompt, build_tool_bias_prompt, build_tool_use_prompt, current_model_name,
     blocked_model_reason,
     choose_startup_model,
     default_orchestrator_model, engine_key, enrich_prompt_with_attachments, enrich_prompt_with_construct_refs,
@@ -526,21 +527,46 @@ async def _forward_subagent_event(state: "ServeState", event: SubagentEvent) -> 
     elif isinstance(event, SubagentErrorEvent):
         _notify("subagent/error", subagent_error_params(event.id, event.message))
 
-def _build_orchestrator_catalog(state: "ServeState") -> str:
+def _make_request_subagent_bridge(
+    state: "ServeState",
+    model: ModelConfig,
+    *,
+    parent_id: str = "",
+) -> SubagentBridge:
+    return SubagentBridge(
+        runner=state.subagent_runner,
+        models=state.models,
+        system_context_fn=state.subagent_runner.resolve_system_context,
+        parent_model=model.name,
+        parent_id=parent_id,
+    )
+
+
+def _compose_request_bridge(
+    state: "ServeState",
+    model: ModelConfig,
+    *,
+    parent_id: str = "",
+) -> ToolBridge | None:
+    base_bridge = wrap_bridge_for_model(
+        state.bridge,
+        model.tool_profile,
+        read_only=not state.tools_write,
+        deferred_tools=model.deferred_tools,
+        core_tools=model.core_tools,
+    )
+    if state.subagent_tools_enabled or state.mode == ORCHESTRATOR_MODE:
+        subagent_bridge = _make_request_subagent_bridge(state, model, parent_id=parent_id)
+        if base_bridge is None:
+            base_bridge = subagent_bridge
+        else:
+            base_bridge = CompositeBridge([base_bridge, subagent_bridge])
+    return state.apply_tool_budget(base_bridge)
+
+
+def _build_orchestrator_catalog(state: "ServeState", model: ModelConfig) -> str:
     """Build the orchestrator system prompt using the current specialist registry."""
-    specialists: list[dict] = []
-    for name in sorted(state.models):
-        model = state.models[name]
-        # Only expose models the orchestrator can actually spawn
-        if model.is_cloud and not model.resolve_api_key():
-            continue
-        specialists.append({
-            "name": name,
-            "provider": model.provider,
-            "role": model.role,
-            "description": model.description,
-            "tool_profile": model.tool_profile,
-        })
+    specialists = _make_request_subagent_bridge(state, model).specialist_entries()
     return build_orchestrator_prompt(specialists)
 
 
@@ -1209,22 +1235,6 @@ async def refresh_tool_bridge(state: ServeState) -> None:
             state.mcp_path,
             rom_path=getattr(state, "rom_path", None),
         )
-        # Compose the subagent bridge alongside the main tool surface so
-        # orchestrator models can delegate to specialist subagents. Always
-        # enabled in orchestrator mode regardless of user preference.
-        expose_subagents = state.subagent_tools_enabled or state.mode == ORCHESTRATOR_MODE
-        if expose_subagents and state.models:
-            subagent_bridge = SubagentBridge(
-                runner=state.subagent_runner,
-                models=state.models,
-                system_context_fn=state.subagent_runner.resolve_system_context,
-            )
-            if bridge is None:
-                bridge = subagent_bridge
-            elif isinstance(bridge, CompositeBridge):
-                bridge.add_bridge(subagent_bridge)
-            else:
-                bridge = CompositeBridge([bridge, subagent_bridge])
         await replace_bridge(state, bridge, warnings)
     await _refresh_focus_context(state)
 
@@ -1834,12 +1844,7 @@ async def handle_chat(
         retry_backoff_start = int(getattr(engine, "provider_retry_backoff_ms", 0))
         provider_errors_start = int(getattr(engine, "provider_error_count", 0))
         tool_timeout_start = int(getattr(engine, "tool_timeout_count", 0))
-        effective_bridge = wrap_bridge_for_model(
-            state.bridge, target.tool_profile, read_only=not state.tools_write,
-            deferred_tools=target.deferred_tools,
-            core_tools=target.core_tools,
-        )
-        effective_bridge = state.apply_tool_budget(effective_bridge)
+        effective_bridge = _compose_request_bridge(state, target)
         engine.bridge = effective_bridge
         tools_available = bool(effective_bridge and state.tools_enabled and target.tools_enabled)
         use_native_tools = bool(tools_available and target.native_tools)
@@ -1863,7 +1868,10 @@ async def handle_chat(
             ),
         ]
         if state.mode == ORCHESTRATOR_MODE:
-            system_parts.append(_build_orchestrator_catalog(state))
+            system_parts.append(_build_orchestrator_catalog(state, target))
+        oracle_coder_prompt = build_oracle_coder_prompt(target, message, state.models)
+        if oracle_coder_prompt:
+            system_parts.append(oracle_coder_prompt)
         system_parts.extend(resolve_oracle_profile_system_prompts(message))
         system_parts.append(target.system_prompt)
         system = merge_system_prompts(*system_parts)
@@ -3036,6 +3044,10 @@ async def handle_command(state: ServeState, req_id: int, params: dict) -> None:
         model_cfg = state.models.get(model_name)
         if model_cfg is None:
             _respond(req_id, error=f"Unknown model: {model_name}")
+            return
+        selection_error = direct_model_selection_error(model_cfg)
+        if selection_error:
+            _respond(req_id, error=selection_error)
             return
 
         config = SubagentConfig(

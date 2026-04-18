@@ -13,7 +13,7 @@ import inspect
 import json
 from typing import Awaitable, Callable
 
-from z3cli.core.config import ModelConfig
+from z3cli.core.config import ModelConfig, can_spawn_model
 from z3cli.core.subagent import SubagentConfig, SubagentRunner
 from z3cli.core.tool_bridge import ToolBridge
 
@@ -74,20 +74,42 @@ class SubagentBridge:
 
     # -- ToolBridge protocol -------------------------------------------------
 
-    def _available_model_names(self) -> list[str]:
+    def _available_models(self) -> list[tuple[str, ModelConfig]]:
         blocked = set(self._parent_chain)
         if self._parent_model:
             blocked.add(self._parent_model)
         if self._current_depth + 1 > self._runner.max_depth:
             return []
-        return sorted(
-            name
-            for name, model in self._models.items()
-            if (model.is_local or model.resolve_api_key()) and name not in blocked
-        )
+        entries: list[tuple[str, ModelConfig]] = []
+        for name in sorted(self._models):
+            model = self._models[name]
+            if not (model.is_local or model.resolve_api_key()):
+                continue
+            if name in blocked:
+                continue
+            if not can_spawn_model(self._parent_model, model):
+                continue
+            entries.append((name, model))
+        return entries
+
+    def available_model_names(self) -> list[str]:
+        return [name for name, _model in self._available_models()]
+
+    def specialist_entries(self) -> list[dict[str, object]]:
+        entries: list[dict[str, object]] = []
+        for name, model in self._available_models():
+            entries.append({
+                "name": name,
+                "provider": model.provider,
+                "role": model.role,
+                "description": model.description,
+                "tool_profile": model.tool_profile,
+                "thinking": bool(model.thinking_tier),
+            })
+        return entries
 
     def get_openai_tools(self) -> list[dict]:
-        available = self._available_model_names()
+        available = self.available_model_names()
         return [
             {
                 "type": "function",
@@ -185,22 +207,7 @@ class SubagentBridge:
         if self._parent_model:
             blocked.add(self._parent_model)
         depth_exhausted = self._current_depth + 1 > self._runner.max_depth
-        available = set(self._available_model_names())
-        entries: list[dict] = []
-        for name in sorted(self._models):
-            model = self._models[name]
-            if model.is_cloud and not model.resolve_api_key():
-                continue
-            if name not in available:
-                continue
-            entries.append({
-                "name": name,
-                "provider": model.provider,
-                "role": model.role,
-                "description": model.description,
-                "tool_profile": model.tool_profile,
-                "thinking": bool(model.thinking_tier),
-            })
+        entries = self.specialist_entries()
         payload: dict[str, object] = {"specialists": entries}
         if depth_exhausted:
             payload["note"] = (
@@ -233,6 +240,9 @@ class SubagentBridge:
         if model_cfg is None:
             available = ", ".join(sorted(self._models))
             return f"Error: Unknown model '{model_name}'. Available: {available}"
+        if not can_spawn_model(self._parent_model, model_cfg):
+            caller = f"'{self._parent_model}'" if self._parent_model else "this caller"
+            return f"Error: Model '{model_name}' is not available to {caller}"
         if model_cfg.is_cloud and not model_cfg.resolve_api_key():
             return f"Error: Cloud model '{model_name}' has no API key configured"
 
