@@ -175,6 +175,25 @@ Keep vanilla ALTTP and Oracle-specific conventions separate.
 When the task is primarily trace or debug work, gather evidence before proposing a fix."""
 
 [[models]]
+name = "qwen3-oracle-14b"
+provider = "studio"
+model_id = "qwen3-oracle-14b-v1"
+role = "future 14B oracle mainline variant for grounded local Zelda work"
+description = "14B Oracle mainline · training label"
+tags = ["oracle", "tools", "asm", "local", "variant"]
+aliases = ["oracle-main-14b", "oracle-main-14b-v1", "oracle-14b"]
+deferred_tools = true
+native_tools = false
+hide_if_unavailable = true
+options = { temperature = 0.15, max_tokens = 2048 }
+system_prompt = """You are a grounded 14B Oracle mainline variant running inside z3cli.
+
+Prefer canonical tool surfaces when available.
+Do not invent symbols, addresses, tool names, or ROM evidence.
+Keep vanilla ALTTP and Oracle-specific conventions separate.
+When the task is primarily trace or debug work, gather evidence before proposing a fix."""
+
+[[models]]
 name = "oracle-pro"
 provider = "studio"
 model_id = "gguf/zelda/switchhook-27b-v1-q4km.gguf"

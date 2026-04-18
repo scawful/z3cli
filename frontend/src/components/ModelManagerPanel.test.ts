@@ -105,6 +105,14 @@ test("buildModelManagerTabs groups oracle and qwen families separately", () => {
         provider: "studio",
       },
       {
+        name: "qwen3-oracle-14b",
+        modelId: "qwen3-oracle-14b-v1",
+        role: "future oracle main",
+        loaded: false,
+        toolsEnabled: true,
+        provider: "studio",
+      },
+      {
         name: "oracle-pro",
         modelId: "gguf/zelda/switchhook-27b-v1-q4km.gguf",
         role: "heavy oracle",
@@ -125,8 +133,9 @@ test("buildModelManagerTabs groups oracle and qwen families separately", () => {
   } as any);
 
   assert.deepEqual(tabs.map((tab) => tab.label), ["Oracle", "Qwen"]);
-  assert.deepEqual(tabs[0]?.entries.map((entry) => entry.name), ["oracle", "oracle-pro"]);
+  assert.deepEqual(tabs[0]?.entries.map((entry) => entry.name), ["oracle", "qwen3-oracle-14b", "oracle-pro"]);
   assert.equal(tabs[0]?.entries[1]?.canActivate, false);
-  assert.equal(tabs[0]?.entries[1]?.catalogTag, "manual");
+  assert.equal(tabs[0]?.entries[1]?.catalogTag, "catalog");
+  assert.equal(tabs[0]?.entries[2]?.catalogTag, "manual");
   assert.deepEqual(tabs[1]?.entries.map((entry) => entry.name), ["qwen3-local-8b"]);
 });

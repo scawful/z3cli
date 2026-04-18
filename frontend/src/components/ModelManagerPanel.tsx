@@ -8,6 +8,7 @@ import { modelColor, modelSymbol, symbols } from "../theme/index.js";
 const VISIBLE_ROWS = 10;
 const ORACLE_MODEL_ORDER = [
   "oracle",
+  "qwen3-oracle-14b",
   "qwen3-oracle-8b",
   "oracle-fast",
   "oracle-pro",
@@ -36,6 +37,7 @@ const FAMILY_LABELS = {
 } as const;
 const ORACLE_MODELS = new Set<string>([
   "oracle",
+  "qwen3-oracle-14b",
   "oracle-fast",
   "oracle-pro",
   "oracle-coder",
