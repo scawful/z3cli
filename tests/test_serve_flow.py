@@ -318,6 +318,8 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
             "architecture": "qwen35",
             "quantization": "Q8_0",
             "queued": 0,
+            "estimated_gpu_bytes": int(9.95 * 1024 ** 3),
+            "estimated_total_bytes": int(9.95 * 1024 ** 3),
         }]), patch("z3cli.app.serve.loaded_model_runtime_infos", return_value=[{
             "identifier": "nayru",
             "model_key": "gguf/zelda/nayru-9b-q8_0.gguf",
@@ -329,12 +331,15 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
             "max_context_length": 262144,
             "architecture": "qwen35",
             "quantization": "Q8_0",
+            "estimated_gpu_bytes": int(9.95 * 1024 ** 3),
+            "estimated_total_bytes": int(9.95 * 1024 ** 3),
         }]):
             params = build_ready_params(state)
 
         self.assertEqual(params.get("loaded_model_count"), 1)
         self.assertEqual(params.get("loaded_model_memory_bytes"), 9_527_501_152)
         self.assertEqual(params["models"][0].get("size_bytes"), 9_527_501_152)
+        self.assertEqual(params["models"][0].get("estimated_gpu_bytes"), int(9.95 * 1024 ** 3))
         self.assertEqual((params.get("loaded_models") or [])[0].get("identifier"), "nayru")
 
     def test_build_ready_params_compacts_collision_warning_bursts(self) -> None:

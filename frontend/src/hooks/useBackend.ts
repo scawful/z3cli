@@ -564,6 +564,10 @@ export function useBackend(pythonPath: string, args: string[] = []): UseBackendR
                       typeof m.quantization === "string" ? m.quantization : undefined,
                     queued:
                       typeof m.queued === "number" ? m.queued : undefined,
+                    estimatedGpuBytes:
+                      typeof m.estimated_gpu_bytes === "number" ? m.estimated_gpu_bytes : undefined,
+                    estimatedTotalBytes:
+                      typeof m.estimated_total_bytes === "number" ? m.estimated_total_bytes : undefined,
                   }),
                 )
               : [],
@@ -587,6 +591,8 @@ export function useBackend(pythonPath: string, args: string[] = []): UseBackendR
                     ...(typeof candidate.status === "string" ? { status: candidate.status } : {}),
                     ...(typeof candidate.queued === "number" ? { queued: candidate.queued } : {}),
                     ...(typeof candidate.ttl_ms === "number" ? { ttlMs: candidate.ttl_ms } : {}),
+                    ...(typeof candidate.estimated_gpu_bytes === "number" ? { estimatedGpuBytes: candidate.estimated_gpu_bytes } : {}),
+                    ...(typeof candidate.estimated_total_bytes === "number" ? { estimatedTotalBytes: candidate.estimated_total_bytes } : {}),
                   }];
                 })
               : undefined,

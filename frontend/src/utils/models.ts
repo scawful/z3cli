@@ -85,8 +85,23 @@ export function formatContextLength(contextLength?: number): string {
   return `ctx ${contextLength}`;
 }
 
+export function formatModelEstimate(
+  estimatedGpuBytes?: number,
+  estimatedTotalBytes?: number,
+): string {
+  const gpu = formatModelMemory(estimatedGpuBytes);
+  const total = formatModelMemory(estimatedTotalBytes);
+  if (gpu && total) {
+    if (gpu === total) return `gpu/total ${gpu}`;
+    return `gpu ${gpu} · total ${total}`;
+  }
+  if (gpu) return `gpu ${gpu}`;
+  if (total) return `total ${total}`;
+  return "";
+}
+
 export function describeLoadedModelRuntime(
-  model: Pick<ModelInfo, "sizeBytes" | "status" | "parallel" | "queued" | "contextLength" | "quantization">,
+  model: Pick<ModelInfo, "sizeBytes" | "status" | "parallel" | "queued" | "contextLength" | "quantization" | "estimatedGpuBytes" | "estimatedTotalBytes">,
 ): string {
   const parts = [
     formatModelMemory(model.sizeBytes),
@@ -95,6 +110,7 @@ export function describeLoadedModelRuntime(
     model.queued && model.queued > 0 ? `q${model.queued}` : "",
     formatContextLength(model.contextLength),
     model.quantization?.trim() || "",
+    formatModelEstimate(model.estimatedGpuBytes, model.estimatedTotalBytes),
   ].filter(Boolean);
   return parts.join(" · ");
 }

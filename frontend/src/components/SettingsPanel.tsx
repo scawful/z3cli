@@ -11,7 +11,7 @@ import { useSettingsContext } from "../contexts/SettingsContext.js";
 import type { UISettings } from "../hooks/useSettings.js";
 
 interface SettingItem {
-  key: keyof UISettings;
+  key: keyof UISettings | "theme" | "showThinking" | "thinkingDetail" | "backend_tools" | "backend_write" | "backend_verify";
   label: string;
   description: string;
 }
@@ -30,7 +30,7 @@ type TabType = "Gear" | "Items" | "Map";
 
 const TABS: { type: TabType; label: string; symbol: string }[] = [
   { type: "Gear", label: "Gear", symbol: "⚔" },
-  { type: "Items", label: "Items", symbol: "🛡" },
+  { type: "Items", label: "Inventory", symbol: "🛡" },
   { type: "Map", label: "Map", symbol: "◎" },
 ];
 
@@ -38,8 +38,14 @@ const SETTINGS_BY_TAB: Record<TabType, SettingItem[]> = {
   Gear: [
     { key: "showTimestamps", label: "Message Timestamps", description: "Show time on assistant messages" },
     { key: "modeColoredBorder", label: "Mode-Colored Border", description: "TitleBar border reflects routing mode" },
+    { key: "theme", label: "UI Theme", description: "Cycle visual color palette" },
+    { key: "showThinking", label: "Reasoning Visibility", description: "Choose where model reasoning appears" },
+    { key: "thinkingDetail", label: "Reasoning Detail", description: "Toggle truncated previews versus full reasoning" },
   ],
   Items: [
+    { key: "backend_tools", label: "Master Sword (Tools)", description: "Toggle all tool bridge access" },
+    { key: "backend_write", label: "Hammer (Write Access)", description: "Toggle write/edit tool capability" },
+    { key: "backend_verify", label: "Shield (Auto-Verify)", description: "Toggle automatic post-edit verification" },
     { key: "toolsIndicator", label: "Tools Indicator", description: `${symbols.sword} icon shows tools on/off` },
     { key: "showToolGrouping", label: "Tool Result Grouping", description: "Show tool name header on result panels" },
     { key: "coloredToolArgs", label: "Colored Tool Args", description: "Color key/value pairs in tool arguments" },
@@ -55,15 +61,21 @@ interface SettingsPanelProps {
 }
 
 export function SettingsPanel({ onClose }: SettingsPanelProps): React.ReactElement {
-  const { settings, colors, toggleSetting, cycleTheme } = useSettingsContext();
+  const {
+    settings,
+    colors,
+    config,
+    execCommand,
+    toggleSetting,
+    cycleTheme,
+    cycleThinkingMode,
+    cycleThinkingDetail,
+  } = useSettingsContext();
   const [activeTabIdx, setActiveTabIdx] = useState(0);
   const [index, setIndex] = useState(0);
 
   const activeTab = TABS[activeTabIdx]!;
-  const tabItems = [
-    ...SETTINGS_BY_TAB[activeTab.type],
-    ...(activeTab.type === "Gear" ? [{ key: "theme", label: "UI Theme", description: `Current: ${settings.theme}` }] : []),
-  ];
+  const tabItems = SETTINGS_BY_TAB[activeTab.type];
 
   useInput((input, key) => {
     if (key.escape || input === "q") { onClose(); return; }
@@ -88,8 +100,19 @@ export function SettingsPanel({ onClose }: SettingsPanelProps): React.ReactEleme
     if (key.return || input === "\r" || input === "\n" || input === " ") {
       const item = tabItems[index];
       if (!item) return;
+
       if (item.key === "theme") {
         cycleTheme();
+      } else if (item.key === "showThinking") {
+        cycleThinkingMode();
+      } else if (item.key === "thinkingDetail") {
+        cycleThinkingDetail();
+      } else if (item.key === "backend_tools") {
+        execCommand?.("/tools", [config?.toolsEnabled ? "off" : "on"]);
+      } else if (item.key === "backend_write") {
+        execCommand?.("/tools-write", [config?.toolsWrite ? "off" : "on"]);
+      } else if (item.key === "backend_verify") {
+        execCommand?.("/verify-hooks", [config?.verifyHooks ? "off" : "on"]);
       } else {
         toggleSetting(item.key as keyof UISettings);
       }
@@ -119,11 +142,32 @@ export function SettingsPanel({ onClose }: SettingsPanelProps): React.ReactEleme
       </Box>
 
       {/* Items List */}
-      <Box flexDirection="column" height={10}>
+      <Box flexDirection="column" height={12}>
         {tabItems.map((item, i) => {
           const isSelected = i === index;
-          const isOn = item.key === "theme" ? true : (settings as any)[item.key];
-          const isTheme = item.key === "theme";
+
+          let isOn = false;
+          let valueLabel = "";
+          if (item.key === "theme") {
+            isOn = true;
+            valueLabel = settings.theme;
+          } else if (item.key === "showThinking") {
+            isOn = true;
+            valueLabel = settings.showThinking;
+          } else if (item.key === "thinkingDetail") {
+            isOn = true;
+            valueLabel = settings.thinkingDetail;
+          } else if (item.key === "backend_tools") {
+            isOn = !!config?.toolsEnabled;
+          } else if (item.key === "backend_write") {
+            isOn = !!config?.toolsWrite;
+          } else if (item.key === "backend_verify") {
+            isOn = !!config?.verifyHooks;
+          } else {
+            isOn = (settings as any)[item.key];
+          }
+
+          const isEnum = item.key === "theme" || item.key === "showThinking" || item.key === "thinkingDetail";
 
           return (
             <Box key={item.key} gap={1}>
@@ -132,13 +176,14 @@ export function SettingsPanel({ onClose }: SettingsPanelProps): React.ReactEleme
               </Text>
               <Box width={3}>
                 <Text color={isSelected ? colors.triforce : colors.dim}>
-                  {isTheme ? `[${symbols.crystal}]` : (isOn ? "[⚔]" : "[ ]")}
+                  {isEnum ? `[${symbols.crystal}]` : (isOn ? "[⚔]" : "[ ]")}
                 </Text>
               </Box>
               <Text color={isSelected ? colors.text : colors.muted} bold={isSelected}>
                 {item.label.padEnd(24)}
               </Text>
               <Text color={isSelected ? colors.accent : colors.muted}>{item.description}</Text>
+              {valueLabel ? <Text dimColor>· {valueLabel}</Text> : null}
             </Box>
           );
         })}
@@ -147,7 +192,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps): React.ReactEleme
       <Text> </Text>
       <Box justifyContent="center">
         <Text dimColor>
-          ←→ switch tab {symbols.dot} ↑↓ navigate {symbols.dot} Space toggle {symbols.dot} Esc close
+          ←→ switch tab {symbols.dot} ↑↓ navigate {symbols.dot} Space toggle or cycle
         </Text>
       </Box>
     </Box>

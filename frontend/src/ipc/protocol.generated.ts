@@ -140,6 +140,8 @@ export interface ReadyModelInfo {
   architecture?: string;
   quantization?: string;
   queued?: number;
+  estimated_gpu_bytes?: number;
+  estimated_total_bytes?: number;
 }
 
 export interface LoadedModelRuntimeInfo {
@@ -155,6 +157,8 @@ export interface LoadedModelRuntimeInfo {
   status?: string;
   queued?: number;
   ttl_ms?: number;
+  estimated_gpu_bytes?: number;
+  estimated_total_bytes?: number;
 }
 
 export interface ReadyParams {

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -10,6 +11,7 @@ import httpx
 from z3cli.core.config import ModelConfig
 from z3cli.protocol.lmstudio import (
     available_models_async,
+    estimate_model_memory_async,
     ensure_model_loaded,
     loaded_models_async,
     normalize_loaded_model_entry,
@@ -102,11 +104,27 @@ class LMStudioBackend:
                 value = entry.get(key)
                 if isinstance(value, str) and value:
                     lookup.setdefault(value, entry)
-        return [
+        details = [
             normalize_loaded_model_entry(entry, available_lookup=lookup)
             for entry in loaded_entries
             if isinstance(entry, dict)
         ]
+        estimates = await asyncio.gather(
+            *[
+                estimate_model_memory_async(
+                    self.host,
+                    self.port,
+                    str(item.get("model_key", "") or item.get("identifier", "")),
+                    context_length=int(item.get("context_length", 0) or 0),
+                )
+                for item in details
+            ],
+            return_exceptions=True,
+        )
+        for item, estimate in zip(details, estimates):
+            if isinstance(estimate, dict):
+                item.update(estimate)
+        return details
 
     async def unload_model(self, target: str = "", *, all_models: bool = False) -> dict[str, Any]:
         return await unload_model_async(self.host, self.port, target, all_models=all_models)

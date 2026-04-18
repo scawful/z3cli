@@ -34,7 +34,6 @@ function formatCompactCount(count: number): string {
 
 export interface ContextPanelLimits {
   compact: boolean;
-  diagnosticsLineLimit: number;
   draftFilesLimit: number;
   recentSessionsLimit: number;
   loadedModelsLimit: number;
@@ -48,7 +47,6 @@ export function deriveContextPanelLimits(
   const compact = width < 36 || viewportHeight <= 20;
   return {
     compact,
-    diagnosticsLineLimit: veryTight ? 4 : compact ? 5 : 7,
     draftFilesLimit: veryTight ? 3 : compact ? 4 : 5,
     recentSessionsLimit: veryTight ? 2 : compact ? 3 : 4,
     loadedModelsLimit: veryTight ? 2 : compact ? 3 : 4,
@@ -66,80 +64,12 @@ export function buildLoadedModelLines(config: AppConfig, lineLimit: number): str
         queued: entry.queued,
         contextLength: entry.contextLength,
         quantization: entry.quantization,
+        estimatedGpuBytes: entry.estimatedGpuBytes,
+        estimatedTotalBytes: entry.estimatedTotalBytes,
       });
       const label = entry.identifier || entry.displayName || entry.modelKey;
       return [label, runtime].filter(Boolean).join(" · ");
     });
-}
-
-export function buildDiagnosticsLines(
-  config: AppConfig,
-  lineLimit: number,
-  compact: boolean,
-): string[] {
-  const toolLatencyMs = config.toolLatencyMs ?? 0;
-  const toolLatencySamples = config.toolLatencySamples ?? 0;
-  const permissionWaitMs = config.permissionWaitMs ?? 0;
-  const reviewWaitMs = config.reviewWaitMs ?? 0;
-  const permissionTimeouts = config.permissionTimeoutCount ?? 0;
-  const reviewTimeouts = config.reviewTimeoutCount ?? 0;
-  const modelRetries = config.modelRetryCount ?? 0;
-  const modelRetryBackoffMs = config.modelRetryBackoffMs ?? 0;
-  const modelErrors = config.modelErrorCount ?? 0;
-  const toolTimeouts = config.toolTimeoutCount ?? 0;
-  const modelBackpressure = config.modelBackpressureCount ?? 0;
-  const toolBackpressure = config.toolBackpressureCount ?? 0;
-  const inflightModelCalls = config.inflightModelCalls ?? 0;
-  const queuedModelCalls = config.queuedModelCalls ?? 0;
-  const inflightToolCalls = config.inflightToolCalls ?? 0;
-  const queuedToolCalls = config.queuedToolCalls ?? 0;
-  const maxInflightModelCalls = config.maxInflightModelCalls ?? 0;
-  const maxInflightTools = config.maxInflightTools ?? 0;
-  const execQueueDepth = config.execQueueDepth ?? 0;
-  const requestCount = config.requestCount ?? 0;
-  const requestSuccessCount = config.requestSuccessCount ?? 0;
-  const requestErrorCount = config.requestErrorCount ?? 0;
-  const requestRejectCount = config.requestRejectCount ?? 0;
-  const requestCancelCount = config.requestCancelCount ?? 0;
-  const requestSamples = config.requestSamples ?? 0;
-  const queuedMsP50 = config.queuedMsP50 ?? 0;
-  const queuedMsP95 = config.queuedMsP95 ?? 0;
-  const modelMsP50 = config.modelMsP50 ?? 0;
-  const modelMsP95 = config.modelMsP95 ?? 0;
-  const toolMsP50 = config.toolMsP50 ?? 0;
-  const toolMsP95 = config.toolMsP95 ?? 0;
-  const totalMsP50 = config.totalMsP50 ?? 0;
-  const totalMsP95 = config.totalMsP95 ?? 0;
-  const lastRequestStatus = config.lastRequestStatus ?? "";
-  const lastRequestQueuedMs = config.lastRequestQueuedMs ?? 0;
-  const lastRequestModelMs = config.lastRequestModelMs ?? 0;
-  const lastRequestToolMs = config.lastRequestToolMs ?? 0;
-  const lastRequestTotalMs = config.lastRequestTotalMs ?? 0;
-
-  const retrySummary = modelRetryBackoffMs > 0
-    ? `retry ${modelRetries} (${modelRetryBackoffMs}ms) · err ${modelErrors}`
-    : `retry ${modelRetries} · err ${modelErrors}`;
-
-  const lines = [
-    `req ${requestCount} · ok ${requestSuccessCount} · err ${requestErrorCount} · rej ${requestRejectCount} · cancel ${requestCancelCount}`,
-    `tool avg ${toolLatencyMs}ms · wait ${permissionWaitMs}/${reviewWaitMs}ms · n=${toolLatencySamples}`,
-    `timeouts p/r/t ${permissionTimeouts}/${reviewTimeouts}/${toolTimeouts}`,
-    `${retrySummary} · bp ${modelBackpressure}/${toolBackpressure}`,
-    compact
-      ? `budget m ${inflightModelCalls}/${maxInflightModelCalls}+${queuedModelCalls}/${execQueueDepth} · t ${inflightToolCalls}/${maxInflightTools}+${queuedToolCalls}/${execQueueDepth}`
-      : `budget m ${inflightModelCalls}/${maxInflightModelCalls}+${queuedModelCalls}/${execQueueDepth} · t ${inflightToolCalls}/${maxInflightTools}+${queuedToolCalls}/${execQueueDepth}`,
-    requestSamples > 0
-      ? `lat p50 q/m/t ${queuedMsP50}/${modelMsP50}/${toolMsP50}ms · total ${totalMsP50}ms`
-      : "lat p50 q/m/t 0/0/0ms · total 0ms",
-    requestSamples > 0
-      ? `lat p95 q/m/t ${queuedMsP95}/${modelMsP95}/${toolMsP95}ms · total ${totalMsP95}ms`
-      : "lat p95 q/m/t 0/0/0ms · total 0ms",
-    lastRequestStatus
-      ? `last ${lastRequestStatus} q/m/t/total ${lastRequestQueuedMs}/${lastRequestModelMs}/${lastRequestToolMs}/${lastRequestTotalMs}ms`
-      : "",
-  ];
-
-  return lines.filter(Boolean).slice(0, lineLimit);
 }
 
 export function ContextPanel({
@@ -155,7 +85,7 @@ export function ContextPanel({
   width = 36,
   viewportHeight = 20,
 }: ContextPanelProps): React.ReactElement {
-  const { colors, settings } = useSettingsContext();
+  const { colors } = useSettingsContext();
   const totalTokens = promptTokens + completionTokens;
   const tokenDisplay = formatTokens(totalTokens, colors);
   const hearts = heartBar(contextPercent, 10, colors);
@@ -167,11 +97,6 @@ export function ContextPanel({
   const denyCount = Object.values(rules).filter((value) => !value).length;
   const cancelCount = config.cancelCount ?? 0;
   const restartCount = config.backendRestartCount ?? 0;
-  const diagnosticsLines = buildDiagnosticsLines(
-    config,
-    limits.diagnosticsLineLimit,
-    limits.compact,
-  );
   const loadedModels = config.loadedModels ?? [];
   const loadedModelLines = buildLoadedModelLines(config, limits.loadedModelsLimit);
   const loadedModelCount = config.loadedModelCount ?? loadedModels.length;
@@ -231,15 +156,6 @@ export function ContextPanel({
           </>
         )}
       </Box>
-
-      {settings.showDiagnostics ? (
-        <Box borderStyle="double" borderColor={colors.border} paddingX={1} flexDirection="column">
-          <Text bold color={colors.triforce}>Diagnostics</Text>
-          {diagnosticsLines.map((line) => (
-            <Text key={line} dimColor>{line}</Text>
-          ))}
-        </Box>
-      ) : null}
 
       <Box borderStyle="double" borderColor={colors.border} paddingX={1} flexDirection="column">
         <Text bold color={colors.triforce}>Inventory (@files)</Text>

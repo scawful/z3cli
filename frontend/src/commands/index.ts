@@ -88,20 +88,22 @@ function fmtTok(n: number): string {
 function renderLoadedModels(result: unknown): string {
   const payload = (result && typeof result === "object") ? result as Record<string, unknown> : {};
   const loadedModels = Array.isArray(payload.loaded_models)
-    ? payload.loaded_models.flatMap((entry) => {
+      ? payload.loaded_models.flatMap((entry) => {
         if (!entry || typeof entry !== "object") return [];
         const model = entry as Record<string, unknown>;
         if (typeof model.identifier !== "string" || typeof model.model_key !== "string") return [];
         return [{
           identifier: model.identifier,
-          model_key: model.model_key,
-          display_name: typeof model.display_name === "string" ? model.display_name : undefined,
-          size_bytes: typeof model.size_bytes === "number" ? model.size_bytes : undefined,
+          modelKey: model.model_key,
+          displayName: typeof model.display_name === "string" ? model.display_name : undefined,
+          sizeBytes: typeof model.size_bytes === "number" ? model.size_bytes : undefined,
           status: typeof model.status === "string" ? model.status : undefined,
           parallel: typeof model.parallel === "number" ? model.parallel : undefined,
           queued: typeof model.queued === "number" ? model.queued : undefined,
-          context_length: typeof model.context_length === "number" ? model.context_length : undefined,
+          contextLength: typeof model.context_length === "number" ? model.context_length : undefined,
           quantization: typeof model.quantization === "string" ? model.quantization : undefined,
+          estimatedGpuBytes: typeof model.estimated_gpu_bytes === "number" ? model.estimated_gpu_bytes : undefined,
+          estimatedTotalBytes: typeof model.estimated_total_bytes === "number" ? model.estimated_total_bytes : undefined,
         }];
       })
     : [];
@@ -112,15 +114,17 @@ function renderLoadedModels(result: unknown): string {
   const header = `### Loaded Models\n\n${loadedModels.length} live${totalBytes > 0 ? ` · ${formatModelMemory(totalBytes)}` : ""}`;
   const lines = loadedModels.map((model) => {
     const runtime = describeLoadedModelRuntime({
-      sizeBytes: model.size_bytes,
+      sizeBytes: model.sizeBytes,
       status: model.status,
       parallel: model.parallel,
       queued: model.queued,
-      contextLength: model.context_length,
+      contextLength: model.contextLength,
       quantization: model.quantization,
+      estimatedGpuBytes: model.estimatedGpuBytes,
+      estimatedTotalBytes: model.estimatedTotalBytes,
     });
     const label = model.identifier;
-    const displayName = model.display_name && model.display_name !== label ? ` _${model.display_name}_` : "";
+    const displayName = model.displayName && model.displayName !== label ? ` _${model.displayName}_` : "";
     return `- **${label}**${displayName}${runtime ? ` · ${runtime}` : ""}`;
   });
   return `${header}\n\n${lines.join("\n")}`;

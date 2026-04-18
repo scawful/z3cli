@@ -5,6 +5,7 @@ import {
   describeLoadedModelRuntime,
   estimateContextWindow,
   formatContextLength,
+  formatModelEstimate,
   formatModelMemory,
   isActionLikeModel,
   isFastLaneModel,
@@ -107,4 +108,9 @@ test("describeLoadedModelRuntime includes load status and memory hints", () => {
     contextLength: 262144,
     quantization: "Q8_0",
   }), "8.87 GiB · idle · p4 · ctx 262k · Q8_0");
+});
+
+test("formatModelEstimate handles equal and split gpu/total estimates", () => {
+  assert.equal(formatModelEstimate(10_683_469_824, 10_683_469_824), "gpu/total 9.95 GiB");
+  assert.equal(formatModelEstimate(5_368_709_120, 10_683_469_824), "gpu 5.00 GiB · total 9.95 GiB");
 });

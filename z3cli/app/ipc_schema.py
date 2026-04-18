@@ -148,6 +148,8 @@ class ReadyModelInfo(TypedDict):
     architecture: NotRequired[str]
     quantization: NotRequired[str]
     queued: NotRequired[int]
+    estimated_gpu_bytes: NotRequired[int]
+    estimated_total_bytes: NotRequired[int]
 
 
 class LoadedModelRuntimeInfo(TypedDict):
@@ -163,6 +165,8 @@ class LoadedModelRuntimeInfo(TypedDict):
     status: NotRequired[str]
     queued: NotRequired[int]
     ttl_ms: NotRequired[int]
+    estimated_gpu_bytes: NotRequired[int]
+    estimated_total_bytes: NotRequired[int]
 
 
 class ReadyParams(TypedDict):

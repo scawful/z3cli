@@ -56,6 +56,8 @@ export interface ModelInfo {
   architecture?: string;
   quantization?: string;
   queued?: number;
+  estimatedGpuBytes?: number;
+  estimatedTotalBytes?: number;
 }
 
 export interface LoadedModelInfo {
@@ -71,6 +73,8 @@ export interface LoadedModelInfo {
   status?: string;
   queued?: number;
   ttlMs?: number;
+  estimatedGpuBytes?: number;
+  estimatedTotalBytes?: number;
 }
 
 export interface AppConfig {

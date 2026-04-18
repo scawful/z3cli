@@ -26,6 +26,7 @@ from z3cli.core.provider import create_provider
 from z3cli.protocol.lmstudio import (
     available_model_lookup,
     available_models,
+    estimate_model_memory,
     ensure_server,
     loaded_model_lookup_keys,
     loaded_models,
@@ -546,6 +547,17 @@ def _studio_runtime_inventory(
         if not isinstance(entry, dict):
             continue
         runtime_info = normalize_loaded_model_entry(entry, available_lookup=available_lookup)
+        model_key = str(runtime_info.get("model_key", "") or runtime_info.get("identifier", ""))
+        if model_key:
+            try:
+                runtime_info.update(estimate_model_memory(
+                    state.host,
+                    state.port,
+                    model_key,
+                    context_length=int(runtime_info.get("context_length", 0) or 0),
+                ))
+            except Exception:
+                pass
         runtime_infos.append(runtime_info)
         for key in loaded_model_lookup_keys(entry):
             loaded_lookup.setdefault(key, runtime_info)
@@ -607,6 +619,8 @@ def visible_model_infos(state: Any) -> list[dict[str, Any]]:
             "architecture": runtime_info.get("architecture", "") if runtime_info else "",
             "quantization": runtime_info.get("quantization", "") if runtime_info else "",
             "queued": runtime_info.get("queued", 0) if runtime_info else 0,
+            "estimated_gpu_bytes": runtime_info.get("estimated_gpu_bytes", 0) if runtime_info else 0,
+            "estimated_total_bytes": runtime_info.get("estimated_total_bytes", 0) if runtime_info else 0,
         })
     return infos
 
@@ -642,6 +656,8 @@ def z3ui_model_infos(state: Any) -> list[dict[str, Any]]:
             "architecture": runtime_info.get("architecture", "") if runtime_info else "",
             "quantization": runtime_info.get("quantization", "") if runtime_info else "",
             "queued": runtime_info.get("queued", 0) if runtime_info else 0,
+            "estimated_gpu_bytes": runtime_info.get("estimated_gpu_bytes", 0) if runtime_info else 0,
+            "estimated_total_bytes": runtime_info.get("estimated_total_bytes", 0) if runtime_info else 0,
         })
     return infos
 

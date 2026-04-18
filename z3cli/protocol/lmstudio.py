@@ -9,7 +9,9 @@ always carry an explicit timeout so a hung ``lms`` cannot deadlock the REPL.
 from __future__ import annotations
 
 import asyncio
+from functools import lru_cache
 import json
+import re
 import shutil
 import subprocess
 from collections.abc import Mapping, Sequence
@@ -17,6 +19,17 @@ from typing import Any
 
 
 DEFAULT_LMS_TIMEOUT_S = 30.0
+_MEMORY_ESTIMATE_RE = re.compile(
+    r"Estimated\s+(GPU|Total)\s+Memory:\s*([0-9]+(?:\.[0-9]+)?)\s*([KMGT]?i?B)",
+    re.IGNORECASE,
+)
+_MEMORY_UNIT_FACTORS = {
+    "b": 1,
+    "kib": 1024,
+    "mib": 1024 ** 2,
+    "gib": 1024 ** 3,
+    "tib": 1024 ** 4,
+}
 
 
 def _find_lms() -> str:
@@ -46,6 +59,33 @@ def _coerce_int(value: Any) -> int:
     if isinstance(value, float):
         return int(value)
     return 0
+
+
+def _memory_amount_to_bytes(amount_text: str, unit_text: str) -> int:
+    factor = _MEMORY_UNIT_FACTORS.get(unit_text.strip().lower(), 0)
+    if factor <= 0:
+        return 0
+    try:
+        return int(float(amount_text) * factor)
+    except ValueError:
+        return 0
+
+
+def parse_estimated_memory_output(output: str) -> dict[str, int]:
+    estimates: dict[str, int] = {}
+    for line in output.splitlines():
+        match = _MEMORY_ESTIMATE_RE.search(line)
+        if match is None:
+            continue
+        kind, amount_text, unit_text = match.groups()
+        size_bytes = _memory_amount_to_bytes(amount_text, unit_text)
+        if size_bytes <= 0:
+            continue
+        if kind.lower() == "gpu":
+            estimates["estimated_gpu_bytes"] = size_bytes
+        else:
+            estimates["estimated_total_bytes"] = size_bytes
+    return estimates
 
 
 def quantization_name(entry: dict[str, Any]) -> str:
@@ -331,6 +371,59 @@ def _build_load_args(
     if ttl:
         args.extend(["--ttl", str(ttl)])
     return args
+
+
+def _build_estimate_args(
+    model_id: str,
+    *,
+    context_length: int | None = None,
+    gpu: str | None = None,
+) -> list[str]:
+    args = ["load", "--estimate-only", model_id]
+    if context_length and context_length > 0:
+        args.extend(["--context-length", str(context_length)])
+    if gpu:
+        args.extend(["--gpu", str(gpu)])
+    return args
+
+
+@lru_cache(maxsize=128)
+def estimate_model_memory(
+    host: str,
+    port: int,
+    model_id: str,
+    *,
+    context_length: int = 0,
+    gpu: str = "",
+) -> dict[str, int]:
+    if not str(model_id or "").strip():
+        return {}
+    output = run_lms(
+        _build_estimate_args(model_id, context_length=context_length or None, gpu=gpu or None),
+        host,
+        port,
+        timeout=max(DEFAULT_LMS_TIMEOUT_S * 2, 60.0),
+    )
+    return parse_estimated_memory_output(output)
+
+
+async def estimate_model_memory_async(
+    host: str,
+    port: int,
+    model_id: str,
+    *,
+    context_length: int = 0,
+    gpu: str = "",
+) -> dict[str, int]:
+    if not str(model_id or "").strip():
+        return {}
+    output = await run_lms_async(
+        _build_estimate_args(model_id, context_length=context_length or None, gpu=gpu or None),
+        host,
+        port,
+        timeout=max(DEFAULT_LMS_TIMEOUT_S * 2, 60.0),
+    )
+    return parse_estimated_memory_output(output)
 
 
 def ensure_model_loaded(

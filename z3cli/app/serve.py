@@ -1546,6 +1546,10 @@ def build_ready_params(state: ServeState) -> ReadyParams:
             runtime_item["queued"] = int(item["queued"])
         if int(item.get("ttl_ms", 0) or 0) > 0:
             runtime_item["ttl_ms"] = int(item["ttl_ms"])
+        if int(item.get("estimated_gpu_bytes", 0) or 0) > 0:
+            runtime_item["estimated_gpu_bytes"] = int(item["estimated_gpu_bytes"])
+        if int(item.get("estimated_total_bytes", 0) or 0) > 0:
+            runtime_item["estimated_total_bytes"] = int(item["estimated_total_bytes"])
         loaded_runtime_payload.append(runtime_item)
     models_info: list[ReadyModelInfo] = []
     for model in z3ui_model_infos(state):
@@ -1580,6 +1584,10 @@ def build_ready_params(state: ServeState) -> ReadyParams:
             payload["quantization"] = str(model["quantization"])
         if int(model.get("queued", 0) or 0) > 0:
             payload["queued"] = int(model["queued"])
+        if int(model.get("estimated_gpu_bytes", 0) or 0) > 0:
+            payload["estimated_gpu_bytes"] = int(model["estimated_gpu_bytes"])
+        if int(model.get("estimated_total_bytes", 0) or 0) > 0:
+            payload["estimated_total_bytes"] = int(model["estimated_total_bytes"])
         models_info.append(payload)
 
     warnings = list(state.startup_warnings)

@@ -357,6 +357,7 @@ def render_model_table(state: AppState) -> None:
     table.add_column("Provider")
     table.add_column("Loaded")
     table.add_column("Mem")
+    table.add_column("Estimate")
     table.add_column("Status")
     table.add_column("Available")
     table.add_column("Role")
@@ -369,6 +370,7 @@ def render_model_table(state: AppState) -> None:
             str(model["provider"]),
             "yes" if model["loaded"] else "no",
             _format_memory_bytes(int(model.get("size_bytes", 0) or 0)),
+            _format_loaded_estimate(model),
             _format_loaded_status(model),
             "yes" if model["available"] else "no",
             str(model["role"]),
@@ -420,6 +422,20 @@ def _format_loaded_status(entry: dict[str, Any]) -> str:
     return " · ".join(parts) if parts else "-"
 
 
+def _format_loaded_estimate(entry: dict[str, Any]) -> str:
+    gpu = _format_memory_bytes(int(entry.get("estimated_gpu_bytes", 0) or 0))
+    total = _format_memory_bytes(int(entry.get("estimated_total_bytes", 0) or 0))
+    if gpu != "-" and total != "-":
+        if gpu == total:
+            return f"gpu/total {gpu}"
+        return f"gpu {gpu} · total {total}"
+    if gpu != "-":
+        return f"gpu {gpu}"
+    if total != "-":
+        return f"total {total}"
+    return "-"
+
+
 def render_loaded_model_table(state: AppState, loaded: list[dict[str, Any]]) -> None:
     from rich.table import Table
 
@@ -431,12 +447,14 @@ def render_loaded_model_table(state: AppState, loaded: list[dict[str, Any]]) -> 
     table.add_column("Identifier")
     table.add_column("Model")
     table.add_column("Mem")
+    table.add_column("Estimate")
     table.add_column("Status")
     for entry in loaded:
         table.add_row(
             str(entry.get("identifier", "") or "?"),
             str(entry.get("display_name", "") or entry.get("model_key", "") or "?"),
             _format_memory_bytes(int(entry.get("size_bytes", 0) or 0)),
+            _format_loaded_estimate(entry),
             _format_loaded_status(entry),
         )
     state.console.print(table)

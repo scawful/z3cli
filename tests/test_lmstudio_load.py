@@ -5,10 +5,22 @@ from unittest.mock import patch
 
 from z3cli.app.backends import LMStudioBackend
 from z3cli.core.config import ModelConfig, load_registry
-from z3cli.protocol.lmstudio import ensure_model_loaded, normalize_loaded_model_entry, unload_model
+from z3cli.protocol.lmstudio import ensure_model_loaded, normalize_loaded_model_entry, parse_estimated_memory_output, unload_model
 
 
 class LMStudioLoadTests(unittest.TestCase):
+    def test_parse_estimated_memory_output_reads_gpu_and_total_bytes(self) -> None:
+        estimates = parse_estimated_memory_output(
+            "\n".join([
+                "Model: gguf/zelda/nayru-9b-q8_0.gguf",
+                "Estimated GPU Memory:   9.95 GiB",
+                "Estimated Total Memory: 12.50 GiB",
+            ]),
+        )
+
+        self.assertEqual(estimates["estimated_gpu_bytes"], int(9.95 * 1024 ** 3))
+        self.assertEqual(estimates["estimated_total_bytes"], int(12.50 * 1024 ** 3))
+
     def test_normalize_loaded_model_entry_preserves_memory_and_runtime_fields(self) -> None:
         entry = normalize_loaded_model_entry({
             "identifier": "nayru",
@@ -150,6 +162,28 @@ allow_auto_load = false
             1234,
             timeout=60.0,
         )
+
+
+class LMStudioLoadAsyncTests(unittest.IsolatedAsyncioTestCase):
+    async def test_backend_list_loaded_model_details_merges_estimates(self) -> None:
+        backend = LMStudioBackend(api_base="http://127.0.0.1:1234/v1", host="127.0.0.1", port=1234)
+
+        with patch("z3cli.app.backends.available_models_async", return_value=[{
+            "modelKey": "gguf/zelda/nayru-9b-q8_0.gguf",
+            "sizeBytes": 9_527_501_152,
+        }]), patch("z3cli.app.backends.loaded_models_async", return_value=[{
+            "identifier": "nayru",
+            "modelKey": "gguf/zelda/nayru-9b-q8_0.gguf",
+            "sizeBytes": 9_527_501_152,
+            "contextLength": 262144,
+        }]), patch("z3cli.app.backends.estimate_model_memory_async", return_value={
+            "estimated_gpu_bytes": int(9.95 * 1024 ** 3),
+            "estimated_total_bytes": int(9.95 * 1024 ** 3),
+        }):
+            details = await backend.list_loaded_model_details()
+
+        self.assertEqual(details[0]["identifier"], "nayru")
+        self.assertEqual(details[0]["estimated_gpu_bytes"], int(9.95 * 1024 ** 3))
 
 
 if __name__ == "__main__":
