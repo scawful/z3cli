@@ -265,6 +265,26 @@ class RuntimeAttachmentTests(unittest.TestCase):
             self.assertEqual(refs[0]["id"], "0x31")
             self.assertEqual(refs[0]["label"], "Custom track object")
 
+    def test_resolve_message_construct_refs_uses_key_object_docs_for_vanilla_object_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            docs_dir = workspace / "Docs" / "World" / "Dungeons"
+            docs_dir.mkdir(parents=True, exist_ok=True)
+            (docs_dir / "TestDungeon_Map.md").write_text(
+                "\n".join([
+                    "| Room | Notes |",
+                    "|------|-------|",
+                    "| Key Objects | Floor tiles (0x22×5), big key door (0x010C) |",
+                ]),
+                encoding="utf-8",
+            )
+
+            refs = resolve_message_construct_refs(workspace, "inspect #object:0x22 and #object:0x010C")
+
+            self.assertEqual(len(refs), 2)
+            self.assertEqual(refs[0]["label"], "Floor tiles")
+            self.assertEqual(refs[1]["label"], "big key door")
+
     def test_enrich_prompt_with_construct_refs_appends_context_block(self) -> None:
         prompt = "inspect this room"
         enriched = enrich_prompt_with_construct_refs(prompt, [{
@@ -421,6 +441,27 @@ class RuntimeAttachmentAsyncTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("Aliases: track object, custom object, rail object", enriched[0]["context_pack"])
             self.assertIn("Subtype map:", enriched[0]["context_pack"])
             self.assertIn("0: Left Right", enriched[0]["context_pack"])
+
+    async def test_add_construct_context_packs_uses_key_object_docs_for_vanilla_object_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            docs_dir = workspace / "Docs" / "World" / "Dungeons"
+            docs_dir.mkdir(parents=True, exist_ok=True)
+            (docs_dir / "TestDungeon_Map.md").write_text(
+                "\n".join([
+                    "| Room | Notes |",
+                    "|------|-------|",
+                    "| Key Objects | Floor tiles (0x22×5), big key door (0x010C) |",
+                ]),
+                encoding="utf-8",
+            )
+
+            refs = [{"kind": "object", "query": "0x22", "id": "0x22", "label": "Floor tiles", "token": "#object:0x22"}]
+            enriched = await add_construct_context_packs(refs, bridge=None, workspace=workspace)
+
+            self.assertIn("Object ID: 0x22", enriched[0]["context_pack"])
+            self.assertIn("Aliases: Floor tiles", enriched[0]["context_pack"])
+            self.assertIn("TestDungeon_Map.md", enriched[0]["context_pack"])
 
     async def test_enrich_prompt_with_attachments_renders_context_pack_before_file(self) -> None:
         prompt = "inspect this file"

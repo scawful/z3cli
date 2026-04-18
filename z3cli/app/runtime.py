@@ -1338,6 +1338,23 @@ def _load_workspace_object_id_metadata(workspace: str) -> dict[str, dict[str, An
         for extra_source in common_sources[1:]:
             upsert(0x135, "Zora Baby target marker fallback", source=extra_source)
 
+    for source, line in _iter_documented_object_lines(root):
+        for match in re.finditer(r"(?P<label>[A-Za-z][A-Za-z0-9 /_\-]{1,80})\s*\((?P<content>[^)]*0x[0-9A-Fa-f][^)]*)\)", line):
+            label = _humanize_construct_label(str(match.group("label") or ""))
+            content = str(match.group("content") or "")
+            ids = [int(raw_id, 16) for raw_id in re.findall(r"0x([0-9A-Fa-f]{1,4})", content)]
+            if not label or not ids:
+                continue
+            note = line if len(line) <= 180 else line[:177].rstrip() + "..."
+            for object_id in ids:
+                upsert(
+                    object_id,
+                    label,
+                    aliases=(label,),
+                    notes=(note,),
+                    source=source,
+                )
+
     return metadata
 
 
@@ -1380,6 +1397,41 @@ def _match_object_id_metadata(workspace: Path, query: str) -> dict[str, Any] | N
     if len(contains) == 1:
         return contains[0]
     return None
+
+
+def _iter_documented_object_lines(root: Path) -> list[tuple[str, str]]:
+    docs_root = root / "Docs"
+    if not docs_root.is_dir():
+        return []
+    lines: list[tuple[str, str]] = []
+    for path in docs_root.rglob("*.md"):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        rel_path = str(path.relative_to(root))
+        for raw_line in text.splitlines():
+            if "0x" not in raw_line.lower():
+                continue
+            normalized = _clean_markdown_cell(raw_line)
+            if not normalized:
+                continue
+            table_cells = _parse_markdown_table_row(raw_line)
+            key_objects_row = False
+            if table_cells:
+                first_cell = table_cells[0].strip().lower()
+                if first_cell == "key objects" and len(table_cells) > 1:
+                    key_objects_row = True
+                    normalized = table_cells[1]
+                elif any("object" in cell.lower() for cell in table_cells):
+                    normalized = " ".join(cell for cell in table_cells if cell.strip())
+                else:
+                    continue
+            lower = normalized.lower()
+            if not key_objects_row and "object" not in lower and "objects" not in lower:
+                continue
+            lines.append((rel_path, normalized))
+    return lines
 
 
 @lru_cache(maxsize=16)
