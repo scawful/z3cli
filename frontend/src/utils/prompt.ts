@@ -125,7 +125,10 @@ const FILE_TYPE_LABELS: Record<string, string> = {
   yml: "yaml",
 };
 const FILE_PREVIEW_SNIPPET_LIMIT = 72;
-const ASM_PREVIEW_LINE_LIMIT = 2;
+const ASM_PREVIEW_OP_LIMIT = 3;
+const ASM_PREVIEW_CONTROL_LIMIT = 3;
+const ASM_PREVIEW_LINE_CHAR_LIMIT = 96;
+const ASM_PREVIEW_OP_CHAR_LIMIT = 28;
 const JSON_KEY_PREVIEW_LIMIT = 4;
 const YAML_KEY_PREVIEW_LIMIT = 4;
 const TOML_ENTRY_PREVIEW_LIMIT = 4;
@@ -158,6 +161,46 @@ const ORG_TODO_KEYWORDS = new Set([
   "FIXME",
   "NOTE",
 ]);
+const ASM_DIRECTIVE_TOKENS = new Set([
+  "arch",
+  "assert",
+  "base",
+  "bank",
+  "cleartable",
+  "db",
+  "dl",
+  "dw",
+  "else",
+  "elseif",
+  "endmacro",
+  "endif",
+  "endnamespace",
+  "endwhile",
+  "fill",
+  "hirom",
+  "if",
+  "incbin",
+  "incsrc",
+  "lorom",
+  "macro",
+  "namespace",
+  "org",
+  "pad",
+  "padbyte",
+  "print",
+  "pullpc",
+  "pushpc",
+  "sa1rom",
+  "snesheader",
+  "table",
+  "warnpc",
+  "while",
+]);
+
+interface AsmWidthState {
+  accumulator: 8 | 16 | null;
+  index: 8 | 16 | null;
+}
 
 function normalizeConstructKind(kind: string): string | null {
   return CONSTRUCT_KIND_ALIASES[kind.trim().toLowerCase()] ?? null;
@@ -273,18 +316,198 @@ function sanitizeFileSnippet(text: string): string | undefined {
   return truncateSnippetLine(line);
 }
 
+function stripAsmInlineComment(line: string): string {
+  const semicolonIndex = line.indexOf(";");
+  const trimmed = semicolonIndex >= 0 ? line.slice(0, semicolonIndex) : line;
+  return trimmed.trim();
+}
+
+function extractAsmToken(line: string): string {
+  return line.split(/\s+/, 1)[0] ?? "";
+}
+
+function normalizeAsmToken(token: string): string {
+  return token.toLowerCase();
+}
+
+function extractAsmLabel(line: string): { label?: string; remainder: string } {
+  const match = line.match(/^([A-Za-z_@?.+\-][A-Za-z0-9_@?.+\-!$#]*):\s*(.*)$/);
+  if (!match) {
+    return { remainder: line };
+  }
+  return {
+    label: match[1],
+    remainder: match[2] ?? "",
+  };
+}
+
+function parseAsmImmediateValue(line: string): number | null {
+  const match = line.match(/#(?:\$([0-9a-f]+)|%([01]+)|(\d+))/i);
+  if (match?.[1]) {
+    return Number.parseInt(match[1], 16);
+  }
+  if (match?.[2]) {
+    return Number.parseInt(match[2], 2);
+  }
+  if (match?.[3]) {
+    return Number.parseInt(match[3], 10);
+  }
+  return null;
+}
+
+function parseAsmWidthState(line: string): { state: Partial<AsmWidthState>; display: string } | null {
+  const token = extractAsmToken(line);
+  const normalizedToken = normalizeAsmToken(token);
+  const compactToken = normalizedToken.replace(/[()%]/g, "").replace(/^%/, "").replace(/^\./, "");
+  if (compactToken === "a8") return { state: { accumulator: 8 }, display: normalizeSnippetLine(line) };
+  if (compactToken === "a16") return { state: { accumulator: 16 }, display: normalizeSnippetLine(line) };
+  if (["i8", "x8", "xy8"].includes(compactToken)) return { state: { index: 8 }, display: normalizeSnippetLine(line) };
+  if (["i16", "x16", "xy16"].includes(compactToken)) return { state: { index: 16 }, display: normalizeSnippetLine(line) };
+  if (["ai8", "axy8", "mx8"].includes(compactToken)) {
+    return { state: { accumulator: 8, index: 8 }, display: normalizeSnippetLine(line) };
+  }
+  if (["ai16", "axy16", "mx16"].includes(compactToken)) {
+    return { state: { accumulator: 16, index: 16 }, display: normalizeSnippetLine(line) };
+  }
+  if (compactToken === "longa") {
+    if (/\bon\b/i.test(line)) return { state: { accumulator: 16 }, display: normalizeSnippetLine(line) };
+    if (/\boff\b/i.test(line)) return { state: { accumulator: 8 }, display: normalizeSnippetLine(line) };
+  }
+  if (compactToken === "longi") {
+    if (/\bon\b/i.test(line)) return { state: { index: 16 }, display: normalizeSnippetLine(line) };
+    if (/\boff\b/i.test(line)) return { state: { index: 8 }, display: normalizeSnippetLine(line) };
+  }
+  const mnemonic = compactToken.replace(/\.[a-z]+$/i, "");
+  if (mnemonic !== "rep" && mnemonic !== "sep") {
+    return null;
+  }
+  const immediate = parseAsmImmediateValue(line);
+  if (immediate === null) {
+    return null;
+  }
+  const state: Partial<AsmWidthState> = {};
+  if (immediate & 0x20) {
+    state.accumulator = mnemonic === "sep" ? 8 : 16;
+  }
+  if (immediate & 0x10) {
+    state.index = mnemonic === "sep" ? 8 : 16;
+  }
+  if (state.accumulator === undefined && state.index === undefined) {
+    return null;
+  }
+  return { state, display: normalizeSnippetLine(line) };
+}
+
+function updateAsmWidthState(current: AsmWidthState, next: Partial<AsmWidthState>): AsmWidthState {
+  return {
+    accumulator: next.accumulator ?? current.accumulator,
+    index: next.index ?? current.index,
+  };
+}
+
+function formatAsmWidthState(state: AsmWidthState): string {
+  const parts: string[] = [];
+  if (state.accumulator !== null) {
+    parts.push(`A${state.accumulator}`);
+  }
+  if (state.index !== null) {
+    parts.push(`X${state.index}`);
+  }
+  return parts.join(" ");
+}
+
+function isAsmDirectiveLine(line: string): boolean {
+  const token = extractAsmToken(line);
+  if (!token) return false;
+  if (token.startsWith(".") || token.startsWith("!")) return true;
+  return ASM_DIRECTIVE_TOKENS.has(normalizeAsmToken(token));
+}
+
+function summarizeAsmOperation(line: string): string {
+  return truncateSnippetLine(normalizeSnippetLine(line), ASM_PREVIEW_OP_CHAR_LIMIT);
+}
+
 function buildAsmSnippet(text: string): string | undefined {
   if (!text || text.includes("\0")) return undefined;
-  const lines = text
-    .split(/\r?\n/)
-    .map(normalizeSnippetLine)
-    .filter(Boolean)
-    .filter((line) => !/^(;|\/\/|\*)/.test(line));
+  const fallbackLines: string[] = [];
+  const operations: string[] = [];
+  const controls: string[] = [];
+  let widthState: AsmWidthState = { accumulator: null, index: null };
+  let entryLabel = "";
+
+  for (const rawLine of text.split(/\r?\n/)) {
+    const stripped = stripAsmInlineComment(rawLine);
+    if (!stripped || /^(\/\/|\*)/.test(stripped)) {
+      continue;
+    }
+    const normalizedLine = normalizeSnippetLine(stripped);
+    fallbackLines.push(normalizedLine);
+    if (operations.length >= ASM_PREVIEW_OP_LIMIT) {
+      break;
+    }
+
+    const { label, remainder } = extractAsmLabel(normalizedLine);
+    if (label && !entryLabel) {
+      entryLabel = label;
+    }
+    const body = normalizeSnippetLine(remainder);
+    if (!body) {
+      continue;
+    }
+
+    const widthUpdate = parseAsmWidthState(body);
+    if (widthUpdate) {
+      widthState = updateAsmWidthState(widthState, widthUpdate.state);
+      if (controls.length < ASM_PREVIEW_CONTROL_LIMIT) {
+        controls.push(widthUpdate.display);
+      }
+      continue;
+    }
+    if (isAsmDirectiveLine(body)) {
+      continue;
+    }
+    operations.push(body);
+  }
+
+  if (!entryLabel && controls.length === 0 && operations.length === 0) {
+    const lines = fallbackLines;
+    if (lines.length === 0) {
+      return sanitizeFileSnippet(text);
+    }
+    return lines
+      .slice(0, 2)
+      .map((line) => truncateSnippetLine(line, 56))
+      .join("\n");
+  }
+
+  const previewLines: string[] = [];
+  if (entryLabel) {
+    previewLines.push(truncateSnippetLine(`entry: ${entryLabel}`, 56));
+  }
+  const widthLabel = formatAsmWidthState(widthState);
+  if (widthLabel) {
+    const via = controls.length > 0 ? ` via ${controls.join(" -> ")}` : "";
+    previewLines.push(truncateSnippetLine(`65816: ${widthLabel}${via}`, ASM_PREVIEW_LINE_CHAR_LIMIT));
+  }
+  if (operations.length > 0) {
+    previewLines.push(
+      truncateSnippetLine(
+        `ops: ${operations.map((line) => summarizeAsmOperation(line)).join(" · ")}`,
+        ASM_PREVIEW_LINE_CHAR_LIMIT,
+      ),
+    );
+  }
+  const preview = compactPreviewLines(previewLines);
+  if (preview) {
+    return preview;
+  }
+
+  const lines = fallbackLines;
   if (lines.length === 0) {
     return sanitizeFileSnippet(text);
   }
   return lines
-    .slice(0, ASM_PREVIEW_LINE_LIMIT)
+    .slice(0, 2)
     .map((line) => truncateSnippetLine(line, 56))
     .join("\n");
 }

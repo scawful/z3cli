@@ -161,12 +161,41 @@ test("buildDraftConstructPreview marks ambiguous typed refs before send", () => 
   assert.equal(preview.label, "Glade Ruins");
 });
 
-test("buildFilePreviewMeta builds multi-line asm previews from meaningful lines", () => {
-  const preview = buildFilePreviewMeta("src/room.asm", "; init room\nroomStart:\nlda #$01\nsta $7E0010\n");
+test("buildFilePreviewMeta builds 65816-aware asm previews", () => {
+  const preview = buildFilePreviewMeta(
+    "src/room.asm",
+    [
+      "; init room",
+      "roomStart:",
+      "rep #$30",
+      "lda.w RoomIndex",
+      "sta $7E0010",
+      "rtl",
+    ].join("\n"),
+  );
 
   assert.deepEqual(preview, {
     typeLabel: "asm",
-    snippet: "roomStart:\nlda #$01",
+    snippet: "entry: roomStart\n65816: A16 X16 via rep #$30\nops: lda.w RoomIndex · sta $7E0010 · rtl",
+  });
+});
+
+test("buildFilePreviewMeta tracks 65816 width changes across sep and rep", () => {
+  const preview = buildFilePreviewMeta(
+    "src/hook.s",
+    [
+      "HookPlayerState:",
+      "sep #$20",
+      "rep #$10",
+      "lda.b #$01",
+      "sta $00",
+      "rtl",
+    ].join("\n"),
+  );
+
+  assert.deepEqual(preview, {
+    typeLabel: "asm",
+    snippet: "entry: HookPlayerState\n65816: A8 X16 via sep #$20 -> rep #$10\nops: lda.b #$01 · sta $00 · rtl",
   });
 });
 
