@@ -29,11 +29,20 @@ import { PermissionDialog } from "./PermissionDialog.js";
 import { ContextPanel } from "./ContextPanel.js";
 import { TranscriptScroll } from "./TranscriptScroll.js";
 import { ToolReviewDialog } from "./ToolReviewDialog.js";
+import { BackendErrorBanner } from "./BackendErrorBanner.js";
+import { shouldShowBackendErrorBanner } from "../utils/backendHealth.js";
 import { symbols, getThemeColors } from "../theme/index.js";
-import type { AttachmentMeta, AttachmentReference } from "../ipc/protocol.js";
+import type { AttachmentMeta, ConstructRef } from "../ipc/protocol.js";
 import type { CommandContext } from "../commands/index.js";
 import { useTerminalSize } from "../hooks/useTerminalWidth.js";
-import { computeTranscriptViewportHeight, groupMessages, shouldShowContextPanel } from "../utils/transcript.js";
+import { useMouseScroll } from "../hooks/useMouseScroll.js";
+import { shouldSuppressWelcome } from "../utils/cliArgs.js";
+import {
+  computeContextPanelLayout,
+  computeTranscriptViewportHeight,
+  groupMessages,
+  shouldShowKeyboardLegend,
+} from "../utils/transcript.js";
 import { estimateContextWindow } from "../utils/models.js";
 
 // ---------------------------------------------------------------------------
@@ -51,40 +60,74 @@ function ConnectingSpinner({ theme }: { theme: string }): React.ReactElement {
   );
 }
 
+export interface AppSummarySnapshot {
+  model: string;
+  sessionPath: string;
+  messageCount: number;
+  promptTokens: number;
+  completionTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+}
+
 interface AppProps {
   pythonPath: string;
   backendArgs: string[];
   batchCommands: string[];
+  onSummaryUpdate?: (snapshot: AppSummarySnapshot) => void;
 }
 
 export type PromptSubmission =
   | { kind: "ignore" }
   | { kind: "shell"; command: string }
-  | { kind: "message"; text: string; attachments: AttachmentReference[] }
+  | { kind: "message"; text: string; attachments: AttachmentMeta[]; constructRefs: ConstructRef[] }
   | { kind: "command"; cmd: string; args: string[] };
+
+export interface StreamingCancelHotkeyState {
+  isStreaming: boolean;
+  rawModeSupported: boolean;
+  settingsOpen: boolean;
+  helpOpen: boolean;
+  hasPendingPermission: boolean;
+  hasPendingReview: boolean;
+}
 
 export function classifyPromptSubmission(
   text: string,
-  attachments: AttachmentReference[] = [],
+  attachments: AttachmentMeta[] = [],
+  constructRefs: ConstructRef[] = [],
 ): PromptSubmission {
   const trimmed = text.trim();
-  if (!trimmed && attachments.length === 0) {
+  if (!trimmed && attachments.length === 0 && constructRefs.length === 0) {
     return { kind: "ignore" };
   }
   if (!trimmed) {
-    return { kind: "message", text: "", attachments };
+    return { kind: "message", text: "", attachments, constructRefs };
   }
   if (trimmed.startsWith("!")) {
     return { kind: "shell", command: trimmed.slice(1).trim() };
   }
   if (!trimmed.startsWith("/")) {
-    return { kind: "message", text: trimmed, attachments };
+    return { kind: "message", text: trimmed, attachments, constructRefs };
   }
   const [cmd, ...args] = trimmed.split(/\s+/) as [string, ...string[]];
   return { kind: "command", cmd, args };
 }
 
-export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React.ReactElement {
+export function shouldEnableStreamingCancelHotkeys(
+  state: StreamingCancelHotkeyState,
+): boolean {
+  return (
+    state.rawModeSupported
+    && state.isStreaming
+    && !state.settingsOpen
+    && !state.helpOpen
+    && !state.hasPendingPermission
+    && !state.hasPendingReview
+  );
+}
+
+export function App({ pythonPath, backendArgs, batchCommands, onSummaryUpdate }: AppProps): React.ReactElement {
   const { exit } = useApp();
   const ranBatch = useRef(false);
   const transcriptScrollRef = useRef<ScrollViewRef | null>(null);
@@ -100,11 +143,8 @@ export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React
         <Text dimColor>
           <Text color={colors.triforce}>[Ctrl+P]</Text> Palette {symbols.dot}{" "}
           <Text color={colors.triforce}>[Tab]</Text> Complete {symbols.dot}{" "}
-          <Text color={colors.triforce}>[Esc]</Text> Cancel {symbols.dot}{" "}
-          <Text color={colors.triforce}>[/]</Text> Command {symbols.dot}{" "}
           <Text color={colors.triforce}>[Shift+Tab]</Text> Mode {symbols.dot}{" "}
-          <Text color={colors.triforce}>[PgUp/PgDn]</Text> Transcript {symbols.dot}{" "}
-          <Text color={colors.triforce}>[Ctrl+PgUp/PgDn]</Text> Context
+          <Text color={colors.triforce}>[PgUp/PgDn/Mouse]</Text> Scroll
         </Text>
       </Box>
     );
@@ -115,9 +155,20 @@ export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React
   const [pickerSessions, setPickerSessions] = useState<SessionInfo[] | null>(null);
   const [recentSessions, setRecentSessions] = useState<SessionInfo[]>([]);
   const [draftFiles, setDraftFiles] = useState<AttachmentMeta[]>([]);
-  const { settings, toggleSetting, setSetting, resetSettings, cycleMode, cycleTheme } = useSettings();
+  const [draftConstructRefs, setDraftConstructRefs] = useState<ConstructRef[]>([]);
+  const [dismissedErrorCount, setDismissedErrorCount] = useState<number | null>(null);
+  const {
+    settings,
+    toggleSetting,
+    setSetting,
+    resetSettings,
+    cycleMode,
+    cycleTheme,
+    cycleThinkingMode,
+    cycleThinkingDetail,
+  } = useSettings();
   const { width: terminalWidth, rows: terminalRows } = useTerminalSize();
-  const transcriptViewportHeight = computeTranscriptViewportHeight(terminalRows);
+  const showKeyboardLegend = shouldShowKeyboardLegend(terminalRows);
 
   const {
     config,
@@ -136,6 +187,18 @@ export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React
     approveTool, approveToolForSession, denyTool, denyToolForSession,
     acceptToolReview, rejectToolReview,
   } = useBackend(pythonPath, backendArgs);
+
+  const backendErrorVisible = shouldShowBackendErrorBanner({
+    requestErrorCount: config?.requestErrorCount,
+    requestSuccessCount: config?.requestSuccessCount,
+    lastRequestStatus: config?.lastRequestStatus,
+    dismissedErrorCount,
+  });
+  const transcriptViewportHeight = computeTranscriptViewportHeight(
+    terminalRows,
+    showKeyboardLegend,
+    backendErrorVisible,
+  );
 
   // Build the command context once per render cycle so dispatchCommand
   // always sees current state without stale closures.
@@ -156,15 +219,19 @@ export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React
     exit,
   }), [config, settings, addSystemMessage, replaceMessages, replaceSubagents, updateConfig, sendCommand, sendMessage, setSetting, resetSettings, exit]);
 
-  const handleSubmit = useCallback((text: string, attachments: AttachmentReference[] = []) => {
-    const submission = classifyPromptSubmission(text, attachments);
+  const handleSubmit = useCallback((
+    text: string,
+    attachments: AttachmentMeta[] = [],
+    constructRefs: ConstructRef[] = [],
+  ) => {
+    const submission = classifyPromptSubmission(text, attachments, constructRefs);
     if (submission.kind === "ignore") return;
     if (submission.kind === "shell") {
       void executeShell(submission.command, commandCtx);
       return;
     }
     if (submission.kind === "message") {
-      void sendMessage(submission.text, submission.attachments).catch(() => undefined);
+      void sendMessage(submission.text, submission.attachments, submission.constructRefs).catch(() => undefined);
       return;
     }
     void dispatchCommand(submission.cmd, submission.args, commandCtx);
@@ -176,7 +243,65 @@ export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React
       const ctrlChar = key.ctrl ? input.toLowerCase() : "";
       if (key.escape || ctrlChar === "c" || input === "\x03") cancelStream();
     },
-    { isActive: isStreaming && !settingsOpen && Boolean(process.stdin.isTTY) },
+    {
+      isActive: shouldEnableStreamingCancelHotkeys({
+        isStreaming,
+        rawModeSupported: Boolean(process.stdin.isTTY),
+        settingsOpen,
+        helpOpen,
+        hasPendingPermission: Boolean(pendingPermission),
+        hasPendingReview: Boolean(pendingReview),
+      }),
+    },
+  );
+
+  // Ctrl+R toggles thinking/reasoning detail between preview and full.
+  useInput(
+    (input, key) => {
+      const ctrlChar = key.ctrl ? input.toLowerCase() : "";
+      if (ctrlChar === "r" || input === "\x12") cycleThinkingDetail();
+    },
+    {
+      isActive:
+        Boolean(process.stdin.isTTY)
+        && !settingsOpen
+        && !helpOpen
+        && !pendingPermission
+        && !pendingReview,
+    },
+  );
+
+  // Mouse-wheel scrolls the transcript. Disabled while a modal is open so
+  // dialog input keeps default terminal behavior.
+  useMouseScroll(transcriptScrollRef, {
+    isActive:
+      !settingsOpen
+      && !helpOpen
+      && !pendingPermission
+      && !pendingReview,
+    sidePanelScrollRef: computeContextPanelLayout(terminalWidth, settingsOpen).visible
+      ? contextScrollRef
+      : undefined,
+  });
+
+  // Escape dismisses the backend error banner when it's the most prominent
+  // surface. Only active when nothing else (streaming, modals) owns Escape.
+  useInput(
+    (_input, key) => {
+      if (key.escape) {
+        setDismissedErrorCount(config?.requestErrorCount ?? 0);
+      }
+    },
+    {
+      isActive:
+        Boolean(process.stdin.isTTY)
+        && backendErrorVisible
+        && !isStreaming
+        && !settingsOpen
+        && !helpOpen
+        && !pendingPermission
+        && !pendingReview,
+    },
   );
 
   // Admin mode auto-approves any pending tool permission request.
@@ -185,6 +310,26 @@ export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React
       void approveTool();
     }
   }, [pendingPermission, settings.uiMode, approveTool]);
+
+  // Keep the exit-banner snapshot fresh so index.tsx can render it after unmount.
+  useEffect(() => {
+    if (!onSummaryUpdate || !config) return;
+    onSummaryUpdate({
+      model: config.activeModel,
+      sessionPath: config.sessionPath,
+      messageCount: Math.max(
+        config.sessionMessages ?? 0,
+        messages.filter((m) => m.role === "user").length,
+      ),
+      promptTokens,
+      completionTokens,
+      cacheReadTokens,
+      cacheCreationTokens,
+    });
+  }, [
+    onSummaryUpdate, config, messages,
+    promptTokens, completionTokens, cacheReadTokens, cacheCreationTokens,
+  ]);
 
   // Context usage estimate (0–100) based on current transcript content.
   const { contextPercent, contextWindow } = useMemo(() => {
@@ -199,7 +344,12 @@ export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React
   }, [config, messages]);
 
   const groupedMessages = useMemo(() => groupMessages(messages), [messages]);
-  const showContextPanel = shouldShowContextPanel(terminalWidth, settingsOpen);
+  const contextPanelLayout = useMemo(
+    () => computeContextPanelLayout(terminalWidth, settingsOpen),
+    [terminalWidth, settingsOpen],
+  );
+  const showContextPanel = contextPanelLayout.visible;
+  const contextPanelWidth = contextPanelLayout.width;
 
   useEffect(() => {
     if (!showContextPanel) return;
@@ -244,6 +394,7 @@ export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React
   if (!config) return <ConnectingSpinner theme={settings.theme} />;
 
   const themeColors = getThemeColors(settings.theme);
+  const suppressWelcome = shouldSuppressWelcome(batchCommands);
 
   return (
     <SettingsContext.Provider value={{
@@ -255,7 +406,9 @@ export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React
       setSetting,
       resetSettings,
       cycleMode,
-      cycleTheme
+      cycleTheme,
+      cycleThinkingMode,
+      cycleThinkingDetail,
     }}>
       <Box flexDirection="column" width="100%">
         <TitleBar
@@ -267,6 +420,8 @@ export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React
           romPath={config.romPath}
           broadcastModels={config.broadcastModels}
         />
+
+        {backendErrorVisible ? <BackendErrorBanner config={config} /> : null}
 
         <Box flexDirection={showContextPanel ? "row" : "column"} width="100%" gap={1}>
           <Box flexDirection="column" flexGrow={1} minWidth={0}>
@@ -283,13 +438,14 @@ export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React
               activeToolCall={activeToolCall}
               subagents={subagents}
               error={error}
+              suppressWelcome={suppressWelcome}
             />
           </Box>
 
           {showContextPanel ? (
             <Box
               height={transcriptViewportHeight}
-              width={36}
+              width={contextPanelWidth}
               flexShrink={0}
               flexDirection="column"
             >
@@ -307,6 +463,9 @@ export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React
                     )}
                     recentSessions={recentSessions}
                     draftFiles={draftFiles}
+                    draftConstructRefs={draftConstructRefs}
+                    width={contextPanelWidth}
+                    viewportHeight={transcriptViewportHeight}
                   />
                 </Box>
               </ScrollView>
@@ -328,6 +487,7 @@ export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React
             server={pendingPermission.server}
             workspace={config.workspace}
             arguments={pendingPermission.arguments}
+            reason={pendingPermission.reason}
             onApproveOnce={() => void approveTool()}
             onApproveSession={() => void approveToolForSession()}
             onDenyOnce={() => void denyTool()}
@@ -363,6 +523,7 @@ export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React
           onCycleMode={cycleMode}
           onSessionClose={() => setPickerSessions(null)}
           onDraftFilesChange={setDraftFiles}
+          onDraftConstructRefsChange={setDraftConstructRefs}
           onSubmit={handleSubmit}
           transcriptScrollRef={transcriptScrollRef}
           sidePanelScrollRef={showContextPanel ? contextScrollRef : undefined}
@@ -387,7 +548,7 @@ export function App({ pythonPath, backendArgs, batchCommands }: AppProps): React
           focusFile={config.focusFile}
         />
 
-        <KeyboardLegend colors={themeColors} />
+        {showKeyboardLegend ? <KeyboardLegend colors={themeColors} /> : null}
       </Box>
     </SettingsContext.Provider>
   );

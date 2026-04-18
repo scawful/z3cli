@@ -1,10 +1,11 @@
 import React from "react";
 import { Box, Text } from "ink";
-import type { AppConfig, AttachmentMeta } from "../ipc/protocol.js";
+import type { AppConfig, AttachmentMeta, ConstructRef } from "../ipc/protocol.js";
 import type { SessionInfo } from "../commands/index.js";
-import { getThemeColors, heartBar, modelColor, modelSymbol, symbols, formatTokens } from "../theme/index.js";
+import { heartBar, modelColor, modelSymbol, symbols, formatTokens } from "../theme/index.js";
 import { useSettingsContext } from "../contexts/SettingsContext.js";
 import { basename, shortenPath } from "../utils/path.js";
+import { constructToken } from "../utils/prompt.js";
 
 interface ContextPanelProps {
   config: AppConfig;
@@ -15,31 +16,47 @@ interface ContextPanelProps {
   userMessageCount: number;
   recentSessions: SessionInfo[];
   draftFiles: AttachmentMeta[];
+  draftConstructRefs: ConstructRef[];
+  width?: number;
+  viewportHeight?: number;
 }
 
 function sessionName(name: string): string {
   return name.replace(/^\d{4}-\d{2}-\d{2}_\d{6}(?:_\d+)?_?/, "") || name;
 }
 
-export function ContextPanel({
-  config,
-  contextPercent,
-  contextWindow,
-  promptTokens,
-  completionTokens,
-  userMessageCount,
-  recentSessions,
-  draftFiles,
-}: ContextPanelProps): React.ReactElement {
-  const { colors } = useSettingsContext();
-  const totalTokens = promptTokens + completionTokens;
-  const tokenDisplay = formatTokens(totalTokens, colors);
-  const hearts = heartBar(contextPercent, 10, colors);
-  const rules = config.permissionRules ?? {};
-  const allowCount = Object.values(rules).filter(Boolean).length;
-  const denyCount = Object.values(rules).filter((value) => !value).length;
-  const cancelCount = config.cancelCount ?? 0;
-  const restartCount = config.backendRestartCount ?? 0;
+function formatCompactCount(count: number): string {
+  if (count >= 10_000) return `${Math.round(count / 1000)}k`;
+  if (count >= 1_000) return `${(count / 1000).toFixed(1)}k`;
+  return String(count);
+}
+
+export interface ContextPanelLimits {
+  compact: boolean;
+  diagnosticsLineLimit: number;
+  draftFilesLimit: number;
+  recentSessionsLimit: number;
+}
+
+export function deriveContextPanelLimits(
+  width: number,
+  viewportHeight: number,
+): ContextPanelLimits {
+  const veryTight = viewportHeight <= 16;
+  const compact = width < 36 || viewportHeight <= 20;
+  return {
+    compact,
+    diagnosticsLineLimit: veryTight ? 4 : compact ? 5 : 7,
+    draftFilesLimit: veryTight ? 3 : compact ? 4 : 5,
+    recentSessionsLimit: veryTight ? 2 : compact ? 3 : 4,
+  };
+}
+
+export function buildDiagnosticsLines(
+  config: AppConfig,
+  lineLimit: number,
+  compact: boolean,
+): string[] {
   const toolLatencyMs = config.toolLatencyMs ?? 0;
   const toolLatencySamples = config.toolLatencySamples ?? 0;
   const permissionWaitMs = config.permissionWaitMs ?? 0;
@@ -56,11 +73,6 @@ export function ContextPanel({
   const queuedModelCalls = config.queuedModelCalls ?? 0;
   const inflightToolCalls = config.inflightToolCalls ?? 0;
   const queuedToolCalls = config.queuedToolCalls ?? 0;
-  const modelQueueHighwater = config.modelQueueHighwater ?? 0;
-  const toolQueueHighwater = config.toolQueueHighwater ?? 0;
-  const modelRetryMax = config.modelRetryMax ?? 0;
-  const modelRetryBaseMs = config.modelRetryBaseMs ?? 0;
-  const toolExecTimeoutS = config.toolExecTimeoutS ?? 0;
   const maxInflightModelCalls = config.maxInflightModelCalls ?? 0;
   const maxInflightTools = config.maxInflightTools ?? 0;
   const execQueueDepth = config.execQueueDepth ?? 0;
@@ -69,10 +81,6 @@ export function ContextPanel({
   const requestErrorCount = config.requestErrorCount ?? 0;
   const requestRejectCount = config.requestRejectCount ?? 0;
   const requestCancelCount = config.requestCancelCount ?? 0;
-  const spanCount = config.spanCount ?? 0;
-  const lastRequestId = config.lastRequestId ?? "";
-  const lastSpanId = config.lastSpanId ?? "";
-  const lastToolCallId = config.lastToolCallId ?? "";
   const requestSamples = config.requestSamples ?? 0;
   const queuedMsP50 = config.queuedMsP50 ?? 0;
   const queuedMsP95 = config.queuedMsP95 ?? 0;
@@ -88,8 +96,65 @@ export function ContextPanel({
   const lastRequestToolMs = config.lastRequestToolMs ?? 0;
   const lastRequestTotalMs = config.lastRequestTotalMs ?? 0;
 
+  const retrySummary = modelRetryBackoffMs > 0
+    ? `retry ${modelRetries} (${modelRetryBackoffMs}ms) · err ${modelErrors}`
+    : `retry ${modelRetries} · err ${modelErrors}`;
+
+  const lines = [
+    `req ${requestCount} · ok ${requestSuccessCount} · err ${requestErrorCount} · rej ${requestRejectCount} · cancel ${requestCancelCount}`,
+    `tool avg ${toolLatencyMs}ms · wait ${permissionWaitMs}/${reviewWaitMs}ms · n=${toolLatencySamples}`,
+    `timeouts p/r/t ${permissionTimeouts}/${reviewTimeouts}/${toolTimeouts}`,
+    `${retrySummary} · bp ${modelBackpressure}/${toolBackpressure}`,
+    compact
+      ? `budget m ${inflightModelCalls}/${maxInflightModelCalls}+${queuedModelCalls}/${execQueueDepth} · t ${inflightToolCalls}/${maxInflightTools}+${queuedToolCalls}/${execQueueDepth}`
+      : `budget m ${inflightModelCalls}/${maxInflightModelCalls}+${queuedModelCalls}/${execQueueDepth} · t ${inflightToolCalls}/${maxInflightTools}+${queuedToolCalls}/${execQueueDepth}`,
+    requestSamples > 0
+      ? `lat p50 q/m/t ${queuedMsP50}/${modelMsP50}/${toolMsP50}ms · total ${totalMsP50}ms`
+      : "lat p50 q/m/t 0/0/0ms · total 0ms",
+    requestSamples > 0
+      ? `lat p95 q/m/t ${queuedMsP95}/${modelMsP95}/${toolMsP95}ms · total ${totalMsP95}ms`
+      : "lat p95 q/m/t 0/0/0ms · total 0ms",
+    lastRequestStatus
+      ? `last ${lastRequestStatus} q/m/t/total ${lastRequestQueuedMs}/${lastRequestModelMs}/${lastRequestToolMs}/${lastRequestTotalMs}ms`
+      : "",
+  ];
+
+  return lines.filter(Boolean).slice(0, lineLimit);
+}
+
+export function ContextPanel({
+  config,
+  contextPercent,
+  contextWindow,
+  promptTokens,
+  completionTokens,
+  userMessageCount,
+  recentSessions,
+  draftFiles,
+  draftConstructRefs,
+  width = 36,
+  viewportHeight = 20,
+}: ContextPanelProps): React.ReactElement {
+  const { colors, settings } = useSettingsContext();
+  const totalTokens = promptTokens + completionTokens;
+  const tokenDisplay = formatTokens(totalTokens, colors);
+  const hearts = heartBar(contextPercent, 10, colors);
+  const tokenText = tokenDisplay.text || `${symbols.rupee} 0`;
+  const tokenColor = tokenDisplay.text ? tokenDisplay.color : colors.dim;
+  const limits = deriveContextPanelLimits(width, viewportHeight);
+  const rules = config.permissionRules ?? {};
+  const allowCount = Object.values(rules).filter(Boolean).length;
+  const denyCount = Object.values(rules).filter((value) => !value).length;
+  const cancelCount = config.cancelCount ?? 0;
+  const restartCount = config.backendRestartCount ?? 0;
+  const diagnosticsLines = buildDiagnosticsLines(
+    config,
+    limits.diagnosticsLineLimit,
+    limits.compact,
+  );
+
   return (
-    <Box width={36} flexDirection="column" gap={1}>
+    <Box width={width} flexDirection="column" gap={1}>
       <Box borderStyle="double" borderColor={colors.border} paddingX={1} flexDirection="column">
         <Text bold color={colors.triforce}>Map & Context</Text>
         <Box gap={1}>
@@ -100,66 +165,47 @@ export function ContextPanel({
         <Text dimColor>{shortenPath(config.workspace)}</Text>
         {config.focusFile ? (
           <Text color={colors.nayru}>{symbols.pendant} {basename(config.focusFile)}</Text>
-        ) : (
-          <Text dimColor>no focus file</Text>
-        )}
-        <Text dimColor>
-          shell {config.shellActive ? "active" : "idle"} · {shortenPath(config.shellCwd ?? config.workspace)}
-        </Text>
-        <Text dimColor>session {basename(config.sessionPath) || "(none)"}</Text>
-        <Text dimColor>{config.servers.length} servers · {config.toolCount} tools</Text>
+        ) : null}
+        {contextWindow > 0 ? (
+          <Box gap={1}>
+            <Text color={hearts.color}>{hearts.display}</Text>
+            <Text dimColor>{contextPercent}% of {formatCompactCount(contextWindow)}</Text>
+          </Box>
+        ) : null}
+        <Box gap={1}>
+          <Text color={tokenColor}>{tokenText}</Text>
+          <Text dimColor>{config.servers.length} servers · {config.toolCount} tools</Text>
+        </Box>
       </Box>
 
       <Box borderStyle="double" borderColor={colors.border} paddingX={1} flexDirection="column">
-        <Text bold color={colors.triforce}>Status & Session</Text>
-        <Text dimColor>{userMessageCount} user turns</Text>
-        <Text dimColor>session token spend</Text>
-        <Box gap={1}>
-          <Text color={tokenDisplay.color}>{tokenDisplay.text || "◆ 0"}</Text>
-        </Box>
-        {contextWindow > 0 ? (
-          <>
-            <Text dimColor>context estimate</Text>
-            <Box gap={1}>
-              <Text color={hearts.color}>{hearts.display} {contextPercent}%</Text>
-              <Text dimColor>of current window</Text>
-            </Box>
-          </>
-        ) : null}
-        <Text dimColor>{config.sessionToolCalls ?? 0} tool calls</Text>
+        <Text bold color={colors.triforce}>Session</Text>
+        <Text dimColor>{userMessageCount} user turns · {config.sessionToolCalls ?? 0} tool calls</Text>
         <Text dimColor>rules {allowCount} allow · {denyCount} deny</Text>
         <Text dimColor>verify {config.verifyHooks === false ? "off" : "on"}</Text>
-        <Text dimColor>cancel {cancelCount} · restart {restartCount}</Text>
-        <Text dimColor>tool avg {toolLatencyMs}ms · n={toolLatencySamples}</Text>
-        <Text dimColor>wait p/r {permissionWaitMs}ms/{reviewWaitMs}ms</Text>
-        <Text dimColor>timeouts p/r {permissionTimeouts}/{reviewTimeouts}</Text>
-        <Text dimColor>model retry {modelRetries} · errors {modelErrors}</Text>
-        <Text dimColor>retry backoff {modelRetryBackoffMs}ms · max {modelRetryMax}</Text>
-        <Text dimColor>retry base {modelRetryBaseMs}ms · tool timeout {toolExecTimeoutS}s</Text>
-        <Text dimColor>tool timeouts {toolTimeouts}</Text>
-        <Text dimColor>budget model {inflightModelCalls}/{maxInflightModelCalls} · queue {queuedModelCalls}/{execQueueDepth}</Text>
-        <Text dimColor>budget tools {inflightToolCalls}/{maxInflightTools} · queue {queuedToolCalls}/{execQueueDepth}</Text>
-        <Text dimColor>backpressure m/t {modelBackpressure}/{toolBackpressure}</Text>
-        <Text dimColor>queue highwater m/t {modelQueueHighwater}/{toolQueueHighwater}</Text>
-        <Text dimColor>requests {requestCount} · ok {requestSuccessCount} · err {requestErrorCount} · rej {requestRejectCount} · cancel {requestCancelCount}</Text>
-        <Text dimColor>spans {spanCount}</Text>
-        <Text dimColor>latency p50 q/m/t {queuedMsP50}/{modelMsP50}/{toolMsP50}ms</Text>
-        <Text dimColor>latency p95 q/m/t {queuedMsP95}/{modelMsP95}/{toolMsP95}ms</Text>
-        <Text dimColor>latency p50/p95 total {totalMsP50}/{totalMsP95}ms (n={requestSamples})</Text>
-        {lastRequestStatus ? (
-          <Text dimColor>last {lastRequestStatus} q/m/t/total {lastRequestQueuedMs}/{lastRequestModelMs}/{lastRequestToolMs}/{lastRequestTotalMs}ms</Text>
+        {config.shellActive ? (
+          <Text dimColor>shell active · {shortenPath(config.shellCwd ?? config.workspace)}</Text>
         ) : null}
-        {lastRequestId ? <Text dimColor>last req {lastRequestId}</Text> : null}
-        {lastSpanId ? <Text dimColor>last span {lastSpanId}</Text> : null}
-        {lastToolCallId ? <Text dimColor>last tool call {lastToolCallId}</Text> : null}
+        {cancelCount > 0 || restartCount > 0 ? (
+          <Text dimColor>cancel {cancelCount} · restart {restartCount}</Text>
+        ) : null}
       </Box>
+
+      {settings.showDiagnostics ? (
+        <Box borderStyle="double" borderColor={colors.border} paddingX={1} flexDirection="column">
+          <Text bold color={colors.triforce}>Diagnostics</Text>
+          {diagnosticsLines.map((line) => (
+            <Text key={line} dimColor>{line}</Text>
+          ))}
+        </Box>
+      ) : null}
 
       <Box borderStyle="double" borderColor={colors.border} paddingX={1} flexDirection="column">
         <Text bold color={colors.triforce}>Inventory (@files)</Text>
         {draftFiles.length === 0 ? (
           <Text dimColor>none</Text>
         ) : (
-          draftFiles.slice(0, 6).map((file) => (
+          draftFiles.slice(0, limits.draftFilesLimit).map((file) => (
             <Text key={file.path} color={colors.nayru}>
               {[
                 file.path,
@@ -172,11 +218,24 @@ export function ContextPanel({
       </Box>
 
       <Box borderStyle="double" borderColor={colors.border} paddingX={1} flexDirection="column">
+        <Text bold color={colors.triforce}>Glyphs (#refs)</Text>
+        {draftConstructRefs.length === 0 ? (
+          <Text dimColor>none</Text>
+        ) : (
+          draftConstructRefs.slice(0, limits.draftFilesLimit).map((ref) => (
+            <Text key={constructToken(ref)} color={colors.accent}>
+              {constructToken(ref)}{ref.label ? ` ${ref.label}` : ""}
+            </Text>
+          ))
+        )}
+      </Box>
+
+      <Box borderStyle="double" borderColor={colors.border} paddingX={1} flexDirection="column">
         <Text bold color={colors.triforce}>Quest Log (Recent)</Text>
         {recentSessions.length === 0 ? (
           <Text dimColor>no saved sessions</Text>
         ) : (
-          recentSessions.slice(0, 5).map((session) => (
+          recentSessions.slice(0, limits.recentSessionsLimit).map((session) => (
             <Box key={session.name} gap={1}>
               <Text color={modelColor(session.activeModel, colors)}>{modelSymbol(session.activeModel)}</Text>
               <Text color={colors.text}>{sessionName(session.name)}</Text>

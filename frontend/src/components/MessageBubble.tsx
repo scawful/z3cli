@@ -8,7 +8,7 @@
 
 import React from "react";
 import { Box, Text } from "ink";
-import { Markdown } from "./Markdown.js";
+import { Markdown, highlightHexAddresses } from "./Markdown.js";
 import { JsonArgList } from "./JsonArgList.js";
 import {
   symbols,
@@ -17,7 +17,6 @@ import {
   toolSymbol,
 } from "../theme/index.js";
 import { useSettingsContext } from "../contexts/SettingsContext.js";
-import { useAnimatedFrame } from "../hooks/useAnimatedFrame.js";
 import type { Message } from "../ipc/protocol.js";
 import {
   collapseToolResult,
@@ -25,6 +24,9 @@ import {
   summarizeToolInvocation,
   summarizeToolResult,
 } from "../utils/tooling.js";
+import { constructToken } from "../utils/prompt.js";
+import { buildThinkingDisplay, showTranscriptThinking } from "../utils/thinking.js";
+import { ReasoningToggleButton } from "./ReasoningToggleButton.js";
 
 interface MessageBubbleProps {
   message: Message;
@@ -33,11 +35,6 @@ interface MessageBubbleProps {
 // ---------------------------------------------------------------------------
 // File-local helpers
 // ---------------------------------------------------------------------------
-
-function Blinker({ color }: { color: string }): React.ReactElement {
-  const frame = useAnimatedFrame(["▼", " "], 600);
-  return <Text color={color}>{frame}</Text>;
-}
 
 function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString([], {
@@ -58,6 +55,10 @@ function shouldRenderToolResultAsMarkdown(content: string): boolean {
     }
   }
   return t.length > 160;
+}
+
+function isDeniedToolResult(content: string): boolean {
+  return content.trim() === "[Tool call denied by user]";
 }
 
 function AttachmentList({
@@ -84,13 +85,68 @@ function AttachmentList({
   );
 }
 
+function ConstructRefList({
+  constructRefs,
+}: {
+  constructRefs: NonNullable<Message["constructRefs"]>;
+}): React.ReactElement | null {
+  const { colors } = useSettingsContext();
+  if (constructRefs.length === 0) return null;
+  return (
+    <Box flexDirection="column" paddingLeft={2}>
+      <Box gap={1}>
+        <Text dimColor>{symbols.triforceSmall}</Text>
+        <Text dimColor>game refs</Text>
+      </Box>
+      {constructRefs.map((ref) => (
+        <Box key={constructToken(ref)} gap={1} paddingLeft={2}>
+          <Text color={colors.accent}>{constructToken(ref)}</Text>
+          {ref.label ? <Text dimColor>{ref.label}</Text> : null}
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
+function AssistantThinkingBlock({
+  thinking,
+}: {
+  thinking: string;
+}): React.ReactElement | null {
+  const { colors, settings } = useSettingsContext();
+  const preview = buildThinkingDisplay(thinking, settings.thinkingDetail, { mode: "head" });
+  if (!preview.text) return null;
+  return (
+    <Box
+      borderStyle="round"
+      borderColor={colors.dim}
+      paddingX={1}
+      marginBottom={1}
+      flexDirection="column"
+    >
+      <Box justifyContent="space-between">
+        <Box gap={1}>
+          <Text color={colors.muted}>{symbols.thinking[0]}</Text>
+          <Text dimColor>reasoning</Text>
+          {preview.lineCount > 6 ? <Text dimColor>({preview.lineCount} lines)</Text> : null}
+        </Box>
+        <ReasoningToggleButton />
+      </Box>
+      <Text dimColor>{highlightHexAddresses(preview.text)}</Text>
+      {preview.truncated && preview.overflowLabel ? (
+        <Text dimColor>··· {preview.overflowLabel}</Text>
+      ) : null}
+    </Box>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // MessageBubble
 // ---------------------------------------------------------------------------
 
 export function MessageBubble({ message }: MessageBubbleProps): React.ReactElement {
   const { settings, colors } = useSettingsContext();
-  const { role, content, toolName, toolServer, toolArguments, model, attachments } = message;
+  const { role, content, toolName, toolServer, toolArguments, model, attachments, constructRefs, thinking } = message;
 
   if (role === "tool" && toolArguments !== undefined && !content) {
     const server = toolServer ?? "";
@@ -100,15 +156,15 @@ export function MessageBubble({ message }: MessageBubbleProps): React.ReactEleme
     const summary = summarizeToolInvocation(toolName ?? "tool", args);
     const showArgs = toolArguments.trim().length > 0 && toolArguments.trim().length <= 220;
     return (
-      <Box borderStyle="round" borderColor={sc} paddingX={1} flexDirection="column">
+      <Box flexDirection="column" paddingLeft={1}>
         <Box gap={1}>
           <Text color={sc}>{ts}</Text>
           {server ? <Text dimColor>{server} {symbols.arrow}</Text> : null}
           <Text bold color={sc}>{toolName ?? "tool"}</Text>
+          {summary && summary !== (toolName ?? "tool") ? (
+            <Text dimColor>{symbols.dot} {summary}</Text>
+          ) : null}
         </Box>
-        {summary && summary !== (toolName ?? "tool") ? (
-          <Text dimColor>{summary}</Text>
-        ) : null}
         {showArgs ? (
           <Box paddingLeft={2}>
             <JsonArgList jsonStr={toolArguments} colored={settings.coloredToolArgs} />
@@ -120,28 +176,38 @@ export function MessageBubble({ message }: MessageBubbleProps): React.ReactEleme
 
   if (role === "tool" && content) {
     const isError = content.startsWith("Error") || content.startsWith("error:");
+    const denied = isDeniedToolResult(content);
     const collapsed = collapseToolResult(content);
     const display = collapsed.display;
-    const resultColor = isError ? colors.error : colors.success;
-    const rich = shouldRenderToolResultAsMarkdown(display);
+    const resultColor = denied ? colors.warning : (isError ? colors.error : colors.success);
+    const rich = !denied && shouldRenderToolResultAsMarkdown(display);
     const summary = summarizeToolResult(content);
     return (
-      <Box borderStyle="round" borderColor={resultColor} paddingX={1} flexDirection="column">
+      <Box flexDirection="column" paddingLeft={1}>
         <Box gap={1}>
           {settings.showToolGrouping ? <Text dimColor>└</Text> : null}
-          {toolName ? <Text dimColor>{toolSymbol(toolName)} {toolName}</Text> : null}
-          <Text dimColor>{symbols.arrow} {summary}</Text>
+          {toolName ? <Text color={resultColor}>{toolSymbol(toolName)} {toolName}</Text> : null}
+          <Text dimColor>{symbols.arrow}</Text>
+          <Text color={resultColor}>{summary}</Text>
         </Box>
-        {rich ? (
-          <Markdown>{display}</Markdown>
+        {denied ? null : rich ? (
+          <Box paddingLeft={1}>
+            <Markdown>{display}</Markdown>
+          </Box>
         ) : (
-          <Text dimColor>{display}</Text>
+          <Box paddingLeft={1}>
+            <Text dimColor>{display}</Text>
+          </Box>
         )}
         {collapsed.wasCollapsed ? (
           collapsed.hiddenLines > 0 ? (
-            <Text dimColor>··· {collapsed.hiddenLines} more lines</Text>
+            <Box paddingLeft={1}>
+              <Text dimColor>··· {collapsed.hiddenLines} more lines</Text>
+            </Box>
           ) : collapsed.truncatedByChars ? (
-            <Text dimColor>··· output truncated</Text>
+            <Box paddingLeft={1}>
+              <Text dimColor>··· output truncated</Text>
+            </Box>
           ) : null
         ) : null}
       </Box>
@@ -150,13 +216,31 @@ export function MessageBubble({ message }: MessageBubbleProps): React.ReactEleme
 
   if (role === "user") {
     return (
-      <Box paddingX={1} marginTop={1} flexDirection="column">
-        <Box>
-          <Text bold color={colors.user}>{symbols.arrowRight} </Text>
-          <Text wrap="wrap">{content}</Text>
+      <Box
+        marginTop={1}
+        marginBottom={1}
+        paddingLeft={1}
+        borderStyle="single"
+        borderColor={colors.user}
+        borderTop={false}
+        borderBottom={false}
+        borderRight={false}
+        flexDirection="column"
+      >
+        <Box justifyContent="space-between">
+          <Box gap={1}>
+            <Text bold color={colors.user}>{symbols.arrowRight} you</Text>
+          </Box>
+          {settings.showTimestamps
+            ? <Text dimColor>{formatTime(message.timestamp)}</Text>
+            : null}
         </Box>
+        <Text wrap="wrap">{content}</Text>
         {attachments && attachments.length > 0 ? (
           <AttachmentList attachments={attachments} />
+        ) : null}
+        {constructRefs && constructRefs.length > 0 ? (
+          <ConstructRefList constructRefs={constructRefs} />
         ) : null}
       </Box>
     );
@@ -164,7 +248,17 @@ export function MessageBubble({ message }: MessageBubbleProps): React.ReactEleme
 
   if (role === "system") {
     return (
-      <Box flexDirection="column" paddingX={2} marginBottom={1}>
+      <Box
+        marginTop={1}
+        marginBottom={1}
+        paddingLeft={1}
+        borderStyle="single"
+        borderColor={colors.nayru}
+        borderTop={false}
+        borderBottom={false}
+        borderRight={false}
+        flexDirection="column"
+      >
         <Box gap={1}>
           <Text color={colors.nayru} bold>[Navi]</Text>
           <Text italic dimColor>Hey! Listen!</Text>
@@ -175,18 +269,25 @@ export function MessageBubble({ message }: MessageBubbleProps): React.ReactEleme
   }
 
   // Assistant
+  const visibleThinking = showTranscriptThinking(settings.showThinking) ? thinking : undefined;
+  if (!content.trim() && !visibleThinking) {
+    return <></>;
+  }
   const mc = model ? modelColor(model, colors) : colors.assistant;
   const ms = model ? modelSymbol(model) : symbols.triforceSmall;
   return (
     <Box
-      borderStyle="double"
-      borderColor={colors.triforce}
-      paddingX={1}
-      marginX={1}
+      marginTop={1}
       marginBottom={1}
+      paddingLeft={1}
+      borderStyle="single"
+      borderColor={mc}
+      borderTop={false}
+      borderBottom={false}
+      borderRight={false}
       flexDirection="column"
     >
-      <Box justifyContent="space-between">
+      <Box justifyContent="space-between" gap={1}>
         <Box gap={1}>
           <Text color={mc}>{ms}</Text>
           <Text bold color={mc}>{model || "Oracle"}</Text>
@@ -195,11 +296,9 @@ export function MessageBubble({ message }: MessageBubbleProps): React.ReactEleme
           ? <Text dimColor>{formatTime(message.timestamp)}</Text>
           : null}
       </Box>
-      <Box flexDirection="column">
-        <Markdown>{content}</Markdown>
-      </Box>
-      <Box justifyContent="flex-end">
-        <Blinker color={colors.triforce} />
+      <Box flexDirection="column" paddingLeft={1}>
+        {visibleThinking ? <AssistantThinkingBlock thinking={visibleThinking} /> : null}
+        {content.trim() ? <Markdown>{content}</Markdown> : null}
       </Box>
     </Box>
   );

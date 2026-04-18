@@ -8,7 +8,7 @@
 
 export * from "./protocol.generated.js";
 
-import type { AttachmentMeta, ReadyParams } from "./protocol.generated.js";
+import type { AttachmentMeta, ConstructRef, ReadyParams } from "./protocol.generated.js";
 
 // ---------------------------------------------------------------------------
 // App-level types
@@ -20,6 +20,7 @@ export interface Message {
   id: string;
   role: MessageRole;
   content: string;
+  thinking?: string;
   model?: string;
   toolName?: string;
   toolServer?: string;
@@ -28,6 +29,7 @@ export interface Message {
   turnId?: string;
   toolGroup?: string;
   attachments?: AttachmentMeta[];
+  constructRefs?: ConstructRef[];
   requestId?: string;
   spanId?: string;
 }
@@ -36,6 +38,7 @@ export interface ModelInfo {
   name: string;
   modelId: string;
   role: string;
+  description?: string;
   loaded: boolean;
   toolsEnabled: boolean;
   provider?: string;
@@ -58,6 +61,7 @@ export interface AppConfig {
   models: ModelInfo[];
   sessionPath: ReadyParams["session_path"];
   focusFile?: ReadyParams["focus_file"];
+  registryPath?: ReadyParams["registry_path"];
   broadcastModels?: ReadyParams["broadcast_models"];
   orchestratorModel?: ReadyParams["orchestrator_model"];
   sessionMessages?: ReadyParams["session_messages"];

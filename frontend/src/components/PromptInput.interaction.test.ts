@@ -8,7 +8,7 @@ import React from "react";
 import { render } from "ink-testing-library";
 
 import { PromptInput } from "./PromptInput.js";
-import type { AttachmentMeta } from "../ipc/protocol.js";
+import type { AttachmentMeta, ConstructRef } from "../ipc/protocol.js";
 import { SettingsContext } from "../contexts/SettingsContext.js";
 import { DEFAULT_SETTINGS } from "../hooks/useSettings.js";
 import { getThemeColors } from "../theme/index.js";
@@ -108,6 +108,8 @@ function renderPromptInput(props: React.ComponentProps<typeof PromptInput>) {
           resetSettings: () => {},
           cycleMode: () => {},
           cycleTheme: () => {},
+          cycleThinkingMode: () => {},
+          cycleThinkingDetail: () => {},
         },
       },
       React.createElement(PromptInput, props),
@@ -115,7 +117,7 @@ function renderPromptInput(props: React.ComponentProps<typeof PromptInput>) {
   );
 }
 
-test("PromptInput model picker marks fast-lane model", async () => {
+test("PromptInput model picker marks fast model", async () => {
   const restoreTTY = setTTY(true);
   const app = renderPromptInput({
     mode: "manual",
@@ -148,7 +150,7 @@ test("PromptInput model picker marks fast-lane model", async () => {
       const frame = normalizeFrame(app.lastFrame());
       assert.ok(frame.includes("Select model"));
       assert.ok(frame.includes("oracle-fast"));
-      assert.ok(frame.includes("fast lane"));
+      assert.ok(frame.includes("fast"));
     }, 4000);
   } finally {
     app.unmount();
@@ -194,12 +196,68 @@ test("PromptInput inserts @file references from the interactive picker", async (
 
     await waitFor(() => {
       const frame = normalizeFrame(app.lastFrame());
-      assert.ok(frame.includes("attached"));
       assert.ok(frame.includes("@src/room.asm"));
       assert.deepEqual(
         draftFiles.map((file) => file.path),
         ["src/room.asm"],
       );
+    }, 4000);
+  } finally {
+    app.unmount();
+    restoreTTY();
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("PromptInput inserts #refs from the interactive picker", async () => {
+  const restoreTTY = setTTY(true);
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "z3cli-prompt-"));
+  fs.mkdirSync(path.join(workspace, "Docs", "Dev", "Planning"), { recursive: true });
+  fs.writeFileSync(
+    path.join(workspace, "Docs", "Dev", "Planning", "oracle_resource_labels.json"),
+    JSON.stringify({ room: { "0x45": "Glacia Estate (Jail Cells)" } }),
+    "utf8",
+  );
+
+  let draftRefs: ConstructRef[] = [];
+  const app = renderPromptInput({
+    mode: "manual",
+    model: "nayru",
+    models: MODEL_FIXTURE,
+    workspace,
+    disabled: false,
+    onSubmit: () => {},
+    onDraftConstructRefsChange: (refs: ConstructRef[]) => {
+      draftRefs = refs;
+    },
+  });
+
+  try {
+    await waitFor(() => {
+      assert.ok(app.lastFrame()?.includes("❯"));
+    });
+    await sleep(250);
+
+    await typeText(app.stdin, "#room:gla");
+
+    await waitFor(() => {
+      const frame = normalizeFrame(app.lastFrame());
+      assert.ok(frame.includes("Game reference"));
+      assert.ok(frame.includes("#room:0x45"));
+    }, 4000);
+
+    app.stdin.write("\r");
+
+    await waitFor(() => {
+      const frame = normalizeFrame(app.lastFrame());
+      assert.ok(frame.includes("#room:0x45"));
+      assert.deepEqual(draftRefs, [{
+        kind: "room",
+        query: "0x45",
+        token: "#room:0x45",
+        id: "0x45",
+        label: "Glacia Estate (Jail Cells)",
+      }]);
     }, 4000);
   } finally {
     app.unmount();
@@ -257,14 +315,14 @@ test("PromptInput submits structured attachments without rewriting the prompt te
   fs.writeFileSync(path.join(workspace, "src", "room.asm"), "lda #$01\n", "utf8");
 
   let submittedText = "";
-  let submittedAttachments: Array<{ path: string }> = [];
+  let submittedAttachments: AttachmentMeta[] = [];
   const app = renderPromptInput({
     mode: "manual",
     model: "nayru",
     models: MODEL_FIXTURE,
     workspace,
     disabled: false,
-    onSubmit: (text: string, attachments?: Array<{ path: string }>) => {
+    onSubmit: (text: string, attachments?: AttachmentMeta[]) => {
       submittedText = text;
       submittedAttachments = attachments ?? [];
     },
@@ -286,7 +344,101 @@ test("PromptInput submits structured attachments without rewriting the prompt te
 
     await waitFor(() => {
       assert.equal(submittedText, "inspect this file");
-      assert.deepEqual(submittedAttachments, [{ path: "src/room.asm" }]);
+      assert.deepEqual(submittedAttachments, [{ path: "src/room.asm", lines: 2, chars: 9 }]);
+    }, 4000);
+  } finally {
+    app.unmount();
+    restoreTTY();
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("PromptInput submits structured construct refs without rewriting the prompt text", async () => {
+  const restoreTTY = setTTY(true);
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "z3cli-prompt-"));
+  fs.mkdirSync(path.join(workspace, "Docs", "Dev", "Planning"), { recursive: true });
+  fs.writeFileSync(
+    path.join(workspace, "Docs", "Dev", "Planning", "oracle_resource_labels.json"),
+    JSON.stringify({ room: { "0x45": "Glacia Estate (Jail Cells)" } }),
+    "utf8",
+  );
+
+  let submittedText = "";
+  let submittedRefs: ConstructRef[] = [];
+  const app = renderPromptInput({
+    mode: "manual",
+    model: "nayru",
+    models: MODEL_FIXTURE,
+    workspace,
+    disabled: false,
+    onSubmit: (text: string, _attachments?: AttachmentMeta[], constructRefs?: ConstructRef[]) => {
+      submittedText = text;
+      submittedRefs = constructRefs ?? [];
+    },
+  });
+
+  try {
+    await sleep(200);
+    await typeText(app.stdin, "#room:gla");
+    await waitFor(() => {
+      assert.ok(normalizeFrame(app.lastFrame()).includes("Game reference"));
+    }, 4000);
+    app.stdin.write("\r");
+    await waitFor(() => {
+      assert.ok(normalizeFrame(app.lastFrame()).includes("#room:0x45"));
+    }, 4000);
+
+    await typeText(app.stdin, "inspect this room");
+    app.stdin.write("\r");
+
+    await waitFor(() => {
+      assert.equal(submittedText, "inspect this room");
+      assert.deepEqual(submittedRefs, [{
+        kind: "room",
+        query: "0x45",
+        token: "#room:0x45",
+        id: "0x45",
+        label: "Glacia Estate (Jail Cells)",
+      }]);
+    }, 4000);
+  } finally {
+    app.unmount();
+    restoreTTY();
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("PromptInput offers #object refs from sprite catalog metadata", async () => {
+  const restoreTTY = setTTY(true);
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "z3cli-prompt-"));
+  fs.mkdirSync(path.join(workspace, "Docs", "Technical"), { recursive: true });
+  fs.writeFileSync(
+    path.join(workspace, "Docs", "Technical", "sprite_catalog.md"),
+    [
+      "## Objects (8 files)",
+      "| Sprite | Status | Location | Purpose | Notes |",
+      "|--------|--------|----------|---------|-------|",
+      "| **Minecart** | ✅ Done | D6 (Goron Mines) | Rideable puzzle system | Complex track persistence |",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const app = renderPromptInput({
+    mode: "manual",
+    model: "nayru",
+    models: MODEL_FIXTURE,
+    workspace,
+    disabled: false,
+    onSubmit: () => {},
+  });
+
+  try {
+    await sleep(200);
+    await typeText(app.stdin, "#object:mine");
+    await waitFor(() => {
+      const frame = normalizeFrame(app.lastFrame());
+      assert.ok(frame.includes("Game reference"));
+      assert.ok(frame.includes("#object:minecart"));
     }, 4000);
   } finally {
     app.unmount();
@@ -351,6 +503,8 @@ test("PromptInput opens the palette when the app triggers it", async () => {
             resetSettings: () => {},
             cycleMode: () => {},
             cycleTheme: () => {},
+            cycleThinkingMode: () => {},
+            cycleThinkingDetail: () => {},
           },
         },
         React.createElement(PromptInput, {

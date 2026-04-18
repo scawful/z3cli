@@ -7,18 +7,18 @@ import asyncio
 import os
 import shlex
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from rich.console import Console
 
 from z3cli import __version__
-from z3cli.app.backends import (
-    DEFAULT_LLAMACPP_API_BASE, LMStudioBackend, LlamaCppBackend,
-)
+from z3cli.app.backends import DEFAULT_LLAMACPP_API_BASE
+from z3cli.app.command_catalog import build_repl_help_text
 from z3cli.core.config import (
     API_BASE, HISTORY_FILE, MCP_CONFIG_PATH, REGISTRY_PATH, SESSION_DIR,
-    ModelConfig, RouterConfig, load_registry, list_zelda_models,
+    ModelConfig, RouterConfig, load_registry, rollout_warnings,
 )
 from z3cli.app.display import (
     MarkdownStreamer, ThinkingStreamer, ToolPanel, build_bottom_toolbar,
@@ -28,18 +28,47 @@ from z3cli.core.engine import (
     ChatEngine, DoneEvent, ErrorEvent, TextEvent, ThinkingEvent,
     ToolCallEvent, ToolResultEvent,
 )
-from z3cli.protocol.lmstudio import (
-    available_models, ensure_model_loaded, ensure_server,
-    loaded_models, server_status,
-)
+from z3cli.protocol.lmstudio import ensure_model_loaded, ensure_server, server_status
 from z3cli.app.runtime import (
-    DEFAULT_BROADCAST_MODELS, DEFAULT_LLAMACPP_MODEL, DEFAULT_ROM,
-    DEFAULT_WORKSPACE, VALID_BACKENDS, VALID_MODES, build_harness_prompt,
-    current_model_name, engine_key, merge_system_prompts, resolve_targets,
+    DEFAULT_ACTIVE_MODEL, DEFAULT_BROADCAST_MODELS, DEFAULT_LLAMACPP_MODEL, DEFAULT_ROM,
+    DEFAULT_WORKSPACE, LSP_CONTEXT_MODES, SPECIALIST_NAMES, VALID_BACKENDS, VALID_MODES, build_harness_prompt,
+    add_attachment_context_packs,
+    add_construct_context_packs,
+    build_local_identity_prompt, build_tool_bias_prompt, build_tool_use_prompt,
+    choose_startup_model,
+    default_orchestrator_model, engine_key, enrich_prompt_with_attachments, enrich_prompt_with_construct_refs,
+    ensure_model_available, ensure_targets_available,
+    load_enriched_focus_file, lsp_context_status_label, merge_system_prompts, mode_usage_text, normalize_lsp_context_mode, normalize_mode,
+    resolve_existing_model_name, resolve_message_attachments, resolve_message_construct_refs,
+    resolve_oracle_profile_system_prompts, resolve_targets,
 )
-from z3cli.core.session import Session, export_training, list_sessions, load_session
+from z3cli.app.shared_runtime import (
+    active_model_name,
+    compact_session_history,
+    clear_focus_context as _clear_focus_context,
+    ensure_shell,
+    get_backend,
+    get_or_create_engine,
+    permission_rule_key as _permission_rule_key,
+    persist_state as _persist_state,
+    refresh_focus_context as _refresh_focus_context,
+    resolve_focus_context as _resolve_focus_context,
+    resolve_request_model_name as _resolve_request_model_name,
+    restore_runtime_state as _restore_runtime_state,
+    set_backend,
+    set_focus_context as _set_focus_context,
+    state_permission_rules,
+    visible_model_infos,
+)
+from z3cli.app.shell_session import PersistentShellSession
+from z3cli.core.session import (
+    Session, export_training, find_session, list_sessions, load_session_bundle,
+    load_session_bundle_without_thinking, load_tool_invocations,
+)
 from z3cli.core.tool_bridge import ToolBridge
 from z3cli.app.tooling import connect_tool_bridge, wrap_bridge_for_model
+from z3cli.app.verify import run_verification_hooks
+from z3cli.app.write_review import ToolWriteContext, detect_changes, prepare_write_context
 
 # Optional prompt_toolkit — degrade to input() if missing
 try:
@@ -51,6 +80,83 @@ except ImportError:
     PromptSession = None  # type: ignore[assignment]
     FileHistory = None  # type: ignore[assignment]
     HAS_PROMPT_TOOLKIT = False
+
+class _AppStateSlice:
+    """Base for read/write slice views over :class:`AppState`.
+
+    Each slice exposes a narrow, semantically-grouped subset of AppState
+    fields as attributes that delegate back to the owning state instance.
+    This lets callers write ``state.routing.active_model = "nayru"`` while
+    the underlying data still lives in one flat dataclass — no data
+    duplication, no eager detachment. Slices are stateless proxies.
+    """
+
+    __slots__ = ("_state",)
+
+    def __init__(self, state: "AppState") -> None:
+        self._state = state
+
+
+def _slice_property(field_name: str) -> property:
+    def getter(self: _AppStateSlice):
+        return getattr(self._state, field_name)
+
+    def setter(self: _AppStateSlice, value) -> None:
+        setattr(self._state, field_name, value)
+
+    return property(getter, setter)
+
+
+class _RoutingSlice(_AppStateSlice):
+    """Model selection, mode, broadcast targets, orchestrator pinning."""
+
+    active_model = _slice_property("active_model")
+    mode = _slice_property("mode")
+    broadcast_models = _slice_property("broadcast_models")
+    orchestrator_model = _slice_property("orchestrator_model")
+    last_active_model = _slice_property("last_active_model")
+
+
+class _BackendSlice(_AppStateSlice):
+    """Backend identity + endpoint wiring."""
+
+    backend_name = _slice_property("backend_name")
+    api_base = _slice_property("api_base")
+    host = _slice_property("host")
+    port = _slice_property("port")
+    studio_api_base = _slice_property("studio_api_base")
+    llamacpp_api_base = _slice_property("llamacpp_api_base")
+    llamacpp_model = _slice_property("llamacpp_model")
+    auto_load = _slice_property("auto_load")
+    auto_start_server = _slice_property("auto_start_server")
+
+
+class _MetricsSlice(_AppStateSlice):
+    """Aggregated counters kept for display + session serialization."""
+
+    message_count = _slice_property("message_count")
+    tool_call_count = _slice_property("tool_call_count")
+    prompt_tokens = _slice_property("prompt_tokens")
+    completion_tokens = _slice_property("completion_tokens")
+    last_active_at = _slice_property("last_active_at")
+
+
+class _UiSlice(_AppStateSlice):
+    """Console handle + focus context + surfaced warnings."""
+
+    console = _slice_property("console")
+    focus_context = _slice_property("focus_context")
+    focus_path = _slice_property("focus_path")
+    startup_warnings = _slice_property("startup_warnings")
+    bridge_errors = _slice_property("bridge_errors")
+
+
+class _PendingOpsSlice(_AppStateSlice):
+    """Pending permission decisions and write-review contexts."""
+
+    permission_rules = _slice_property("permission_rules")
+    pending_write_contexts = _slice_property("pending_write_contexts")
+
 
 @dataclass
 class AppState:
@@ -69,6 +175,7 @@ class AppState:
     active_model: str
     mode: str
     auto_load: bool
+    auto_start_server: bool
     workspace: Path
     rom_path: Path | None
     temperature: float
@@ -76,32 +183,36 @@ class AppState:
     broadcast_models: list[str]
     tools_enabled: bool
     tools_write: bool = False
+    verify_hooks: bool = True
     bridge: ToolBridge | None = None
     bridge_errors: list[str] = field(default_factory=list)
+    startup_warnings: list[str] = field(default_factory=list)
     engines: dict[str, ChatEngine] = field(default_factory=dict)
+    shell: PersistentShellSession | None = None
     session: Session | None = None
     message_count: int = 0
     tool_call_count: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
     focus_context: str = ""
+    focus_path: Path | None = None
+    last_active_at: str = ""
+    last_active_model: str = ""
+    orchestrator_model: str = ""
+    lsp_context_mode: str = "auto"
+    permission_rules: dict[str, bool] = field(default_factory=dict)
+    pending_write_contexts: dict[str, ToolWriteContext] = field(default_factory=dict)
     _first_message_sent: bool = False
 
-
-def get_backend(state: AppState) -> LMStudioBackend | LlamaCppBackend:
-    if state.backend_name == "llamacpp":
-        return LlamaCppBackend(api_base=state.llamacpp_api_base, model=state.llamacpp_model)
-    return LMStudioBackend(api_base=state.studio_api_base, host=state.host, port=state.port)
-
-
-def active_model_name(state: AppState) -> str:
-    return current_model_name(state.active_model, state.backend_name, state.llamacpp_model)
-
-
-def build_system_prompt(state: AppState) -> str:
-    return build_harness_prompt(state.workspace, state.rom_path, state.focus_context)
-
-
+    def __post_init__(self) -> None:
+        # Slice views expose semantically-grouped subsets of the fields
+        # above. Existing flat access (``state.active_model``) still
+        # works; new code can prefer ``state.routing.active_model``.
+        self.routing = _RoutingSlice(self)
+        self.backend_state = _BackendSlice(self)
+        self.metrics = _MetricsSlice(self)
+        self.ui = _UiSlice(self)
+        self.pending_ops = _PendingOpsSlice(self)
 async def replace_bridge(state: AppState, bridge: ToolBridge | None, warnings: list[str]) -> None:
     old_bridge = state.bridge
     state.bridge = bridge
@@ -115,26 +226,110 @@ async def replace_bridge(state: AppState, bridge: ToolBridge | None, warnings: l
 async def refresh_tool_bridge(state: AppState) -> None:
     if not state.tools_enabled:
         await replace_bridge(state, None, [])
-        return
-    bridge, warnings = await connect_tool_bridge(state.workspace, state.mcp_path)
-    await replace_bridge(state, bridge, warnings)
-
-
-def set_backend(state: AppState, backend_name: str) -> None:
-    state.backend_name = backend_name
-    if backend_name == "llamacpp":
-        state.api_base = state.llamacpp_api_base
     else:
-        state.api_base = state.studio_api_base
+        bridge, warnings = await connect_tool_bridge(
+            state.workspace,
+            state.mcp_path,
+            rom_path=getattr(state, "rom_path", None),
+        )
+        await replace_bridge(state, bridge, warnings)
+    await _refresh_focus_context(state)
+
+
+def build_system_prompt(state: AppState, focus_context: str | None = None) -> str:
+    return build_harness_prompt(
+        state.workspace,
+        state.rom_path,
+        state.focus_context if focus_context is None else focus_context,
+    )
 
 
 def get_engine(state: AppState, model_name: str) -> ChatEngine:
-    key = engine_key(state.backend_name, model_name)
-    engine = state.engines.get(key)
-    if engine is None:
-        engine = ChatEngine(api_base=state.api_base, bridge=state.bridge)
-        state.engines[key] = engine
-    return engine
+    return get_or_create_engine(
+        state,
+        model_name,
+        permission_hook=lambda tool_name, arguments, server, call_id: _tool_permission_hook(
+            state, tool_name, arguments, server, call_id,
+        ),
+        post_tool_hook=lambda tool_name, arguments, result, server, call_id: _post_tool_hook(
+            state, tool_name, arguments, result, server, call_id,
+        ),
+        tool_invocation_hook=lambda payload: _tool_invocation_hook(state, model_name, payload),
+    )
+
+
+async def _tool_invocation_hook(state: AppState, model_name: str, payload: dict) -> None:
+    session = getattr(state, "session", None)
+    if session is None or session.path is None:
+        return
+    try:
+        session.append_tool_invocation(
+            tool=str(payload.get("tool", "")),
+            server=str(payload.get("server", "")),
+            duration_ms=float(payload.get("duration_ms", 0.0) or 0.0),
+            status=str(payload.get("status", "")),
+            model=model_name,
+            call_id=str(payload.get("call_id", "")),
+            error=str(payload.get("error", "")),
+        )
+    except Exception:
+        pass
+
+
+async def _tool_permission_hook(
+    state: AppState,
+    tool_name: str,
+    arguments: str,
+    server: str,
+    call_id: str,
+) -> bool:
+    rule_key = _permission_rule_key(tool_name, server)
+    write_context = prepare_write_context(state.workspace, tool_name, arguments, call_id)
+    if write_context is not None:
+        state.pending_write_contexts[call_id] = write_context
+    cached = state.permission_rules.get(rule_key)
+    if cached is not None:
+        if not cached:
+            state.pending_write_contexts.pop(call_id, None)
+        return cached
+    return True
+
+
+async def _post_tool_hook(
+    state: AppState,
+    tool_name: str,
+    arguments: str,
+    result: str,
+    server: str,
+    call_id: str,
+) -> str:
+    del tool_name, arguments, server
+    write_context = state.pending_write_contexts.pop(call_id, None)
+    if write_context is None:
+        return result
+
+    changes = detect_changes(write_context)
+    if not changes:
+        return result
+
+    accepted_note = "[Filesystem diff auto-accepted in REPL.]"
+    if not state.verify_hooks:
+        return result + "\n\n" + accepted_note
+
+    try:
+        verification = await run_verification_hooks(
+            state.workspace,
+            [change.path for change in changes],
+            bridge=state.bridge,
+            rom_path=state.rom_path,
+        )
+    except Exception as exc:
+        return result + f"\n\n{accepted_note}\n\n[Verification failed to run: {exc}]"
+
+    rendered = verification.render()
+    if not rendered:
+        return result + "\n\n" + accepted_note
+    return result + f"\n\n{accepted_note}\n\n{rendered}"
 
 
 def preview_targets(state: AppState, prompt: str) -> list[ModelConfig]:
@@ -149,45 +344,37 @@ def preview_targets(state: AppState, prompt: str) -> list[ModelConfig]:
         llamacpp_model=state.llamacpp_model,
         temperature=state.temperature,
         max_tokens=state.max_tokens,
+        orchestrator_model=state.orchestrator_model,
     )
 
 
 def render_model_table(state: AppState) -> None:
     from rich.table import Table
-    try:
-        avail = {
-            entry.get("modelKey")
-            for entry in available_models(state.host, state.port)
-            if isinstance(entry.get("modelKey"), str)
-        }
-        loaded = loaded_models(state.host, state.port)
-    except Exception:
-        avail = set()
-        loaded = []
-    loaded_names = {
-        value
-        for entry in loaded
-        for key in ("identifier", "modelKey", "modelPath", "name", "model", "id")
-        for value in [entry.get(key)]
-        if isinstance(value, str)
-    }
     table = Table(title="Zelda Models")
     table.add_column("Active")
     table.add_column("Alias")
+    table.add_column("Provider")
     table.add_column("Loaded")
     table.add_column("Available")
-    table.add_column("Model ID")
     table.add_column("Role")
-    for model in sorted(list_zelda_models(state.models).values(), key=lambda item: item.name):
+    table.add_column("Description")
+    table.add_column("Model ID")
+    for model in visible_model_infos(state):
         table.add_row(
-            "*" if model.name == state.active_model else "",
-            model.name,
-            "yes" if model.name in loaded_names or model.model_id in loaded_names else "no",
-            "yes" if model.model_id in avail else "no",
-            model.model_id,
-            model.role,
+            "*" if model["name"] == state.active_model else "",
+            str(model["name"]),
+            str(model["provider"]),
+            "yes" if model["loaded"] else "no",
+            "yes" if model["available"] else "no",
+            str(model["role"]),
+            str(model.get("description", "")),
+            str(model["model_id"]),
         )
     state.console.print(table)
+    state.console.print(
+        "Manual-only heavy model: [bold]oracle-pro[/bold] (27B switchhook · q4km). "
+        "Use /load oracle-pro before first use if you explicitly want that path."
+    )
 
 
 def print_status(state: AppState) -> None:
@@ -205,11 +392,28 @@ def print_status(state: AppState) -> None:
     state.console.print(f"ROM: {state.rom_path or '(none)'}")
     state.console.print(f"Tools enabled: {state.tools_enabled}")
     state.console.print(f"Tool write access: {state.tools_write}")
+    state.console.print(f"Verification hooks: {state.verify_hooks}")
+    state.console.print(
+        f"LSP context: {state.lsp_context_mode} ({lsp_context_status_label(state.lsp_context_mode, state.models.get(state.active_model))})"
+    )
     if state.bridge:
         state.console.print(f"Connected tool servers: {', '.join(state.bridge.server_names) or '(none)'}")
         state.console.print(f"Tool count: {state.bridge.tool_count}")
     elif state.bridge_errors:
         state.console.print(f"Tool connection warnings: {'; '.join(state.bridge_errors)}")
+    if state.startup_warnings:
+        state.console.print(f"Startup warnings: {'; '.join(state.startup_warnings)}")
+    rollout_notes = rollout_warnings(state.models)
+    if rollout_notes:
+        state.console.print(f"Rollout warnings: {'; '.join(rollout_notes)}")
+    if state.permission_rules:
+        allow = sorted(key for key, value in state.permission_rules.items() if value)
+        deny = sorted(key for key, value in state.permission_rules.items() if not value)
+        state.console.print(f"Permission allow rules: {', '.join(allow) if allow else '(none)'}")
+        state.console.print(f"Permission deny rules: {', '.join(deny) if deny else '(none)'}")
+    if state.shell is not None:
+        state.console.print(f"Shell active: {state.shell.active}")
+        state.console.print(f"Shell cwd: {state.shell.cwd}")
 
 
 async def list_loaded_api(state: AppState) -> None:
@@ -224,22 +428,56 @@ async def list_loaded_api(state: AppState) -> None:
 # Streaming with Markdown rendering and tool panels
 # ---------------------------------------------------------------------------
 
-async def stream_response(state: AppState, target: ModelConfig, prompt: str) -> None:
-    request_name = get_backend(state).resolve_request_model(target, state.auto_load)
+async def stream_response(
+    state: AppState,
+    target: ModelConfig,
+    prompt: str,
+    *,
+    display_prompt: str = "",
+    focus_context: str | None = None,
+    target_count: int | None = None,
+) -> None:
+    ensure_model_available(target)
+    request_name = _resolve_request_model_name(state, target)
     engine = get_engine(state, target.name)
-    system_prompt = merge_system_prompts(build_system_prompt(state), target.system_prompt)
+    route_prompt = display_prompt or prompt
 
     # Apply model-specific tool adapter if the model has a tool_profile
     effective_bridge = wrap_bridge_for_model(
-        state.bridge, target.tool_profile, read_only=not state.tools_write,
+        state.bridge,
+        target.tool_profile,
+        read_only=not state.tools_write,
+        deferred_tools=target.deferred_tools,
+        core_tools=target.core_tools,
     )
     engine.bridge = effective_bridge
-    use_tools = bool(effective_bridge and state.tools_enabled and target.tools_enabled)
+    tools_available = bool(effective_bridge and state.tools_enabled and target.tools_enabled)
+    use_native_tools = bool(tools_available and target.native_tools)
+    system_prompt = merge_system_prompts(
+        build_system_prompt(state, focus_context),
+        build_local_identity_prompt(target),
+        build_tool_use_prompt(
+            tools_available,
+            target.tool_profile,
+            deferred_tools=target.deferred_tools,
+            native_tools=target.native_tools,
+        ),
+        build_tool_bias_prompt(
+            route_prompt,
+            tools_available,
+            target.tool_profile,
+            deferred_tools=target.deferred_tools,
+            native_tools=target.native_tools,
+        ),
+        *resolve_oracle_profile_system_prompts(route_prompt),
+        target.system_prompt,
+    )
 
     # Enable thinking mode when the model has a thinking_tier configured
     use_thinking = bool(target.thinking_tier)
 
-    prefix = f"[{target.name}] " if state.mode != "manual" or len(preview_targets(state, prompt)) > 1 else ""
+    visible_target_count = target_count if target_count is not None else len(preview_targets(state, route_prompt))
+    prefix = f"[{target.name}] " if state.mode != "manual" or visible_target_count > 1 else ""
     if prefix:
         state.console.print(f"[bold cyan]{prefix}[/bold cyan]")
 
@@ -276,7 +514,7 @@ async def stream_response(state: AppState, target: ModelConfig, prompt: str) -> 
         system=system_prompt,
         temperature=target.temperature or state.temperature,
         max_tokens=target.max_tokens or state.max_tokens,
-        use_tools=use_tools,
+        use_tools=use_native_tools,
         thinking=use_thinking,
         max_tool_result=max_tool_result,
     ):
@@ -301,14 +539,25 @@ async def stream_response(state: AppState, target: ModelConfig, prompt: str) -> 
                 state.session.append_engine_msg(target.name, {
                     "role": "assistant",
                     "content": None,
-                    "tool_calls": [{"name": event.name, "arguments": event.arguments}],
+                    "tool_calls": [{
+                        "name": event.name,
+                        "arguments": event.arguments,
+                        "server": event.server,
+                        "tool_call_id": event.call_id,
+                        "tool_group": event.call_id,
+                    }],
                 })
+            _persist_state(state, model_name=target.name)
 
         elif isinstance(event, ToolResultEvent):
             state.console.print(ToolPanel.render_result(event.name, event.result))
             if state.session:
                 state.session.append_engine_msg(target.name, {
                     "role": "tool",
+                    "name": event.name,
+                    "server": event.server,
+                    "tool_call_id": event.call_id,
+                    "tool_group": event.call_id,
                     "content": event.result,
                 })
 
@@ -328,6 +577,7 @@ async def stream_response(state: AppState, target: ModelConfig, prompt: str) -> 
             state.message_count += 1
             state.prompt_tokens += event.prompt_tokens
             state.completion_tokens += event.completion_tokens
+            _persist_state(state, model_name=target.name)
             # Record the final assistant message in session
             if state.session and full_text:
                 state.session.append_engine_msg(target.name, {
@@ -337,21 +587,95 @@ async def stream_response(state: AppState, target: ModelConfig, prompt: str) -> 
 
 
 async def send_prompt(state: AppState, prompt: str) -> None:
+    _ensure_session_started(state)
     # Record user message in session
     targets = preview_targets(state, prompt)
+    ensure_targets_available(targets)
+    attachments = resolve_message_attachments(state.workspace, prompt)
+    construct_refs = resolve_message_construct_refs(state.workspace, prompt)
+    attachment_meta = [
+        {
+            "path": str(item["path"]),
+            "lines": int(item["lines"]),
+            "chars": int(item["chars"]),
+        }
+        for item in attachments
+    ]
+    construct_ref_meta = [
+        {
+            "kind": str(item["kind"]),
+            "query": str(item["query"]),
+            **({"token": str(item["token"])} if item.get("token") else {}),
+            **({"id": str(item["id"])} if item.get("id") else {}),
+            **({"label": str(item["label"])} if item.get("label") else {}),
+        }
+        for item in construct_refs
+    ]
+    target_turns: list[tuple[ModelConfig, str, str]] = []
+    for target in targets:
+        target_construct_refs = await add_construct_context_packs(
+            construct_refs,
+            bridge=state.bridge,
+            workspace=state.workspace,
+        )
+        target_attachments = await add_attachment_context_packs(
+            attachments,
+            bridge=state.bridge,
+            model=target,
+            lsp_context_mode=state.lsp_context_mode,
+            prompt_query=prompt,
+        )
+        target_engine_prompt = enrich_prompt_with_attachments(
+            enrich_prompt_with_construct_refs(prompt, target_construct_refs),
+            target_attachments,
+        )
+        target_focus_context = await _resolve_focus_context(state, target.name, query=prompt)
+        target_turns.append((target, target_engine_prompt, target_focus_context))
     if state.session:
-        for target in targets:
+        for target, target_engine_prompt, _target_focus_context in target_turns:
             state.session.append_engine_msg(target.name, {
                 "role": "user",
-                "content": prompt,
+                "content": target_engine_prompt,
+                "display_content": prompt,
+                "attachments": attachment_meta,
+                "construct_refs": construct_ref_meta,
             })
         # Rename session file based on first message
         if not state._first_message_sent:
             state.session.rename_from_first_message(prompt)
             state._first_message_sent = True
+    _persist_state(state)
 
-    for target in targets:
-        await stream_response(state, target, prompt)
+    for target, target_engine_prompt, target_focus_context in target_turns:
+        await stream_response(
+            state,
+            target,
+            target_engine_prompt,
+            display_prompt=prompt,
+            focus_context=target_focus_context,
+            target_count=len(target_turns),
+        )
+
+
+def _ensure_session_started(state: AppState) -> None:
+    if state.session is not None and state.session.path is not None:
+        return
+    state.last_active_model = state.active_model
+    state.last_active_at = datetime.now(timezone.utc).isoformat()
+    state.session = Session(SESSION_DIR)
+    state.session.start(
+        active_model=state.active_model,
+        backend=state.backend_name,
+        mode=state.mode,
+        workspace=str(state.workspace),
+        rom_path=str(state.rom_path) if state.rom_path else "",
+        tools_enabled=state.tools_enabled,
+        broadcast_models=state.broadcast_models,
+        llamacpp_model=state.llamacpp_model,
+        tools_write=state.tools_write,
+        verify_hooks=state.verify_hooks,
+        focus_path=str(state.focus_path) if state.focus_path else "",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -360,8 +684,9 @@ async def send_prompt(state: AppState, prompt: str) -> None:
 
 def current_mode_help() -> str:
     return (
-        "Modes: manual (active model only), oracle (keyword route), "
-        "switchhook (plan vs act), broadcast (fan out to multiple models)"
+        "Modes: manual (active model only), oracle (portfolio router), "
+        "orchestrator (delegate via planner), "
+        "broadcast (fan out to multiple models)"
     )
 
 
@@ -376,36 +701,7 @@ async def handle_command(state: AppState, line: str) -> bool:
         return False
 
     if command == "/help":
-        state.console.print(
-            "Commands:\n"
-            "  /help                   Show this help\n"
-            "  /status                 Connection and state info\n"
-            "  /backend [name]         Show or set backend (studio|llamacpp)\n"
-            "  /backends               List available backends\n"
-            "  /backend-status         Show active backend status\n"
-            "  /models                 Show available Zelda models\n"
-            "  /loaded                 List loaded API models\n"
-            "  /servers                Tool server info\n"
-            "  /model <name>           Switch active model\n"
-            "  /mode <name>            Set routing mode (manual|oracle|switchhook|broadcast)\n"
-            "  /modes                  List routing modes\n"
-            "  /route <prompt>         Preview routing without sending\n"
-            "  /broadcast <a,b,c>      Set broadcast model list\n"
-            "  /load [name]            Load a model in LM Studio\n"
-            "  /workspace <path>       Change workspace directory\n"
-            "  /rom <path|none>        Change ROM target\n"
-            "  /focus <path|clear>     Load file into system prompt (KV-cached)\n"
-            "  /tools <on|off>         Toggle tool use\n"
-            "  /tools-write <on|off>   Toggle write access (default: off)\n"
-            "  /reset [model|all]      Clear conversation history\n"
-            "  /stats                  Show session statistics\n"
-            "  /save                   Show session file path\n"
-            "  /sessions               List saved sessions\n"
-            "  /resume <name>          Resume a previous session\n"
-            "  /compact                Summarize and compress history (lossy)\n"
-            "  /export-training [out]  Export session to training JSONL\n"
-            "  /exit                   Quit"
-        )
+        state.console.print(build_repl_help_text(), markup=False)
         return True
 
     if command == "/status":
@@ -427,6 +723,7 @@ async def handle_command(state: AppState, line: str) -> bool:
         set_backend(state, backend_name)
         if state.session:
             state.session.append_backend_switch(old_backend, backend_name)
+        _persist_state(state)
         state.console.print(f"Backend set to {state.backend_name} ({active_model_name(state)})")
         return True
 
@@ -435,6 +732,28 @@ async def handle_command(state: AppState, line: str) -> bool:
             f"Backends: {'*' if state.backend_name == 'studio' else ' '} studio ({state.studio_api_base}) ; "
             f"{'*' if state.backend_name == 'llamacpp' else ' '} llamacpp ({state.llamacpp_api_base}, {state.llamacpp_model})"
         )
+        return True
+
+    if command == "/lsp-context":
+        if len(parts) < 2:
+            label = lsp_context_status_label(state.lsp_context_mode, state.models.get(state.active_model))
+            state.console.print(f"LSP context: {state.lsp_context_mode} ({label})")
+            return True
+        raw_mode = parts[1].strip().lower()
+        if raw_mode not in LSP_CONTEXT_MODES:
+            state.console.print("Usage: /lsp-context <auto|off|minimal|balanced|rich>")
+            return True
+        state.lsp_context_mode = normalize_lsp_context_mode(raw_mode)
+        await _refresh_focus_context(state)
+        _persist_state(
+            state,
+            {
+                "lsp_context_mode": state.lsp_context_mode,
+                "focus_path": str(state.focus_path) if state.focus_path else "",
+            },
+        )
+        label = lsp_context_status_label(state.lsp_context_mode, state.models.get(state.active_model))
+        state.console.print(f"LSP context set to {state.lsp_context_mode} ({label})")
         return True
 
     if command == "/backend-status":
@@ -480,29 +799,91 @@ async def handle_command(state: AppState, line: str) -> bool:
             state.console.print("Usage: /model <name>")
             return True
         old_model = state.active_model
-        state.active_model = parts[1]
+        resolved_model, alias = resolve_existing_model_name(parts[1], state.models)
+        ensure_model_available(state.models.get(resolved_model))
+        state.active_model = resolved_model
+        await _refresh_focus_context(state)
         state.console.print(f"Active model set to {state.active_model}")
+        if alias:
+            state.console.print(f"[yellow]Legacy alias '{alias}' now resolves to '{state.active_model}'.[/yellow]")
         if state.session and old_model != state.active_model:
             state.session.append_model_switch(old_model, state.active_model)
+        _persist_state(state, model_name=state.active_model)
+        return True
+
+    if command == "/specialist":
+        if state.backend_name != "studio":
+            state.console.print(
+                f"llama.cpp is pinned to {state.llamacpp_model}. Use /backend studio to switch LM Studio models."
+            )
+            return True
+        if len(parts) < 2 or parts[1].strip().lower() not in SPECIALIST_NAMES:
+            state.console.print(f"Usage: /specialist <{'|'.join(SPECIALIST_NAMES)}>")
+            return True
+        old_model = state.active_model
+        next_model = parts[1].strip().lower()
+        ensure_model_available(state.models.get(next_model))
+        state.active_model = next_model
+        state.mode = "manual"
+        await _refresh_focus_context(state)
+        state.console.print(f"Specialist set to {state.active_model} (mode: manual)")
+        if state.session and old_model != state.active_model:
+            state.session.append_model_switch(old_model, state.active_model)
+        _persist_state(state, {"mode": state.mode}, model_name=state.active_model)
         return True
 
     if command == "/mode":
         if len(parts) < 2:
-            state.console.print("Usage: /mode <manual|oracle|switchhook|broadcast>")
+            state.console.print(f"Usage: /mode {mode_usage_text()}")
             return True
-        mode = parts[1].strip().lower()
+        mode, alias = normalize_mode(parts[1])
         if mode not in VALID_MODES:
-            state.console.print("Usage: /mode <manual|oracle|switchhook|broadcast>")
+            state.console.print(f"Usage: /mode {mode_usage_text()}")
             return True
         state.mode = mode
+        _persist_state(state, {"mode": state.mode})
         state.console.print(f"Routing mode set to {state.mode}")
+        if alias:
+            state.console.print(f"[yellow]Legacy mode '{alias}' now resolves to '{state.mode}'.[/yellow]")
+        return True
+
+    if command == "/orchestrator":
+        if len(parts) < 2:
+            resolved = state.orchestrator_model or default_orchestrator_model(state.models) or ""
+            auto_selected = not state.orchestrator_model
+            state.console.print(f"Orchestrator: {state.orchestrator_model or '(auto)'}")
+            state.console.print(f"Resolved planner: {resolved or '(none)'}")
+            state.console.print(f"Auto-selected: {auto_selected}")
+            return True
+        choice = parts[1].strip()
+        if choice in {"auto", "-", ""}:
+            state.orchestrator_model = ""
+        else:
+            try:
+                resolved_choice, alias = resolve_existing_model_name(choice, state.models)
+            except RuntimeError:
+                state.console.print(f"[red]Unknown model: {choice}[/red]")
+                return True
+            cfg = state.models[resolved_choice]
+            if cfg.is_cloud and not cfg.resolve_api_key():
+                state.console.print(f"[red]Cloud model '{choice}' has no API key configured.[/red]")
+                return True
+            state.orchestrator_model = resolved_choice
+            if alias:
+                state.console.print(f"[yellow]Legacy alias '{alias}' now resolves to '{state.orchestrator_model}'.[/yellow]")
+        _persist_state(state, {"orchestrator_model": state.orchestrator_model})
+        resolved = state.orchestrator_model or default_orchestrator_model(state.models) or ""
+        state.console.print(f"Orchestrator planner: {state.orchestrator_model or '(auto)'}")
+        state.console.print(f"Resolved planner: {resolved or '(none)'}")
         return True
 
     if command == "/route":
         if len(parts) < 2:
             state.console.print("Usage: /route <prompt>")
             return True
-        state.console.print(" -> ".join(target.name for target in preview_targets(state, " ".join(parts[1:]))))
+        targets = preview_targets(state, " ".join(parts[1:]))
+        ensure_targets_available(targets)
+        state.console.print(" -> ".join(target.name for target in targets))
         return True
 
     if command == "/broadcast":
@@ -510,6 +891,7 @@ async def handle_command(state: AppState, line: str) -> bool:
             state.console.print("Usage: /broadcast <alias1,alias2,...>")
             return True
         state.broadcast_models = [v.strip() for v in parts[1].split(",") if v.strip()]
+        _persist_state(state, {"broadcast_models": state.broadcast_models})
         state.console.print(f"Broadcast models: {', '.join(state.broadcast_models)}")
         return True
 
@@ -518,8 +900,21 @@ async def handle_command(state: AppState, line: str) -> bool:
             state.console.print("/load is only available on the studio backend.")
             return True
         target_name = parts[1] if len(parts) >= 2 else state.active_model
-        target = state.models.get(target_name, ModelConfig(name=target_name, model_id=target_name))
-        request_name = ensure_model_loaded(target.name, target.model_id, state.host, state.port, auto_load=True)
+        if len(parts) >= 2:
+            target_name, _alias = resolve_existing_model_name(target_name, state.models)
+        else:
+            target_name = str(target_name)
+            if target_name not in state.models:
+                state.console.print(f"[red]Unknown model: {target_name}[/red]")
+                return True
+            _alias = None
+        target = state.models[target_name]
+        if target.is_cloud:
+            state.console.print("/load only applies to LM Studio models.")
+            return True
+        if _alias:
+            state.console.print(f"[yellow]Legacy alias '{_alias}' now resolves to '{target_name}'.[/yellow]")
+        request_name = get_backend(state).resolve_request_model(target, auto_load=True, manual_load=True)
         state.console.print(f"Loaded {target.name} as {request_name}")
         return True
 
@@ -528,7 +923,13 @@ async def handle_command(state: AppState, line: str) -> bool:
             state.console.print("Usage: /workspace <path>")
             return True
         state.workspace = Path(parts[1]).expanduser().resolve()
+        _persist_state(state, {"workspace": str(state.workspace)})
         await refresh_tool_bridge(state)
+        if state.shell is not None and state.shell.active:
+            try:
+                await state.shell.chdir(state.workspace)
+            except Exception:
+                pass
         state.console.print(f"Workspace set to {state.workspace}")
         return True
 
@@ -540,6 +941,8 @@ async def handle_command(state: AppState, line: str) -> bool:
             state.rom_path = None
         else:
             state.rom_path = Path(parts[1]).expanduser().resolve()
+        _persist_state(state, {"rom_path": str(state.rom_path) if state.rom_path else ""})
+        await refresh_tool_bridge(state)
         state.console.print(f"ROM set to {state.rom_path or '(none)'}")
         return True
 
@@ -559,27 +962,26 @@ async def handle_command(state: AppState, line: str) -> bool:
             return True
         arg = parts[1]
         if arg.lower() == "clear":
-            state.focus_context = ""
+            _clear_focus_context(state)
+            _persist_state(state, {"focus_path": ""})
             state.console.print("Focus context cleared.")
             return True
-        # Resolve path: try relative to workspace first, then absolute
-        focus_path = state.workspace / arg
-        if not focus_path.is_file():
-            focus_path = Path(arg).expanduser().resolve()
-        if not focus_path.is_file():
+        try:
+            focus_path, content = await load_enriched_focus_file(
+                state.workspace,
+                arg,
+                bridge=state.bridge,
+                model=state.models.get(state.active_model),
+                lsp_context_mode=state.lsp_context_mode,
+            )
+        except FileNotFoundError:
             state.console.print(f"[red]File not found: {arg}[/red]")
             return True
-        try:
-            content = focus_path.read_text(encoding="utf-8")
         except Exception as e:
-            state.console.print(f"[red]Error reading {focus_path}: {e}[/red]")
+            state.console.print(f"[red]Error reading {arg}: {e}[/red]")
             return True
-        # Truncate very large files to avoid blowing context
-        max_chars = 32_000
-        if len(content) > max_chars:
-            content = content[:max_chars] + f"\n\n... (truncated at {max_chars} chars)"
-        state.focus_context = f"# Focus: {focus_path.name}\n\n{content}"
-        lines = content.count("\n") + 1
+        lines, _chars = _set_focus_context(state, focus_path, content)
+        _persist_state(state, {"focus_path": str(focus_path)})
         state.console.print(f"Loaded {focus_path.name} ({lines} lines) into focus context.")
         return True
 
@@ -588,6 +990,7 @@ async def handle_command(state: AppState, line: str) -> bool:
             state.console.print("Usage: /tools <on|off>")
             return True
         state.tools_enabled = parts[1].lower() == "on"
+        _persist_state(state, {"tools_enabled": state.tools_enabled})
         await refresh_tool_bridge(state)
         state.console.print(f"Tools enabled: {state.tools_enabled}")
         return True
@@ -597,7 +1000,81 @@ async def handle_command(state: AppState, line: str) -> bool:
             state.console.print("Usage: /tools-write <on|off>")
             return True
         state.tools_write = parts[1].lower() == "on"
+        _persist_state(state, {"tools_write": state.tools_write})
         state.console.print(f"Tool write access: {state.tools_write}")
+        return True
+
+    if command == "/verify-hooks":
+        if len(parts) < 2 or parts[1].lower() not in {"on", "off"}:
+            state.console.print("Usage: /verify-hooks <on|off>")
+            return True
+        state.verify_hooks = parts[1].lower() == "on"
+        _persist_state(state, {"verify_hooks": state.verify_hooks})
+        state.console.print(f"Verification hooks: {state.verify_hooks}")
+        return True
+
+    if command == "/permissions":
+        if len(parts) >= 2 and parts[1].lower() == "clear":
+            state.permission_rules.clear()
+            _persist_state(state, {"permission_rules": {}})
+            state.console.print("Permission rules cleared.")
+            return True
+        allow = sorted(key for key, value in state.permission_rules.items() if value)
+        deny = sorted(key for key, value in state.permission_rules.items() if not value)
+        if not allow and not deny:
+            state.console.print("No saved permission rules.")
+            return True
+        state.console.print("Allow: " + (", ".join(allow) if allow else "(none)"))
+        state.console.print("Deny: " + (", ".join(deny) if deny else "(none)"))
+        return True
+
+    if command == "/shell":
+        if len(parts) < 2:
+            entries = len(state.shell.scrollback) if state.shell else 0
+            cwd = state.shell.cwd if state.shell else state.workspace
+            state.console.print(f"Shell active: {bool(state.shell and state.shell.active)}")
+            state.console.print(f"Shell cwd: {cwd}")
+            state.console.print(f"Shell history entries: {entries}")
+            return True
+        command_text = line.split(" ", 1)[1].strip()
+        if not command_text:
+            state.console.print("Usage: /shell <command>")
+            return True
+        shell = await ensure_shell(state)
+        try:
+            shell_result = await shell.run(command_text)
+        except Exception as exc:
+            state.console.print(f"[red]Shell command failed:[/red] {exc}")
+            return True
+        state.console.print(
+            f"[dim]{shell_result.cwd}[/dim] "
+            f"[{'green' if shell_result.exit_code == 0 else 'red'}]{shell_result.exit_code}[/] "
+            f"({shell_result.duration_ms}ms)",
+        )
+        if shell_result.output.strip():
+            state.console.print(shell_result.output)
+        return True
+
+    if command == "/shell-reset":
+        if state.shell is not None:
+            await state.shell.close()
+            state.shell = None
+        state.console.print("Shell reset.")
+        return True
+
+    if command == "/shell-log":
+        limit = int(parts[1]) if len(parts) >= 2 and parts[1].isdigit() else 10
+        entries = state.shell.scrollback[-limit:] if state.shell else []
+        if not entries:
+            state.console.print("No shell history.")
+            return True
+        for entry in entries:
+            state.console.print(
+                f"$ {entry.command} "
+                f"[dim]({entry.cwd}, exit {entry.exit_code}, {entry.duration_ms}ms)[/dim]",
+            )
+            if entry.output.strip():
+                state.console.print(entry.output)
         return True
 
     if command == "/reset":
@@ -620,6 +1097,60 @@ async def handle_command(state: AppState, line: str) -> bool:
             prompt_tokens=state.prompt_tokens,
             completion_tokens=state.completion_tokens,
         ))
+        return True
+
+    if command == "/tool-timings":
+        limit = 100
+        if len(parts) >= 2:
+            try:
+                limit = max(1, int(parts[1]))
+            except ValueError:
+                state.console.print("Usage: /tool-timings [n]")
+                return True
+        if state.session is None or state.session.path is None:
+            state.console.print("No active session — start a turn before checking timings.")
+            return True
+        records = load_tool_invocations(state.session.path, limit=limit)
+        if not records:
+            state.console.print("No tool invocations recorded yet.")
+            return True
+        from collections import defaultdict
+        by_tool: dict[str, list[float]] = defaultdict(list)
+        by_status: dict[str, int] = defaultdict(int)
+        for rec in records:
+            tool = str(rec.get("tool", "?"))
+            dur = float(rec.get("duration_ms", 0.0) or 0.0)
+            status = str(rec.get("status", ""))
+            by_tool[tool].append(dur)
+            by_status[status] += 1
+        from rich.table import Table
+        table = Table(title=f"Tool timings (last {len(records)} invocations)")
+        table.add_column("Tool")
+        table.add_column("Server")
+        table.add_column("N", justify="right")
+        table.add_column("p50 ms", justify="right")
+        table.add_column("p95 ms", justify="right")
+        table.add_column("max ms", justify="right")
+        server_by_tool: dict[str, str] = {}
+        for rec in records:
+            server_by_tool.setdefault(str(rec.get("tool", "?")), str(rec.get("server", "")))
+        for tool, durations in sorted(by_tool.items(), key=lambda kv: -sum(kv[1])):
+            sd = sorted(durations)
+            n = len(sd)
+            p50 = sd[n // 2]
+            p95 = sd[min(n - 1, int(n * 0.95))]
+            mx = sd[-1]
+            table.add_row(
+                tool,
+                server_by_tool.get(tool, ""),
+                str(n),
+                f"{p50:.0f}",
+                f"{p95:.0f}",
+                f"{mx:.0f}",
+            )
+        state.console.print(table)
+        summary = ", ".join(f"{k}={v}" for k, v in sorted(by_status.items()))
+        state.console.print(f"Status breakdown: {summary}")
         return True
 
     if command == "/save":
@@ -648,94 +1179,104 @@ async def handle_command(state: AppState, line: str) -> bool:
         return True
 
     if command == "/resume":
-        if len(parts) < 2:
-            state.console.print("Usage: /resume <session-name>")
+        filtered_parts = [part for part in parts[1:] if part.strip()]
+        strip_thinking = "--strip-thinking" in filtered_parts
+        positional = [part for part in filtered_parts if part != "--strip-thinking"]
+        if not positional:
+            sessions = list_sessions(SESSION_DIR)
+            if not sessions:
+                state.console.print("No saved sessions.")
+                return True
+
+            from rich.table import Table
+            table = Table(title="Sessions")
+            table.add_column("Name", style="cyan")
+            table.add_column("Backend")
+            table.add_column("Model")
+            table.add_column("Mode")
+            table.add_column("Msgs", justify="right")
+            table.add_column("Started")
+            for s in sessions[:20]:
+                table.add_row(
+                    s["name"],
+                    s.get("backend", "studio"),
+                    s["active_model"],
+                    s["mode"],
+                    str(s["messages"]),
+                    s["started"][:19],
+                )
+            state.console.print(table)
             return True
-        name = parts[1]
-        sessions = list_sessions(SESSION_DIR)
-        match = next((s for s in sessions if s["name"] == name), None)
-        if not match:
-            # Try partial match
-            match = next((s for s in sessions if name in s["name"]), None)
-        if not match:
-            state.console.print(f"Session not found: {name}")
+        name = positional[0]
+        try:
+            match = find_session(name, SESSION_DIR)
+            loader = load_session_bundle_without_thinking if strip_thinking else load_session_bundle
+            loaded = loader(Path(match["path"]))
+        except Exception as exc:
+            state.console.print(f"Session not found: {exc}")
             return True
-        meta, model_msgs = load_session(Path(match["path"]))
-        # Restore AppState from meta
-        if meta.get("active_model"):
-            state.active_model = meta["active_model"]
-        if meta.get("backend") in VALID_BACKENDS:
-            set_backend(state, meta["backend"])
-            if state.backend_name == "studio":
-                ensure_server(state.host, state.port)
-        if meta.get("mode") and meta["mode"] in VALID_MODES:
-            state.mode = meta["mode"]
-        if meta.get("workspace"):
-            state.workspace = Path(meta["workspace"]).expanduser().resolve()
-        if "rom_path" in meta:
-            state.rom_path = Path(meta["rom_path"]).expanduser().resolve() if meta["rom_path"] else None
-        if "tools_enabled" in meta:
-            state.tools_enabled = bool(meta["tools_enabled"])
-        if "broadcast_models" in meta and isinstance(meta["broadcast_models"], list):
-            state.broadcast_models = [str(value).strip() for value in meta["broadcast_models"] if str(value).strip()]
-        if meta.get("llamacpp_model"):
-            state.llamacpp_model = meta["llamacpp_model"]
+        restore_warnings = _restore_runtime_state(state, loaded.meta)
         await refresh_tool_bridge(state)
-        # Restore per-model engine messages
+        if state.shell is not None and state.shell.active:
+            try:
+                await state.shell.chdir(state.workspace)
+            except Exception:
+                pass
         for engine in state.engines.values():
             engine.reset()
-        for model_name, msgs in model_msgs.items():
+        for model_name, msgs in loaded.model_messages.items():
             engine = get_engine(state, model_name)
             engine.messages = msgs
-        state.console.print(f"Resumed session: {match['name']} ({len(model_msgs)} model(s), {sum(len(m) for m in model_msgs.values())} messages)")
+        if state.session:
+            state.session.resume(Path(match["path"]), loaded.message_count)
+        state.message_count = sum(1 for msg in loaded.transcript if msg.get("role") == "assistant")
+        state._first_message_sent = loaded.message_count > 0
+        state.console.print(
+            f"Resumed session: {match['name']} "
+            f"({len(loaded.model_messages)} model(s), {sum(len(m) for m in loaded.model_messages.values())} messages)"
+        )
+        for warning in restore_warnings:
+            state.console.print(f"[yellow]{warning}[/yellow]")
         return True
 
     if command == "/compact":
-        # Summarize current model's conversation via the model itself
-        current_model = active_model_name(state)
-        engine = state.engines.get(engine_key(state.backend_name, current_model))
-        if not engine or len(engine.messages) < 3:
-            state.console.print("Not enough history to compact.")
+        model_name = parts[1].strip() if len(parts) >= 2 else state.active_model
+        model_cfg = state.models.get(model_name)
+        if model_cfg is None:
+            state.console.print(f"[red]Unknown model: {model_name}[/red]")
             return True
-        state.console.print("[dim]Compacting conversation...[/dim]")
-        targets = preview_targets(state, "")
-        target = targets[0] if targets else ModelConfig(name=current_model, model_id=current_model)
-        request_name = get_backend(state).resolve_request_model(target, state.auto_load)
-        summary_parts: list[str] = []
-        replaced_count = len(engine.messages)
-        async for event in engine.chat(
-            message="Summarize our conversation so far in 2-3 paragraphs, preserving key facts, decisions, and code references.",
-            model_id=request_name,
-            system="",
-            use_tools=False,
-        ):
-            if isinstance(event, TextEvent):
-                summary_parts.append(event.text)
-        summary = "".join(summary_parts)
-        if not summary.strip():
-            state.console.print("[red]Compaction failed — no summary generated.[/red]")
+        engine = get_engine(state, model_name)
+        if engine.compactor is None:
+            state.console.print(
+                f"[red]No compactor configured for '{model_name}'. "
+                "Set context_budget in chat_registry.toml to enable.[/red]"
+            )
             return True
-        # Save compact record
-        if state.session:
-            state.session.save_compact(current_model, summary, replaced_count)
-        # Replace engine history with system prompt + summary
-        system_prompt = merge_system_prompts(build_system_prompt(state), target.system_prompt)
-        engine.messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "assistant", "content": summary},
-        ]
-        state.console.print(f"Compacted {replaced_count} messages into summary.")
+        compaction_event = await compact_session_history(state, model_name, engine)
+        if compaction_event is None:
+            state.console.print("No messages to compact.")
+            return True
+        state.console.print(
+            f"Compacted {compaction_event.replaced_count} messages "
+            f"({compaction_event.tokens_before} -> {compaction_event.tokens_after} tokens)."
+        )
         return True
 
     if command == "/export-training":
         if not state.session or not state.session.path:
             state.console.print("No active session to export.")
             return True
-        if len(parts) >= 2:
-            out_path = Path(parts[1]).expanduser().resolve()
-        else:
-            out_path = state.session.path.with_suffix(".training.jsonl")
-        count = export_training(state.session.path, out_path)
+        filtered_parts = [part for part in parts[1:] if part.strip()]
+        include_thinking = "--include-thinking" in filtered_parts
+        positional = [part for part in filtered_parts if part != "--include-thinking"]
+        out_path = Path(positional[0]).expanduser().resolve() if positional else state.session.path.with_suffix(".training.jsonl")
+        model_filter = positional[1] if len(positional) > 1 else None
+        count = export_training(
+            state.session.path,
+            out_path,
+            model_filter,
+            include_thinking=include_thinking,
+        )
         state.console.print(f"Exported {count} training sample(s) to {out_path}")
         return True
 
@@ -757,19 +1298,10 @@ async def run_repl(state: AppState) -> int:
         tool_count=state.bridge.tool_count if state.bridge else 0,
         workspace=str(state.workspace),
     ))
+    state.last_active_model = state.active_model
+    state.last_active_at = datetime.now(timezone.utc).isoformat()
 
-    # Start session
-    state.session = Session(SESSION_DIR)
-    state.session.start(
-        active_model=state.active_model,
-        backend=state.backend_name,
-        mode=state.mode,
-        workspace=str(state.workspace),
-        rom_path=str(state.rom_path) if state.rom_path else "",
-        tools_enabled=state.tools_enabled,
-        broadcast_models=state.broadcast_models,
-        llamacpp_model=state.llamacpp_model,
-    )
+    _ensure_session_started(state)
 
     # Set up prompt input
     if HAS_PROMPT_TOOLKIT:
@@ -839,19 +1371,30 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--llamacpp-model", default=DEFAULT_LLAMACPP_MODEL)
     parser.add_argument("--workspace", default=str(DEFAULT_WORKSPACE))
     parser.add_argument("--rom", default=str(DEFAULT_ROM), help="Primary ROM path (use '' to disable)")
-    parser.add_argument("--model", default="nayru")
-    parser.add_argument("--mode", default="manual", choices=sorted(VALID_MODES))
+    parser.add_argument("--model", default=DEFAULT_ACTIVE_MODEL)
+    parser.add_argument(
+        "--mode",
+        default="manual",
+        help=f"Routing mode {mode_usage_text()}",
+    )
     parser.add_argument("--broadcast-models", default=",".join(DEFAULT_BROADCAST_MODELS))
     parser.add_argument("--temperature", type=float, default=0.2)
     parser.add_argument("--max-tokens", type=int, default=1024)
     parser.add_argument("--tools", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--lsp-context", choices=LSP_CONTEXT_MODES, default="auto")
     parser.add_argument("--auto-load", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--auto-start-server", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--list-models", action="store_true")
     parser.add_argument("--list-loaded", action="store_true")
     parser.add_argument("--status", action="store_true")
     parser.add_argument("--route-only", action="store_true")
     parser.add_argument("--prompt", default="")
-    return parser.parse_args()
+    args = parser.parse_args()
+    args.model_explicit = "--model" in os.sys.argv[1:]
+    normalized_mode, _alias = normalize_mode(args.mode)
+    if normalized_mode not in VALID_MODES:
+        parser.error(f"--mode must be one of {mode_usage_text()}")
+    return args
 
 
 async def build_state(args: argparse.Namespace) -> AppState:
@@ -861,7 +1404,7 @@ async def build_state(args: argparse.Namespace) -> AppState:
     studio_api_base = args.studio_api_base.rstrip("/")
     llamacpp_api_base = args.llamacpp_api_base.rstrip("/")
     active_api_base = studio_api_base if args.backend == "studio" else llamacpp_api_base
-    if args.backend == "studio":
+    if args.backend == "studio" and args.auto_start_server:
         ensure_server(args.host, args.port)
 
     bridge = None
@@ -870,7 +1413,20 @@ async def build_state(args: argparse.Namespace) -> AppState:
         args.list_models or args.list_loaded or args.status or args.route_only
     )
     if should_connect_tools:
-        bridge, bridge_errors = await connect_tool_bridge(workspace, Path(args.mcp_config).expanduser())
+        rom_arg = getattr(args, "rom", None)
+        rom_path = Path(rom_arg).expanduser().resolve() if rom_arg else None
+        bridge, bridge_errors = await connect_tool_bridge(
+            workspace,
+            Path(args.mcp_config).expanduser(),
+            rom_path=rom_path,
+        )
+
+    active_model, startup_warning = choose_startup_model(
+        args.model,
+        models,
+        explicit=bool(getattr(args, "model_explicit", False)),
+        auto_load=args.auto_load,
+    )
 
     return AppState(
         console=console,
@@ -885,17 +1441,20 @@ async def build_state(args: argparse.Namespace) -> AppState:
         mcp_path=Path(args.mcp_config).expanduser(),
         models=models,
         routers=routers,
-        active_model=args.model,
-        mode=args.mode,
+        active_model=active_model,
+        mode=normalize_mode(args.mode)[0],
         auto_load=args.auto_load,
+        auto_start_server=args.auto_start_server,
         workspace=workspace,
         rom_path=None if not args.rom else Path(args.rom).expanduser().resolve(),
         temperature=args.temperature,
         max_tokens=args.max_tokens,
         broadcast_models=[v.strip() for v in args.broadcast_models.split(",") if v.strip()],
         tools_enabled=args.tools,
+        lsp_context_mode=args.lsp_context,
         bridge=bridge,
         bridge_errors=bridge_errors,
+        startup_warnings=[startup_warning] if startup_warning else [],
     )
 
 
@@ -914,14 +1473,20 @@ async def main() -> int:
             return 0
         if args.prompt:
             if args.route_only:
-                state.console.print(" -> ".join(target.name for target in preview_targets(state, args.prompt)))
+                targets = preview_targets(state, args.prompt)
+                ensure_targets_available(targets)
+                state.console.print(" -> ".join(target.name for target in targets))
                 return 0
             await send_prompt(state, args.prompt)
             return 0
         return await run_repl(state)
     finally:
+        if state.session:
+            state.session.close()
         for engine in state.engines.values():
             await engine.close()
+        if state.shell is not None:
+            await state.shell.close()
         if state.bridge:
             await state.bridge.close()
 

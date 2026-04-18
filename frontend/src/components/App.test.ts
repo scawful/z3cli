@@ -1,15 +1,31 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { classifyPromptSubmission } from "./App.js";
+import {
+  classifyPromptSubmission,
+  shouldEnableStreamingCancelHotkeys,
+} from "./App.js";
 
 test("classifyPromptSubmission keeps attachment-only prompts sendable", () => {
   assert.deepEqual(
-    classifyPromptSubmission("   ", [{ path: "src/room.asm" }]),
+    classifyPromptSubmission("   ", [{ path: "src/room.asm", lines: 0, chars: 0 }]),
     {
       kind: "message",
       text: "",
-      attachments: [{ path: "src/room.asm" }],
+      attachments: [{ path: "src/room.asm", lines: 0, chars: 0 }],
+      constructRefs: [],
+    },
+  );
+});
+
+test("classifyPromptSubmission keeps construct-only prompts sendable", () => {
+  assert.deepEqual(
+    classifyPromptSubmission("   ", [], [{ kind: "room", query: "0x45", token: "#room:0x45" }]),
+    {
+      kind: "message",
+      text: "",
+      attachments: [],
+      constructRefs: [{ kind: "room", query: "0x45", token: "#room:0x45" }],
     },
   );
 });
@@ -22,5 +38,44 @@ test("classifyPromptSubmission splits slash commands into cmd and args", () => {
   assert.deepEqual(
     classifyPromptSubmission(" /backend studio "),
     { kind: "command", cmd: "/backend", args: ["studio"] },
+  );
+});
+
+test("shouldEnableStreamingCancelHotkeys stays active during normal streaming", () => {
+  assert.equal(
+    shouldEnableStreamingCancelHotkeys({
+      isStreaming: true,
+      rawModeSupported: true,
+      settingsOpen: false,
+      helpOpen: false,
+      hasPendingPermission: false,
+      hasPendingReview: false,
+    }),
+    true,
+  );
+});
+
+test("shouldEnableStreamingCancelHotkeys disables global cancel while a modal is open", () => {
+  assert.equal(
+    shouldEnableStreamingCancelHotkeys({
+      isStreaming: true,
+      rawModeSupported: true,
+      settingsOpen: false,
+      helpOpen: false,
+      hasPendingPermission: true,
+      hasPendingReview: false,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldEnableStreamingCancelHotkeys({
+      isStreaming: true,
+      rawModeSupported: true,
+      settingsOpen: false,
+      helpOpen: false,
+      hasPendingPermission: false,
+      hasPendingReview: true,
+    }),
+    false,
   );
 });

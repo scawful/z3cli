@@ -5,9 +5,10 @@
 import { useState, useEffect, useCallback, useReducer, useRef } from "react";
 import { Backend } from "../ipc/backend.js";
 import type {
-  AttachmentReference,
+  AttachmentMeta,
   BackendEvent,
   AppConfig,
+  ConstructRef,
   Message,
   ModelInfo,
 } from "../ipc/protocol.js";
@@ -215,12 +216,46 @@ let messageIdCounter = 0;
 function nextMsgId(): string {
   return `msg-${++messageIdCounter}`;
 }
-const STREAM_BATCH_MS = 33;
+/**
+ * How often to flush buffered stream deltas to React state.
+ * 33ms (~30fps) was triggering visible reflow flicker when text rewrapped on
+ * append; 66ms (~15fps) halves the redraw cost and still feels live. Tokens
+ * still accumulate in `streamBufferRef` between flushes, so nothing is lost.
+ */
+const STREAM_BATCH_MS = 66;
 
 export interface PendingPermission {
   name: string;
   server: string;
   arguments: string;
+  /**
+   * Optional explanation from the backend for why this tool call is being
+   * held for review (e.g. "denied by sticky rule", "write-access policy",
+   * "subagent spawn from untrusted source"). Rendered in `PermissionDialog`.
+   * Backend is expected to populate it; frontend falls back gracefully when
+   * the field is absent.
+   */
+  reason?: string;
+}
+
+/**
+ * Convert a raw `tool/permission_request` JSON-RPC params payload into the
+ * shape the UI reducer consumes. Exported so the transformation can be
+ * regression-tested without having to drive the full hook.
+ */
+export function parsePendingPermission(params: unknown): PendingPermission {
+  const perm = params as {
+    name: string;
+    server: string;
+    arguments: string;
+    reason?: string;
+  };
+  return {
+    name: perm.name,
+    server: perm.server,
+    arguments: perm.arguments,
+    ...(perm.reason ? { reason: perm.reason } : {}),
+  };
 }
 
 export interface PendingReview {
@@ -251,7 +286,7 @@ export interface UseBackendResult {
   subagents: SubagentEntry[];
   lastCompaction: LastCompaction | null;
   clearFinishedSubagents: () => void;
-  sendMessage: (text: string, attachments?: AttachmentReference[]) => Promise<void>;
+  sendMessage: (text: string, attachments?: AttachmentMeta[], constructRefs?: ConstructRef[]) => Promise<void>;
   sendCommand: (cmd: string, args?: string[]) => Promise<unknown>;
   addSystemMessage: (content: string) => void;
   replaceMessages: (messages: Message[]) => void;
@@ -268,10 +303,42 @@ export interface UseBackendResult {
 }
 
 function normalizeBackendMessage(params: Record<string, unknown>): Message {
+  const normalizeAttachment = (entry: unknown): AttachmentMeta | null => {
+    if (!entry || typeof entry !== "object") return null;
+    const maybeAttachment = entry as Record<string, unknown>;
+    if (typeof maybeAttachment.path !== "string") {
+      return null;
+    }
+
+    return {
+      path: maybeAttachment.path,
+      lines: typeof maybeAttachment.lines === "number" ? maybeAttachment.lines : 0,
+      chars: typeof maybeAttachment.chars === "number" ? maybeAttachment.chars : 0,
+    };
+  };
+
+  const normalizeConstructRef = (entry: unknown): ConstructRef | null => {
+    if (!entry || typeof entry !== "object") return null;
+    const maybeRef = entry as Record<string, unknown>;
+    if (typeof maybeRef.kind !== "string" || typeof maybeRef.query !== "string") {
+      return null;
+    }
+
+    return {
+      kind: maybeRef.kind,
+      query: maybeRef.query,
+      ...(typeof maybeRef.token === "string" ? { token: maybeRef.token } : {}),
+      ...(typeof maybeRef.id === "string" ? { id: maybeRef.id } : {}),
+      ...(typeof maybeRef.label === "string" ? { label: maybeRef.label } : {}),
+    };
+  };
+
   return {
     id: typeof params.id === "string" ? params.id : nextMsgId(),
     role: params.role as Message["role"],
     content: typeof params.content === "string" ? params.content : "",
+    thinking:
+      typeof params.thinking === "string" && params.thinking ? params.thinking : undefined,
     model: typeof params.model === "string" && params.model ? params.model : undefined,
     toolName:
       typeof params.tool_name === "string" && params.tool_name ? params.tool_name : undefined,
@@ -289,22 +356,14 @@ function normalizeBackendMessage(params: Record<string, unknown>): Message {
     spanId:
       typeof params.span_id === "string" && params.span_id ? params.span_id : undefined,
     attachments: Array.isArray(params.attachments)
-      ? params.attachments.flatMap((item) => {
-          if (!item || typeof item !== "object") return [];
-          const entry = item as Record<string, unknown>;
-          if (
-            typeof entry.path !== "string"
-            || typeof entry.lines !== "number"
-            || typeof entry.chars !== "number"
-          ) {
-            return [];
-          }
-          return [{
-            path: entry.path,
-            lines: entry.lines,
-            chars: entry.chars,
-          }];
-        })
+      ? params.attachments
+        .map(normalizeAttachment)
+        .flatMap((item) => (item ? [item] : []))
+      : undefined,
+    constructRefs: Array.isArray(params.construct_refs)
+      ? params.construct_refs
+        .map(normalizeConstructRef)
+        .flatMap((item) => (item ? [item] : []))
       : undefined,
   };
 }
@@ -468,6 +527,10 @@ export function useBackend(pythonPath: string, args: string[] = []): UseBackendR
               typeof p.focus_file === "string" && p.focus_file
                 ? p.focus_file
                 : undefined,
+            registryPath:
+              typeof p.registry_path === "string" && p.registry_path
+                ? p.registry_path
+                : undefined,
             broadcastModels: (p.broadcast_models as string[] | undefined) ?? [],
             orchestratorModel:
               typeof p.orchestrator_model === "string" ? p.orchestrator_model : undefined,
@@ -477,6 +540,7 @@ export function useBackend(pythonPath: string, args: string[] = []): UseBackendR
                     name: m.name,
                     modelId: m.model_id,
                     role: m.role,
+                    description: typeof m.description === "string" ? m.description : undefined,
                     loaded: m.loaded,
                     toolsEnabled: m.tools_enabled,
                     provider: typeof m.provider === "string" ? m.provider : undefined,
@@ -721,10 +785,9 @@ export function useBackend(pythonPath: string, args: string[] = []): UseBackendR
         }
 
         case "tool/permission_request": {
-          const perm = event.params as { name: string; server: string; arguments: string };
           dispatchUI({
             type: "permission/set",
-            permission: { name: perm.name, server: perm.server, arguments: perm.arguments },
+            permission: parsePendingPermission(event.params),
           });
           break;
         }
@@ -903,7 +966,11 @@ export function useBackend(pythonPath: string, args: string[] = []): UseBackendR
   }, [cancelPendingStreamFlush, clearToolCallState]);
 
   const sendMessage = useCallback(
-    async (text: string, attachments: AttachmentReference[] = []) => {
+    async (
+      text: string,
+      attachments: AttachmentMeta[] = [],
+      constructRefs: ConstructRef[] = [],
+    ) => {
       if (!backendRef.current?.running) return;
       if (chatCompletionRef.current) {
         throw new Error("Already streaming a chat response");
@@ -915,7 +982,7 @@ export function useBackend(pythonPath: string, args: string[] = []): UseBackendR
       setSubagents((prev) => pruneFinishedSubagents(prev));
       await new Promise<void>((resolve, reject) => {
         chatCompletionRef.current = { resolve, reject };
-        backendRef.current?.chat(text, undefined, attachments).then((requestId) => {
+        backendRef.current?.chat(text, undefined, attachments, constructRefs).then((requestId) => {
           if (requestId) {
             activeRequestIdRef.current = requestId;
           }

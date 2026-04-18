@@ -12,70 +12,32 @@ import * as nodePath from "node:path";
 import { createInterface } from "node:readline";
 import { promisify } from "node:util";
 import { symbols, modelColor, modelSymbol, getThemeColors, uiModeColor } from "../theme/index.js";
-import type { AttachmentMeta, AttachmentReference, ModelInfo } from "../ipc/protocol.js";
+import type { AttachmentMeta, ConstructRef, ModelInfo } from "../ipc/protocol.js";
 import type { SessionInfo } from "../commands/index.js";
+import { buildBasePaletteEntries, COMMAND_CATALOG } from "../commands/catalog.js";
 import { useSettingsContext } from "../contexts/SettingsContext.js";
 import { basename, shortenPath } from "../utils/path.js";
 import { modelPickerDescription } from "../utils/models.js";
+import { scrollTargetBy } from "../utils/scrolling.js";
 import {
+  activeConstructMention,
   activeFileMention,
+  buildConstructCandidates,
+  buildSpriteCatalogConstructCandidates,
+  constructToken,
+  extractMentionedConstructRefs,
   extractMentionedFiles,
+  filterConstructs,
   filterFiles,
+  mergeConstructCandidates,
   filterPalette,
   sessionDate,
   sessionMatches,
   sessionSlug,
 } from "../utils/prompt.js";
-import type { PaletteEntry } from "../utils/prompt.js";
+import type { ConstructCandidate, PaletteEntry } from "../utils/prompt.js";
 
 const execFileAsync = promisify(execFile);
-
-// ---------------------------------------------------------------------------
-// Command registry
-// ---------------------------------------------------------------------------
-
-interface CommandDef {
-  name: string;
-  args: string; // "" = none, "<...>" = required, "[...]" = optional
-  description: string;
-}
-
-const COMMANDS: CommandDef[] = [
-  { name: "/help",      args: "",              description: "Show available commands" },
-  { name: "/backend",   args: "[name]",        description: "Show or set backend" },
-  { name: "/backends",  args: "",              description: "List available backends" },
-  { name: "/backend-status", args: "",         description: "Show backend status" },
-  { name: "/model",     args: "<name>",        description: "Switch active model" },
-  { name: "/orchestrator", args: "[name|auto]", description: "Show or set orchestrator planner" },
-  { name: "/mode",      args: "<name>",        description: "Set routing mode" },
-  { name: "/models",    args: "",              description: "List Zelda models" },
-  { name: "/modes",     args: "",              description: "List routing modes" },
-  { name: "/status",    args: "",              description: "Connection and state info" },
-  { name: "/servers",   args: "",              description: "Tool server info" },
-  { name: "/tools",     args: "<on|off>",      description: "Toggle tool use" },
-  { name: "/tools-write", args: "<on|off>",    description: "Toggle tool write access" },
-  { name: "/verify-hooks", args: "<on|off>",   description: "Toggle automatic verification" },
-  { name: "/permissions", args: "[clear]",     description: "Show or clear sticky tool rules" },
-  { name: "/specialist", args: "<name>",       description: "Switch to a specialist in manual mode" },
-  { name: "/route",     args: "<prompt>",      description: "Preview routing" },
-  { name: "/broadcast", args: "<a,b,c>",       description: "Set broadcast models" },
-  { name: "/load",      args: "[name]",        description: "Load model in LM Studio" },
-  { name: "/loaded",    args: "",              description: "List loaded API models" },
-  { name: "/workspace", args: "<path>",        description: "Change workspace" },
-  { name: "/rom",       args: "<path|none>",   description: "Change ROM target" },
-  { name: "/reset",     args: "[model|all]",   description: "Clear history" },
-  { name: "/stats",     args: "",              description: "Session statistics" },
-  { name: "/save",      args: "",              description: "Show session file path" },
-  { name: "/sessions",  args: "",              description: "List saved sessions" },
-  { name: "/resume",    args: "<name>",        description: "Resume a saved session" },
-  { name: "/compact",   args: "[model]",       description: "Compress history (lossy)" },
-  { name: "/shell",     args: "[command]",     description: "Run a persistent shell command" },
-  { name: "/shell-reset", args: "",            description: "Reset the persistent shell session" },
-  { name: "/shell-log", args: "[count]",       description: "Show recent shell commands" },
-  { name: "/settings",  args: "[key on|off]",  description: "Open UI settings panel" },
-  { name: "/focus",     args: "<path|clear>",  description: "Load file into system prompt" },
-  { name: "/exit",      args: "",              description: "Quit z3cli" },
-];
 
 // ---------------------------------------------------------------------------
 // Routing modes
@@ -123,6 +85,7 @@ function wordBoundaryRight(text: string, pos: number): number {
 
 const SESSION_MAX_VISIBLE = 12;
 const FILE_MAX_VISIBLE = 10;
+const CONSTRUCT_MAX_VISIBLE = 10;
 const PALETTE_MAX_VISIBLE = 12;
 const EXIT_CONFIRM_WINDOW_MS = 1500;
 
@@ -147,7 +110,8 @@ interface PromptInputProps {
   onCycleMode?: () => void;
   onSessionClose?: () => void;
   onDraftFilesChange?: (files: AttachmentMeta[]) => void;
-  onSubmit: (text: string, attachments?: AttachmentReference[]) => void;
+  onDraftConstructRefsChange?: (refs: ConstructRef[]) => void;
+  onSubmit: (text: string, attachments?: AttachmentMeta[], constructRefs?: ConstructRef[]) => void;
   transcriptScrollRef?: React.RefObject<ScrollViewRef | null>;
   sidePanelScrollRef?: React.RefObject<ScrollViewRef | null>;
 }
@@ -169,6 +133,7 @@ export function PromptInput({
   onCycleMode,
   onSessionClose,
   onDraftFilesChange,
+  onDraftConstructRefsChange,
   onSubmit,
   transcriptScrollRef,
   sidePanelScrollRef,
@@ -196,7 +161,12 @@ export function PromptInput({
   const [exitArmedUntil, setExitArmedUntil] = useState(0);
   const [exitMessage, setExitMessage] = useState("");
   const [attachedFiles, setAttachedFiles] = useState<string[]>([]);
+  const [attachedConstructRefs, setAttachedConstructRefs] = useState<ConstructRef[]>([]);
   const [attachmentMeta, setAttachmentMeta] = useState<Record<string, AttachmentMeta>>({});
+  const [constructCandidates, setConstructCandidates] = useState<ConstructCandidate[]>([]);
+  const [constructIndex, setConstructIndex] = useState(0);
+  const [constructScrollOffset, setConstructScrollOffset] = useState(0);
+  const [constructLoadError, setConstructLoadError] = useState("");
 
   // Auto-open session picker when sessions list arrives from a command
   useEffect(() => {
@@ -275,12 +245,56 @@ export function PromptInput({
     };
   }, [workspace]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadConstructIndex() {
+      if (!workspace) {
+        setConstructCandidates([]);
+        setConstructLoadError("");
+        return;
+      }
+      const labelPath = [
+        ...workspaceFiles.filter((filePath) => filePath.endsWith("oracle_resource_labels.json")),
+        ...workspaceFiles.filter((filePath) => /resource_labels\.json$/i.test(filePath)),
+      ][0];
+      const spriteCatalogPath = workspaceFiles.find((filePath) => filePath.endsWith("sprite_catalog.md"));
+      if (!labelPath && !spriteCatalogPath) {
+        setConstructCandidates([]);
+        setConstructLoadError("");
+        return;
+      }
+      try {
+        const [rawLabels, rawSpriteCatalog] = await Promise.all([
+          labelPath ? readFile(nodePath.join(workspace, labelPath), "utf8") : Promise.resolve(""),
+          spriteCatalogPath ? readFile(nodePath.join(workspace, spriteCatalogPath), "utf8") : Promise.resolve(""),
+        ]);
+        if (cancelled) return;
+        const jsonCandidates = rawLabels ? buildConstructCandidates(JSON.parse(rawLabels)) : [];
+        const catalogCandidates = rawSpriteCatalog
+          ? buildSpriteCatalogConstructCandidates(rawSpriteCatalog)
+          : [];
+        setConstructCandidates(mergeConstructCandidates(jsonCandidates, catalogCandidates));
+        setConstructLoadError("");
+      } catch (error) {
+        if (cancelled) return;
+        setConstructCandidates([]);
+        setConstructLoadError(error instanceof Error ? error.message : String(error));
+      }
+    }
+
+    void loadConstructIndex();
+    return () => {
+      cancelled = true;
+    };
+  }, [workspace, workspaceFiles]);
+
   // ---- Autocomplete ----
 
   const completions = useMemo(() => {
     if (!value.startsWith("/") || value.includes(" ")) return [];
     const prefix = value.toLowerCase();
-    return COMMANDS.filter((cmd) => cmd.name.startsWith(prefix));
+    return COMMAND_CATALOG.filter((cmd) => cmd.name.startsWith(prefix));
   }, [value]);
 
   const showCompletions = completions.length > 0 && value.length >= 1;
@@ -315,24 +329,34 @@ export function PromptInput({
     }),
     [attachmentMeta, draftFilePaths],
   );
+  const mentionedConstructRefs = useMemo(
+    () => extractMentionedConstructRefs(value),
+    [value],
+  );
+  const draftConstructRefs = useMemo(() => {
+    const merged = new Map<string, ConstructRef>();
+    for (const ref of [...attachedConstructRefs, ...mentionedConstructRefs]) {
+      const key = `${ref.kind}:${(ref.id ?? ref.query).toLowerCase()}`;
+      if (!merged.has(key)) {
+        merged.set(key, ref);
+      }
+    }
+    return [...merged.values()];
+  }, [attachedConstructRefs, mentionedConstructRefs]);
+  const constructMention = useMemo(() => activeConstructMention(value, cursor), [value, cursor]);
+  const constructMatches = useMemo(() => {
+    if (selector || !constructMention) return [];
+    return filterConstructs(constructCandidates, constructMention.kind, constructMention.query);
+  }, [constructCandidates, constructMention, selector]);
   const fileMention = useMemo(() => activeFileMention(value, cursor), [value, cursor]);
   const fileMatches = useMemo(() => {
     if (selector || !fileMention) return [];
     return filterFiles(workspaceFiles, fileMention.query);
   }, [fileMention, selector, workspaceFiles]);
   const showFilePicker = selector === null && fileMention !== null;
+  const showConstructPicker = selector === null && constructMention !== null;
   const paletteEntries = useMemo((): PaletteEntry[] => {
-    const entries: PaletteEntry[] = [
-      { key: "cmd-help", label: "Help", description: "Show command help", command: "/help", aliases: "help commands" },
-      { key: "cmd-sessions", label: "Sessions", description: "Browse saved sessions", command: "/sessions", aliases: "resume sessions history" },
-      { key: "cmd-resume", label: "Resume Session Picker", description: "Open session search", command: "/resume", aliases: "resume session search" },
-      { key: "cmd-model", label: "Model Picker", description: "Choose the active model", command: "/model", aliases: "model switch" },
-      { key: "cmd-orchestrator", label: "Orchestrator", description: "Show or set the cloud planner", command: "/orchestrator", aliases: "orchestrator planner cloud" },
-      { key: "cmd-mode", label: "Mode Picker", description: "Choose routing mode", command: "/mode", aliases: "route mode" },
-      { key: "cmd-status", label: "Status", description: "Show current runtime state", command: "/status", aliases: "status info" },
-      { key: "cmd-settings", label: "Settings", description: "Open UI settings", command: "/settings", aliases: "settings ui" },
-      { key: "cmd-permissions", label: "Permissions", description: "Show sticky tool rules", command: "/permissions", aliases: "permissions rules tools" },
-    ];
+    const entries: PaletteEntry[] = buildBasePaletteEntries();
     if (focusFile) {
       entries.push({
         key: "focus-clear",
@@ -413,6 +437,23 @@ export function PromptInput({
   }, [fileIndex, fileMatches.length, showFilePicker]);
 
   useEffect(() => {
+    if (!showConstructPicker) {
+      setConstructIndex(0);
+      setConstructScrollOffset(0);
+      return;
+    }
+    setConstructIndex((idx) => Math.max(0, Math.min(idx, constructMatches.length - 1)));
+    setConstructScrollOffset((offset) => {
+      const nextIndex = Math.max(0, Math.min(constructIndex, constructMatches.length - 1));
+      if (nextIndex < offset) return nextIndex;
+      if (nextIndex >= offset + CONSTRUCT_MAX_VISIBLE) {
+        return Math.max(0, nextIndex - CONSTRUCT_MAX_VISIBLE + 1);
+      }
+      return offset;
+    });
+  }, [constructIndex, constructMatches.length, showConstructPicker]);
+
+  useEffect(() => {
     if (selector !== "palette") return;
     setPaletteIndex((idx) => Math.max(0, Math.min(idx, filteredPalette.length - 1)));
     setPaletteScrollOffset((offset) => {
@@ -428,6 +469,10 @@ export function PromptInput({
   useEffect(() => {
     onDraftFilesChange?.(draftFiles);
   }, [draftFiles, onDraftFilesChange]);
+
+  useEffect(() => {
+    onDraftConstructRefsChange?.(draftConstructRefs);
+  }, [draftConstructRefs, onDraftConstructRefsChange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -507,6 +552,10 @@ export function PromptInput({
     setAttachedFiles([]);
   }
 
+  function clearAttachedConstructRefs() {
+    setAttachedConstructRefs([]);
+  }
+
   function clearExitPrompt() {
     setExitArmedUntil(0);
     setExitMessage("");
@@ -539,19 +588,27 @@ export function PromptInput({
     return text.trimEnd();
   }
 
-  function submittedAttachments(text: string): AttachmentReference[] {
+  function submittedAttachments(text: string): AttachmentMeta[] {
     if (text.trimStart().startsWith("/")) {
       return [];
     }
-    return draftFiles.map((file) => ({ path: file.path }));
+    return draftFiles;
+  }
+
+  function submittedConstructRefs(text: string): ConstructRef[] {
+    if (text.trimStart().startsWith("/")) {
+      return [];
+    }
+    return draftConstructRefs;
   }
 
   function submitAndRecord(text: string) {
     clearExitPrompt();
-    onSubmit(buildSubmittedMessage(text), submittedAttachments(text));
+    onSubmit(buildSubmittedMessage(text), submittedAttachments(text), submittedConstructRefs(text));
     setHistory((h) => [text, ...h]);
     clearInput();
     clearAttachedFiles();
+    clearAttachedConstructRefs();
   }
 
   function attachDraftFile(filePath: string) {
@@ -570,10 +627,43 @@ export function PromptInput({
     ));
   }
 
+  function attachDraftConstruct(candidate: ConstructCandidate) {
+    if (!constructMention) return;
+    clearExitPrompt();
+    const before = value.slice(0, constructMention.start);
+    const after = value.slice(constructMention.end).replace(/^\s+/, "");
+    const nextValue = `${before}${after}`.replace(/\s{3,}/g, "  ");
+    const nextCursor = before.length;
+    const nextRef: ConstructRef = {
+      kind: candidate.kind,
+      query: candidate.id,
+      token: candidate.token,
+      id: candidate.id,
+      label: candidate.label,
+    };
+    setValue(nextValue);
+    setCursor(nextCursor);
+    setConstructIndex(0);
+    setConstructScrollOffset(0);
+    setAttachedConstructRefs((current) => {
+      const key = `${nextRef.kind}:${nextRef.id ?? nextRef.query}`;
+      return current.some((item) => `${item.kind}:${item.id ?? item.query}` === key)
+        ? current
+        : [...current, nextRef];
+    });
+  }
+
   function popAttachedFile(): boolean {
     if (attachedFiles.length === 0) return false;
     clearExitPrompt();
     setAttachedFiles((current) => current.slice(0, -1));
+    return true;
+  }
+
+  function popAttachedConstructRef(): boolean {
+    if (attachedConstructRefs.length === 0) return false;
+    clearExitPrompt();
+    setAttachedConstructRefs((current) => current.slice(0, -1));
     return true;
   }
 
@@ -598,6 +688,10 @@ export function PromptInput({
       clearAttachedFiles();
       cleared = true;
     }
+    if (attachedConstructRefs.length > 0) {
+      clearAttachedConstructRefs();
+      cleared = true;
+    }
     return cleared;
   }
 
@@ -609,6 +703,17 @@ export function PromptInput({
       return;
     }
     armExit(cleared ? "Cleared. Ctrl+C again to exit" : "Press Ctrl+C again to exit");
+  }
+
+  function scrollTranscriptBy(delta: number) {
+    scrollTargetBy(transcriptScrollRef?.current, delta);
+  }
+
+  function pageTranscript(direction: -1 | 1) {
+    const ref = transcriptScrollRef?.current;
+    if (!ref) return;
+    const height = Math.max(1, ref.getViewportHeight() || 1);
+    scrollTargetBy(ref, direction * height);
   }
 
   useEffect(() => {
@@ -658,20 +763,26 @@ export function PromptInput({
         return;
       }
 
-      if (!selector && !showFilePicker) {
+      if (!selector && !showFilePicker && !showConstructPicker) {
+        if (
+          transcriptScrollRef?.current
+          && (
+            (key.ctrl && (key.upArrow || key.downArrow))
+            || (key.meta && (key.upArrow || key.downArrow))
+          )
+        ) {
+          scrollTranscriptBy(key.upArrow ? -3 : 3);
+          return;
+        }
         if (key.ctrl && (key.pageUp || key.pageDown) && sidePanelScrollRef?.current) {
           const r = sidePanelScrollRef.current;
           const h = r.getViewportHeight() || 1;
-          r.scrollBy(key.pageUp ? -h : h);
+          scrollTargetBy(r, key.pageUp ? -h : h);
           return;
         }
         if (key.pageUp || key.pageDown) {
-          const r = transcriptScrollRef?.current;
-          if (r) {
-            const h = r.getViewportHeight() || 1;
-            r.scrollBy(key.pageUp ? -h : h);
-            return;
-          }
+          pageTranscript(key.pageUp ? -1 : 1);
+          return;
         }
       }
 
@@ -815,6 +926,29 @@ export function PromptInput({
         }
       }
 
+      if (showConstructPicker) {
+        if (key.upArrow) {
+          setConstructIndex((i) => {
+            const next = Math.max(0, i - 1);
+            setConstructScrollOffset((off) => Math.min(off, next));
+            return next;
+          });
+          return;
+        }
+        if (key.downArrow) {
+          setConstructIndex((i) => {
+            const next = constructMatches.length > 0 ? Math.min(constructMatches.length - 1, i + 1) : 0;
+            setConstructScrollOffset((off) => Math.max(off, next - CONSTRUCT_MAX_VISIBLE + 1));
+            return next;
+          });
+          return;
+        }
+        if ((key.tab || isEnter) && constructMatches[constructIndex]) {
+          attachDraftConstruct(constructMatches[constructIndex]!);
+          return;
+        }
+      }
+
       // ── Tab: fill selected completion ──
       if (key.tab && showCompletions) {
         const cmd = completions[selectedCompletion % completions.length];
@@ -853,7 +987,7 @@ export function PromptInput({
 
         // Direct submit (no autocomplete visible)
         const trimmed = value.trim();
-        if (!trimmed && attachedFiles.length === 0) return;
+        if (!trimmed && attachedFiles.length === 0 && attachedConstructRefs.length === 0) return;
         // Intercept bare /model and /mode
         if (trimmed.toLowerCase() === "/model") { openModelPicker(); return; }
         if (trimmed.toLowerCase() === "/mode") { openModePicker(); return; }
@@ -864,6 +998,9 @@ export function PromptInput({
       // ── Backspace ──
       if (key.backspace || key.delete) {
         if (cursor === 0 && !value && popAttachedFile()) {
+          return;
+        }
+        if (cursor === 0 && !value && popAttachedConstructRef()) {
           return;
         }
         if (cursor > 0) {
@@ -983,6 +1120,9 @@ export function PromptInput({
   const fileStart = fileScrollOffset;
   const fileEnd = Math.min(fileMatches.length, fileStart + FILE_MAX_VISIBLE);
   const visibleFiles = fileMatches.slice(fileStart, fileEnd);
+  const constructStart = constructScrollOffset;
+  const constructEnd = Math.min(constructMatches.length, constructStart + CONSTRUCT_MAX_VISIBLE);
+  const visibleConstructs = constructMatches.slice(constructStart, constructEnd);
   const paletteStart = paletteScrollOffset;
   const paletteEnd = Math.min(filteredPalette.length, paletteStart + PALETTE_MAX_VISIBLE);
   const visiblePalette = filteredPalette.slice(paletteStart, paletteEnd);
@@ -1052,7 +1192,7 @@ export function PromptInput({
             <Text dimColor>  {symbols.triforceSmall} {filteredSessions.length - sesEnd} more below</Text>
           ) : null}
           <Box marginTop={1}>
-            <Text dimColor>↑↓ navigate {symbols.dot} Enter resume {symbols.dot} Esc cancel</Text>
+            <Text dimColor>↑↓ navigate {symbols.dot} Enter resume</Text>
           </Box>
         </Box>
 
@@ -1093,7 +1233,7 @@ export function PromptInput({
             );
           })}
           <Box marginTop={1}>
-            <Text dimColor>↑↓ navigate {symbols.dot} Enter select {symbols.dot} Esc cancel</Text>
+            <Text dimColor>↑↓ navigate {symbols.dot} Enter select</Text>
           </Box>
         </Box>
 
@@ -1130,7 +1270,7 @@ export function PromptInput({
             );
           })}
           <Box marginTop={1}>
-            <Text dimColor>↑↓ navigate {symbols.dot} Enter select {symbols.dot} Esc cancel</Text>
+            <Text dimColor>↑↓ navigate {symbols.dot} Enter select</Text>
           </Box>
         </Box>
 
@@ -1177,7 +1317,62 @@ export function PromptInput({
             <Text dimColor>  {symbols.triforceSmall} {filteredPalette.length - paletteEnd} more below</Text>
           ) : null}
           <Box marginTop={1}>
-            <Text dimColor>type to filter {symbols.dot} ↑↓ navigate {symbols.dot} Enter run {symbols.dot} Esc cancel</Text>
+            <Text dimColor>type to filter {symbols.dot} ↑↓ navigate {symbols.dot} Enter run</Text>
+          </Box>
+        </Box>
+
+      /* ── Construct autocomplete ── */
+      ) : showConstructPicker ? (
+        <Box
+          flexDirection="column"
+          borderStyle="double"
+          borderColor={colors.triforce}
+          paddingX={2}
+          marginBottom={1}
+        >
+          <Box gap={1} marginBottom={1}>
+            <Text bold color={colors.triforce}>{symbols.triforce} Game reference</Text>
+            <Text color={colors.text}>#{constructMention?.kind}:{constructMention?.query || ""}</Text>
+          </Box>
+          <Box marginBottom={1}>
+            <Text dimColor>project: </Text>
+            <Text dimColor>{shortenPath(workspace)}</Text>
+          </Box>
+          {constructLoadError ? (
+            <Text color={colors.warning}>  construct index unavailable: {constructLoadError}</Text>
+          ) : null}
+          {constructStart > 0 ? (
+            <Text dimColor>  {symbols.triforceSmall} {constructStart} more above</Text>
+          ) : null}
+          {visibleConstructs.length === 0 && !constructLoadError ? (
+            <Box paddingY={1}>
+              <Text dimColor>  no constructs match that query</Text>
+            </Box>
+          ) : null}
+          {visibleConstructs.map((candidate, vi) => {
+            const i = vi + constructStart;
+            const isSelected = i === constructIndex;
+            const isAttached = attachedConstructRefs.some((ref) => (
+              ref.kind === candidate.kind && (ref.id ?? ref.query) === candidate.id
+            ));
+            return (
+              <Box key={candidate.token} gap={1}>
+                <Text color={isSelected ? colors.triforce : colors.dim}>
+                  {isSelected ? symbols.arrowRight : " "}
+                </Text>
+                <Text color={isSelected ? colors.text : colors.muted} bold={isSelected}>
+                  {candidate.token}
+                </Text>
+                <Text dimColor>{candidate.label}</Text>
+                {isAttached ? <Text color={colors.success}>attached</Text> : null}
+              </Box>
+            );
+          })}
+          {constructEnd < constructMatches.length ? (
+            <Text dimColor>  {symbols.triforceSmall} {constructMatches.length - constructEnd} more below</Text>
+          ) : null}
+          <Box marginTop={1}>
+            <Text dimColor>type to refine {symbols.dot} ↑↓ navigate {symbols.dot} Tab/Enter attach</Text>
           </Box>
         </Box>
 
@@ -1276,40 +1471,68 @@ export function PromptInput({
         </Box>
       ) : null}
 
-      {draftFiles.length > 0 && !selector ? (
+      {(draftFiles.length > 0 || draftConstructRefs.length > 0) && !selector ? (
         <Box paddingLeft={2} flexDirection="column">
-          <Box gap={1} flexWrap="wrap">
-            <Text dimColor>attached</Text>
-            {draftFiles.slice(0, 8).map((file) => (
-              <Text key={file.path} color={colors.nayru}>
-                @{file.path}{file.lines > 0 ? ` ${file.lines}L` : ""}{file.chars > 0 ? ` ${file.chars}C` : ""}
-              </Text>
-            ))}
-          </Box>
-          {attachedFiles.length > 0 ? (
-            <Text dimColor>Backspace on an empty prompt removes the last @file</Text>
+          {draftFiles.length > 0 ? (
+            <Box gap={1} flexWrap="wrap">
+              <Text dimColor>files</Text>
+              {draftFiles.slice(0, 8).map((file) => (
+                <Text key={file.path} color={colors.nayru}>
+                  @{file.path}{file.lines > 0 ? ` ${file.lines}L` : ""}{file.chars > 0 ? ` ${file.chars}C` : ""}
+                </Text>
+              ))}
+            </Box>
+          ) : null}
+          {draftConstructRefs.length > 0 ? (
+            <Box gap={1} flexWrap="wrap">
+              <Text dimColor>refs</Text>
+              {draftConstructRefs.slice(0, 8).map((ref) => (
+                <Text key={constructToken(ref)} color={colors.accent}>
+                  {constructToken(ref)}{ref.label ? ` ${ref.label}` : ""}
+                </Text>
+              ))}
+            </Box>
+          ) : null}
+          {attachedFiles.length > 0 || attachedConstructRefs.length > 0 ? (
+            <Text dimColor>Backspace on an empty prompt removes the last @file or #ref</Text>
           ) : null}
         </Box>
       ) : null}
 
       {/* ── Input line ── */}
-      <Box width="100%" borderStyle="round" borderColor={uiModeColor(settings.uiMode, colors)} paddingX={1}>
-        <Box gap={1}>
-          <Text color={modelColor(model, colors)} bold>
-            {modelSymbol(model)}
-          </Text>
-          <Text color={modelColor(model, colors)} bold>{model}</Text>
+      <Box
+        width="100%"
+        borderStyle="round"
+        borderColor={colors.dim}
+        borderDimColor
+        borderLeftColor={
+          value.startsWith("!")
+            ? colors.veran
+            : uiModeColor(settings.uiMode, colors)
+        }
+        borderLeftDimColor={false}
+        paddingX={1}
+      >
+        <Box marginRight={1}>
+          {value.startsWith("!") ? (
+            <Text color={colors.veran}>
+              <Text bold>{symbols.compass}</Text>
+              <Text dimColor> shell</Text>
+            </Text>
+          ) : (
+            <Text color={modelColor(model, colors)}>
+              <Text bold>{modelSymbol(model)}</Text>
+              <Text>{` ${model}`}</Text>
+            </Text>
+          )}
         </Box>
-        <Text color={colors.triforce} bold>
-          {" "}
-          {symbols.arrowRight}{" "}
-        </Text>
+        <Text color={colors.muted}>{`${symbols.arrowRight} `}</Text>
         {selector ? (
           <Text dimColor>selecting {selector}...</Text>
         ) : hint ? (
           <Text dimColor>{hint}</Text>
         ) : isStreaming ? (
-          <Text dimColor>streaming... press <Text bold color={colors.text}>Esc</Text> to cancel</Text>
+          <Text dimColor>streaming...</Text>
         ) : (
           <Text>
             {before}

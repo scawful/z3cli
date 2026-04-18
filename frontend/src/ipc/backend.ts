@@ -6,7 +6,8 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
 import { EventEmitter } from "node:events";
 import type {
-  AttachmentReference,
+  AttachmentMeta,
+  ConstructRef,
   JsonRpcRequest,
   JsonRpcResponse,
   BackendEvent,
@@ -125,8 +126,17 @@ export class Backend extends EventEmitter {
   }
 
   /** Send a chat message and return the accepted backend request id. */
-  async chat(message: string, model?: string, attachments?: AttachmentReference[]): Promise<string> {
-    const result = await this.request("chat", { message, model, attachments }, 30_000);
+  async chat(
+    message: string,
+    model?: string,
+    attachments?: AttachmentMeta[],
+    constructRefs?: ConstructRef[],
+  ): Promise<string> {
+    const result = await this.request(
+      "chat",
+      { message, model, attachments, construct_refs: constructRefs },
+      30_000,
+    );
     if (!result || typeof result !== "object") return "";
     const payload = result as Record<string, unknown>;
     return typeof payload.request_id === "string" ? payload.request_id : "";

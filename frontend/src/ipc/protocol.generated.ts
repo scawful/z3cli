@@ -36,10 +36,19 @@ export interface AttachmentReference {
   path: string;
 }
 
+export interface ConstructRef {
+  kind: string;
+  query: string;
+  token?: string;
+  id?: string;
+  label?: string;
+}
+
 export interface ChatRequestParams {
   message: string;
   model?: string;
-  attachments?: AttachmentReference[];
+  attachments?: AttachmentMeta[];
+  construct_refs?: ConstructRef[];
 }
 
 export interface CommandRequestParams {
@@ -90,6 +99,7 @@ export interface MessageParams {
   role: "user" | "assistant" | "system" | "tool";
   content: string;
   timestamp: number;
+  thinking?: string | null;
   turn_id?: string | null;
   model?: string | null;
   tool_name?: string | null;
@@ -97,6 +107,7 @@ export interface MessageParams {
   tool_arguments?: string | null;
   tool_group?: string | null;
   attachments?: AttachmentMeta[] | null;
+  construct_refs?: ConstructRef[] | null;
   request_id?: string | null;
   span_id?: string | null;
 }
@@ -115,6 +126,7 @@ export interface ReadyModelInfo {
   name: string;
   model_id: string;
   role: string;
+  description?: string;
   loaded: boolean;
   tools_enabled: boolean;
   provider?: string;
@@ -138,6 +150,8 @@ export interface ReadyParams {
   tools_write?: boolean;
   verify_hooks?: boolean;
   focus_file?: string;
+  lsp_context_mode?: string;
+  registry_path?: string;
   broadcast_models?: string[];
   orchestrator_model?: string;
   prompt_tokens?: number;
@@ -211,6 +225,7 @@ export interface ToolPermissionRequestParams {
   name: string;
   server: string;
   arguments: string;
+  reason?: string;
 }
 
 export interface ToolReviewRequestParams {

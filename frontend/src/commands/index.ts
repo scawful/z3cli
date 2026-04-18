@@ -13,9 +13,9 @@
 import { symbols } from "../theme/index.js";
 import { shortenPath } from "../utils/path.js";
 import { modelPickerDescription } from "../utils/models.js";
-import { DEFAULT_SETTINGS } from "../hooks/useSettings.js";
-import type { AppConfig, Message } from "../ipc/protocol.js";
-import type { UISettings } from "../hooks/useSettings.js";
+import { UI_MODES, UI_THEMES, UI_THINKING_DETAILS, UI_THINKING_MODES } from "../hooks/useSettings.js";
+import type { AppConfig, ConstructRef, Message } from "../ipc/protocol.js";
+import type { ShowThinkingMode, ThinkingDetailMode, UISettings, UIMode, UITheme } from "../hooks/useSettings.js";
 import type { SubagentEntry } from "../utils/subagentState.js";
 
 // ---------------------------------------------------------------------------
@@ -55,6 +55,16 @@ export interface CommandContext {
 
 type Handler = (args: string[], ctx: CommandContext) => Promise<void>;
 
+const BOOLEAN_SETTING_KEYS: ReadonlySet<keyof UISettings> = new Set([
+  "modeColoredBorder",
+  "toolsIndicator",
+  "showTimestamps",
+  "showToolGrouping",
+  "coloredToolArgs",
+  "showFocusFile",
+  "showBroadcastModels",
+]);
+
 // ---------------------------------------------------------------------------
 // File-local helpers
 // ---------------------------------------------------------------------------
@@ -75,6 +85,41 @@ function fmtTok(n: number): string {
   return n > 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
 }
 
+function settingUsage(key: "theme" | "uiMode" | "showThinking" | "thinkingDetail"): string {
+  if (key === "theme") {
+    return `Usage: \`/settings theme ${UI_THEMES.join("|")}\``;
+  }
+  if (key === "uiMode") {
+    return `Usage: \`/settings uiMode ${UI_MODES.join("|")}\``;
+  }
+  if (key === "showThinking") {
+    return `Usage: \`/settings showThinking ${UI_THINKING_MODES.join("|")}\``;
+  }
+  return `Usage: \`/settings thinkingDetail ${UI_THINKING_DETAILS.join("|")}\``;
+}
+
+function parseEnumSetting(
+  key: "theme" | "uiMode" | "showThinking" | "thinkingDetail",
+  rawValue: string | undefined,
+): UITheme | UIMode | ShowThinkingMode | ThinkingDetailMode | null {
+  const value = rawValue?.trim().toLowerCase();
+  if (!value) return null;
+  if (key === "theme") {
+    return UI_THEMES.includes(value as UITheme) ? (value as UITheme) : null;
+  }
+  if (key === "uiMode") {
+    return UI_MODES.includes(value as UIMode) ? (value as UIMode) : null;
+  }
+  if (key === "showThinking") {
+    return UI_THINKING_MODES.includes(value as ShowThinkingMode)
+      ? (value as ShowThinkingMode)
+      : null;
+  }
+  return UI_THINKING_DETAILS.includes(value as ThinkingDetailMode)
+    ? (value as ThinkingDetailMode)
+    : null;
+}
+
 function normalizeMessages(raw: unknown): Message[] {
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((entry, index) => {
@@ -84,34 +129,54 @@ function normalizeMessages(raw: unknown): Message[] {
     if (role !== "user" && role !== "assistant" && role !== "system" && role !== "tool") {
       return [];
     }
-    return [{
-      id: typeof msg.id === "string" ? msg.id : `restored-${index}`,
-      role,
-      content: typeof msg.content === "string" ? msg.content : "",
+    const normalizeConstructRef = (item: unknown): ConstructRef | null => {
+      if (!item || typeof item !== "object") return null;
+      const entry = item as Record<string, unknown>;
+      if (typeof entry.kind !== "string" || typeof entry.query !== "string") {
+        return null;
+      }
+      return {
+        kind: entry.kind,
+        query: entry.query,
+        ...(typeof entry.token === "string" ? { token: entry.token } : {}),
+        ...(typeof entry.id === "string" ? { id: entry.id } : {}),
+        ...(typeof entry.label === "string" ? { label: entry.label } : {}),
+      };
+    };
+      return [{
+        id: typeof msg.id === "string" ? msg.id : `restored-${index}`,
+        role,
+        content: typeof msg.content === "string" ? msg.content : "",
+      thinking: typeof msg.thinking === "string" && msg.thinking ? msg.thinking : undefined,
       model: typeof msg.model === "string" ? msg.model : undefined,
       toolName: typeof msg.toolName === "string" ? msg.toolName : undefined,
       toolServer: typeof msg.toolServer === "string" ? msg.toolServer : undefined,
       toolArguments: typeof msg.toolArguments === "string" ? msg.toolArguments : undefined,
       timestamp: typeof msg.timestamp === "number" ? msg.timestamp : Date.now(),
-      turnId: typeof msg.turnId === "string" ? msg.turnId : undefined,
-      toolGroup: typeof msg.toolGroup === "string" ? msg.toolGroup : undefined,
-      requestId: typeof msg.requestId === "string" ? msg.requestId : undefined,
-      spanId: typeof msg.spanId === "string" ? msg.spanId : undefined,
-      attachments: Array.isArray(msg.attachments)
-        ? msg.attachments.flatMap((item) => {
-            if (!item || typeof item !== "object") return [];
-            const entry = item as Record<string, unknown>;
-            if (
-              typeof entry.path !== "string"
-              || typeof entry.lines !== "number"
-              || typeof entry.chars !== "number"
-            ) {
-              return [];
-            }
-            return [{ path: entry.path, lines: entry.lines, chars: entry.chars }];
-          })
-        : undefined,
-    }];
+        turnId: typeof msg.turnId === "string" ? msg.turnId : undefined,
+        toolGroup: typeof msg.toolGroup === "string" ? msg.toolGroup : undefined,
+        requestId: typeof msg.requestId === "string" ? msg.requestId : undefined,
+        spanId: typeof msg.spanId === "string" ? msg.spanId : undefined,
+        attachments: Array.isArray(msg.attachments)
+          ? msg.attachments.flatMap((item) => {
+              if (!item || typeof item !== "object") return [];
+              const entry = item as Record<string, unknown>;
+              if (typeof entry.path !== "string") {
+                return [];
+              }
+              return [{
+                path: entry.path,
+                lines: typeof entry.lines === "number" ? entry.lines : 0,
+                chars: typeof entry.chars === "number" ? entry.chars : 0,
+              }];
+            })
+          : undefined,
+        constructRefs: Array.isArray(msg.constructRefs)
+          ? msg.constructRefs.map(normalizeConstructRef).flatMap((item) => (item ? [item] : []))
+          : Array.isArray(msg.construct_refs)
+            ? msg.construct_refs.map(normalizeConstructRef).flatMap((item) => (item ? [item] : []))
+            : undefined,
+      }];
   });
 }
 
@@ -207,50 +272,6 @@ export async function executeShell(cmd: string, ctx: CommandContext): Promise<vo
 }
 
 // ---------------------------------------------------------------------------
-// Help text
-// ---------------------------------------------------------------------------
-
-export const HELP_TEXT = `**Commands**
-
-| Command | Description |
-|---------|-------------|
-| /help | Show this help |
-| /backend [name] | Show or set backend |
-| /backends | List available backends |
-| /backend-status | Show backend connection status |
-| /model <name> | Switch active model |
-| /orchestrator [name\\|auto] | Show or set orchestrator planner |
-| /specialist <name> | Switch to a specialist in manual mode |
-| /mode <name> | Set routing mode |
-| /models | List Zelda models |
-| /status | Connection and state info |
-| /servers | Tool server info |
-| /tools <on\\|off> | Toggle tool use |
-| /tools-write <on\\|off> | Toggle tool write access |
-| /verify-hooks <on\\|off> | Toggle automatic post-write verification |
-| /permissions [clear] | Show or clear sticky tool rules |
-| /route <prompt> | Preview routing |
-| /broadcast <a,b,c> | Set broadcast models |
-| /load [name] | Load model in LM Studio |
-| /loaded | List loaded API models |
-| /workspace <path> | Change workspace |
-| /rom <path\\|none> | Change ROM target |
-| /focus <path\\|clear> | Load file into system prompt (KV-cached) |
-| /reset [model\\|all] | Clear history |
-| /stats | Session statistics |
-| /save | Show session file path |
-| /sessions | List saved sessions |
-| /resume <name> | Resume a saved session |
-| /compact [model] | Compress history (lossy) |
-| /shell [command] | Use the persistent shell session |
-| /shell-reset | Reset the persistent shell session |
-| /shell-log [n] | Show recent shell commands |
-| /settings | Open UI settings panel |
-| /exit | Quit z3cli |
-
-\`@path\` in a prompt attaches a workspace file to the turn. \`!cmd\` runs inside the persistent shell session. \`Ctrl+P\` opens the command palette.`;
-
-// ---------------------------------------------------------------------------
 // Command table
 // ---------------------------------------------------------------------------
 
@@ -262,13 +283,13 @@ const COMMANDS: Record<string, Handler> = {
   "/models": async (_, ctx) => {
     if (!ctx.config) return;
     const lines = ctx.config.models.map((m) => {
-      const active = m.name === ctx.config!.activeModel ? " *" : "  ";
-      const loaded = m.loaded ? "loaded" : "      ";
-      const tools = m.toolsEnabled ? "tools" : "     ";
+      const active = m.name === ctx.config!.activeModel ? "⚔" : " ";
+      const loaded = m.loaded ? "✓" : " ";
+      const tools = m.toolsEnabled ? "🔨" : " ";
       const summary = modelPickerDescription(m);
-      return `${active} ${m.name.padEnd(18)} ${loaded}  ${tools}  ${summary}`;
+      return `${active} **${m.name}** · ${loaded} loaded · ${tools} tools · _${summary}_`;
     });
-    ctx.addSystemMessage("```\n" + lines.join("\n") + "\n```");
+    ctx.addSystemMessage(`### Available Models\n\n${lines.join("\n")}`);
   },
 
   "/modes": async (_, ctx) =>
@@ -288,7 +309,7 @@ const COMMANDS: Record<string, Handler> = {
       return;
     }
     const key = args[0] as keyof UISettings;
-    if (key in DEFAULT_SETTINGS) {
+    if (BOOLEAN_SETTING_KEYS.has(key)) {
       const val = args[1]?.toLowerCase();
       if (val === "on" || val === "off") {
         ctx.setSetting(key, val === "on");
@@ -301,11 +322,23 @@ const COMMANDS: Record<string, Handler> = {
       }
       return;
     }
+    if (key === "theme" || key === "uiMode" || key === "showThinking" || key === "thinkingDetail") {
+      const nextValue = parseEnumSetting(key, args[1]);
+      if (nextValue !== null) {
+        ctx.setSetting(key, nextValue);
+        ctx.addSystemMessage(`Setting **${key}** → **${nextValue}**`);
+      } else {
+        ctx.addSystemMessage(
+          `**${key}** is currently **${ctx.settings[key]}**\n\n${settingUsage(key)}`,
+        );
+      }
+      return;
+    }
     const rows = Object.entries(ctx.settings).map(
-      ([k, v]) => `| ${k} | ${(v as boolean) ? "on" : "off"} |`,
+      ([k, v]) => `| ${k} | ${String(v)} |`,
     );
     ctx.addSystemMessage(
-      "**UI Settings** — use `/settings <key> on|off` or open the picker with `/settings`\n\n" +
+      "**UI Settings** — use `/settings <key> on|off` for booleans, or set enum values directly.\n\n" +
       "| Setting | Value |\n|---------|-------|\n" +
       rows.join("\n") +
       "\n\nUse `/settings reset` to restore defaults.",
@@ -380,8 +413,10 @@ const COMMANDS: Record<string, Handler> = {
     runCmd("/status", args, ctx, (result) => {
       const r = result as Record<string, unknown> | null;
       if (r) {
-        const lines = Object.entries(r).map(([k, v]) => `  ${k}: ${v}`).join("\n");
-        ctx.addSystemMessage("```\n" + lines + "\n```");
+        const out = Object.entries(r)
+          .map(([k, v]) => `* **${k}**: \`${JSON.stringify(v)}\``)
+          .join("\n");
+        ctx.addSystemMessage(`### Backend Status\n\n${out}`);
       }
     }),
 
@@ -418,20 +453,19 @@ const COMMANDS: Record<string, Handler> = {
 
   "/servers": async (_, ctx) => {
     if (!ctx.config) return;
-    if (ctx.config.servers.length > 0) {
-      ctx.addSystemMessage(
-        `**Servers:** ${ctx.config.servers.join(", ")}\n**Tools:** ${ctx.config.toolCount}` +
-        (ctx.config.warnings.length > 0
-          ? `\n**Warnings:** ${ctx.config.warnings.join("; ")}`
-          : ""),
-      );
-    } else {
-      ctx.addSystemMessage(
-        ctx.config.warnings.length > 0
-          ? `No tool servers connected.\n\n**Warnings:** ${ctx.config.warnings.join("; ")}`
-          : "No tool servers connected.",
-      );
-    }
+    const servers = ctx.config.servers.length > 0
+      ? ctx.config.servers.map((s) => `* ${s}`).join("\n")
+      : "_No tool servers connected._";
+    const warnings = ctx.config.warnings.length > 0
+      ? `\n\n**Warnings:**\n${ctx.config.warnings.map((w) => `* ${w}`).join("\n")}`
+      : "";
+
+    ctx.addSystemMessage(
+      `### Tool Environment\n\n` +
+      `**Active Servers:**\n${servers}\n\n` +
+      `**Total Tools:** ${ctx.config.toolCount}` +
+      warnings,
+    );
   },
 
   "/focus": async (args, ctx) => {
@@ -678,11 +712,15 @@ const COMMANDS: Record<string, Handler> = {
         messages?: unknown;
         subagents?: unknown;
         warnings?: string[];
+        thinking_stripped?: boolean;
       } | null;
       if (r?.resumed) {
         ctx.replaceMessages(normalizeMessages(r.messages));
         ctx.replaceSubagents(normalizeSubagents(r.subagents));
         ctx.addSystemMessage(`Resumed **${r.resumed}** — ${r.messages_restored} messages restored`);
+        if (r.thinking_stripped) {
+          ctx.addSystemMessage("Resumed transcript without saved reasoning traces.");
+        }
         for (const warning of r.warnings ?? []) {
           ctx.addSystemMessage(`Warning: ${warning}`);
         }

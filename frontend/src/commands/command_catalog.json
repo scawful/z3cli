@@ -1,0 +1,52 @@
+{
+  "welcomeHints": [
+    "/help",
+    "/resume",
+    "@file",
+    "#room:0x45",
+    "!bash",
+    "Ctrl+P palette"
+  ],
+  "commands": [
+    {"name":"/help","args":"","description":"Show available commands","group":"quest","groupTitle":"Quest & Navigation","groupSymbol":"◎","aliases":"help commands","paletteLabel":"Help"},
+    {"name":"/workspace","args":"<path>","description":"Change workspace","group":"quest","groupTitle":"Quest & Navigation","groupSymbol":"◎","aliases":"workspace project root"},
+    {"name":"/rom","args":"<path|none>","description":"Change ROM target","group":"quest","groupTitle":"Quest & Navigation","groupSymbol":"◎","aliases":"rom target"},
+    {"name":"/status","args":"","description":"Connection and state info","group":"quest","groupTitle":"Quest & Navigation","groupSymbol":"◎","aliases":"status info runtime","paletteLabel":"Status","paletteDescription":"Show current runtime state"},
+    {"name":"/save","args":"","description":"Show session file path","group":"quest","groupTitle":"Quest & Navigation","groupSymbol":"◎","aliases":"save session path"},
+    {"name":"/sessions","args":"","description":"List saved sessions","group":"quest","groupTitle":"Quest & Navigation","groupSymbol":"◎","aliases":"resume sessions history","paletteLabel":"Sessions","paletteDescription":"Browse saved sessions"},
+    {"name":"/resume","args":"<name>","description":"Resume a saved session","group":"quest","groupTitle":"Quest & Navigation","groupSymbol":"◎","aliases":"resume restore session","paletteLabel":"Resume Session Picker","paletteDescription":"Open session search"},
+
+    {"name":"/backend","args":"[name]","description":"Show or set backend","group":"models","groupTitle":"Models & Routing","groupSymbol":"⚔","aliases":"backend studio llamacpp"},
+    {"name":"/backends","args":"","description":"List available backends","group":"models","groupTitle":"Models & Routing","groupSymbol":"⚔","aliases":"backend list"},
+    {"name":"/backend-status","args":"","description":"Show backend status","group":"models","groupTitle":"Models & Routing","groupSymbol":"⚔","aliases":"backend health"},
+    {"name":"/model","args":"<name>","description":"Switch active model","group":"models","groupTitle":"Models & Routing","groupSymbol":"⚔","aliases":"model switch oracle","paletteLabel":"Model Picker","paletteDescription":"Choose the active model"},
+    {"name":"/models","args":"","description":"List Zelda models","group":"models","groupTitle":"Models & Routing","groupSymbol":"⚔","aliases":"model list"},
+    {"name":"/mode","args":"<name>","description":"Set routing mode","group":"models","groupTitle":"Models & Routing","groupSymbol":"⚔","aliases":"mode route routing","paletteLabel":"Mode Picker","paletteDescription":"Choose routing mode"},
+    {"name":"/modes","args":"","description":"List routing modes","group":"models","groupTitle":"Models & Routing","groupSymbol":"⚔","aliases":"routing modes"},
+    {"name":"/orchestrator","args":"[name|auto]","description":"Show or set orchestrator planner","group":"models","groupTitle":"Models & Routing","groupSymbol":"⚔","aliases":"orchestrator planner cloud","paletteLabel":"Orchestrator","paletteDescription":"Show or set the cloud planner"},
+    {"name":"/specialist","args":"<name>","description":"Switch to a specialist in manual mode","group":"models","groupTitle":"Models & Routing","groupSymbol":"⚔","aliases":"specialist manual"},
+    {"name":"/route","args":"<prompt>","description":"Preview routing","group":"models","groupTitle":"Models & Routing","groupSymbol":"⚔","aliases":"route preview"},
+    {"name":"/broadcast","args":"<a,b,c>","description":"Set broadcast models","group":"models","groupTitle":"Models & Routing","groupSymbol":"⚔","aliases":"broadcast fanout"},
+    {"name":"/load","args":"[name]","description":"Load model in LM Studio","group":"models","groupTitle":"Models & Routing","groupSymbol":"⚔","aliases":"load lm studio"},
+    {"name":"/loaded","args":"","description":"List loaded API models","group":"models","groupTitle":"Models & Routing","groupSymbol":"⚔","aliases":"loaded models"},
+
+    {"name":"/servers","args":"","description":"Tool server info","group":"tools","groupTitle":"Tools & Context","groupSymbol":"✦","aliases":"servers tools"},
+    {"name":"/tools","args":"<on|off>","description":"Toggle tool use","group":"tools","groupTitle":"Tools & Context","groupSymbol":"✦","aliases":"tools enable disable"},
+    {"name":"/tools-write","args":"<on|off>","description":"Toggle tool write access","group":"tools","groupTitle":"Tools & Context","groupSymbol":"✦","aliases":"tools write access"},
+    {"name":"/verify-hooks","args":"<on|off>","description":"Toggle automatic verification","group":"tools","groupTitle":"Tools & Context","groupSymbol":"✦","aliases":"verify hooks"},
+    {"name":"/lsp-context","args":"[mode]","description":"Show or set z3lsp prompt context","group":"tools","groupTitle":"Tools & Context","groupSymbol":"✦","aliases":"lsp context rich balanced"},
+    {"name":"/permissions","args":"[clear]","description":"Show or clear sticky tool rules","group":"tools","groupTitle":"Tools & Context","groupSymbol":"✦","aliases":"permissions sticky rules","paletteLabel":"Permissions","paletteDescription":"Show sticky tool rules"},
+    {"name":"/focus","args":"<path|clear>","description":"Load file into system prompt","group":"tools","groupTitle":"Tools & Context","groupSymbol":"✦","aliases":"focus file context"},
+
+    {"name":"/reset","args":"[model|all]","description":"Clear history","group":"session","groupTitle":"Session & Shell","groupSymbol":"◈","aliases":"reset clear history"},
+    {"name":"/stats","args":"","description":"Session statistics","group":"session","groupTitle":"Session & Shell","groupSymbol":"◈","aliases":"stats metrics"},
+    {"name":"/compact","args":"[model]","description":"Compress history (lossy)","group":"session","groupTitle":"Session & Shell","groupSymbol":"◈","aliases":"compact summarize history"},
+    {"name":"/tool-timings","args":"[count]","description":"Show recent tool invocation latencies","group":"session","groupTitle":"Session & Shell","groupSymbol":"◈","aliases":"tool timings latency"},
+    {"name":"/export-training","args":"[out] [model] [--include-thinking]","description":"Export session to training JSONL","group":"session","groupTitle":"Session & Shell","groupSymbol":"◈","aliases":"export training jsonl"},
+    {"name":"/shell","args":"[command]","description":"Run a persistent shell command","group":"session","groupTitle":"Session & Shell","groupSymbol":"◈","aliases":"shell bash"},
+    {"name":"/shell-log","args":"[count]","description":"Show recent shell commands","group":"session","groupTitle":"Session & Shell","groupSymbol":"◈","aliases":"shell history"},
+    {"name":"/shell-reset","args":"","description":"Reset the persistent shell session","group":"session","groupTitle":"Session & Shell","groupSymbol":"◈","aliases":"shell reset"},
+    {"name":"/settings","args":"[key value]","description":"Open UI settings panel","group":"session","groupTitle":"Session & Shell","groupSymbol":"◈","aliases":"settings ui","paletteLabel":"Settings","paletteDescription":"Open UI settings"},
+    {"name":"/exit","args":"","description":"Quit z3cli","group":"session","groupTitle":"Session & Shell","groupSymbol":"◈","aliases":"exit quit"}
+  ]
+}
