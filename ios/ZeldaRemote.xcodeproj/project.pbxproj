@@ -1,0 +1,358 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		5C29D31BF2C56A6D92F136A3 /* ZeldaRemoteApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F364E0D640B2ECC02E4D12B /* ZeldaRemoteApp.swift */; };
+		8E6E35337122D3C2A0F7A634 /* ZeldaRemoteCore in Frameworks */ = {isa = PBXBuildFile; productRef = DF8545450C5428D44977295B /* ZeldaRemoteCore */; };
+		EA2A096948EF8FF7656B7A89 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D8F0F2DBAE408A5BDBB8E19B /* Assets.xcassets */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		1F9FB5775F3B5F67AA07CD3A /* ZeldaRemoteCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ZeldaRemoteCore; path = ZeldaRemoteCore; sourceTree = SOURCE_ROOT; };
+		2F364E0D640B2ECC02E4D12B /* ZeldaRemoteApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZeldaRemoteApp.swift; sourceTree = "<group>"; };
+		4A325F719447C68271588F7E /* ZeldaRemote.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ZeldaRemote.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		86F9BB87CD1FA3E8409E6DBE /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		D8F0F2DBAE408A5BDBB8E19B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		87D570639860F87BFFD1C920 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8E6E35337122D3C2A0F7A634 /* ZeldaRemoteCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		02E7C3D76530D49755D5D6BB /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				1F9FB5775F3B5F67AA07CD3A /* ZeldaRemoteCore */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
+		177AB9D332D9F6AF8D502DE9 = {
+			isa = PBXGroup;
+			children = (
+				02E7C3D76530D49755D5D6BB /* Packages */,
+				D5C54E556450C9E26E631BDE /* ZeldaRemote */,
+				3F0F374A7F84B206D1F98377 /* ZeldaRemoteAppIcon */,
+				6E82DF72E3F23F7F2EE92894 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		3F0F374A7F84B206D1F98377 /* ZeldaRemoteAppIcon */ = {
+			isa = PBXGroup;
+			children = (
+				D8F0F2DBAE408A5BDBB8E19B /* Assets.xcassets */,
+			);
+			path = ZeldaRemoteAppIcon;
+			sourceTree = "<group>";
+		};
+		6E82DF72E3F23F7F2EE92894 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				4A325F719447C68271588F7E /* ZeldaRemote.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		D5C54E556450C9E26E631BDE /* ZeldaRemote */ = {
+			isa = PBXGroup;
+			children = (
+				86F9BB87CD1FA3E8409E6DBE /* Info.plist */,
+				2F364E0D640B2ECC02E4D12B /* ZeldaRemoteApp.swift */,
+			);
+			path = ZeldaRemote;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		9FF715CAA4B4346C07C6F8DA /* ZeldaRemote */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = FCE0253108C2E4EB51A3B292 /* Build configuration list for PBXNativeTarget "ZeldaRemote" */;
+			buildPhases = (
+				A04C608007F37815FD6CCF23 /* Sources */,
+				4FB5EA3A762EA26265F025E0 /* Resources */,
+				87D570639860F87BFFD1C920 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ZeldaRemote;
+			packageProductDependencies = (
+				DF8545450C5428D44977295B /* ZeldaRemoteCore */,
+			);
+			productName = ZeldaRemote;
+			productReference = 4A325F719447C68271588F7E /* ZeldaRemote.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		03EB6AB448190E3071E257AF /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					9FF715CAA4B4346C07C6F8DA = {
+						DevelopmentTeam = SN8Z922TT6;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = FF9A52F3263F33385CEAB665 /* Build configuration list for PBXProject "ZeldaRemote" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 177AB9D332D9F6AF8D502DE9;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				BB0D624550B7FB6BE36BF6A6 /* XCLocalSwiftPackageReference "ZeldaRemoteCore" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 6E82DF72E3F23F7F2EE92894 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				9FF715CAA4B4346C07C6F8DA /* ZeldaRemote */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		4FB5EA3A762EA26265F025E0 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				EA2A096948EF8FF7656B7A89 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A04C608007F37815FD6CCF23 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5C29D31BF2C56A6D92F136A3 /* ZeldaRemoteApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		82FF4FB869D54317862DF70D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		8E58729823A8953A38337CA7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		9102161053AB745C32312B62 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = SN8Z922TT6;
+				INFOPLIST_FILE = ZeldaRemote/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.scawful.ZeldaRemote;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		EF552BB94A24C8A0D23AC92E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = SN8Z922TT6;
+				INFOPLIST_FILE = ZeldaRemote/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.scawful.ZeldaRemote;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		FCE0253108C2E4EB51A3B292 /* Build configuration list for PBXNativeTarget "ZeldaRemote" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9102161053AB745C32312B62 /* Debug */,
+				EF552BB94A24C8A0D23AC92E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		FF9A52F3263F33385CEAB665 /* Build configuration list for PBXProject "ZeldaRemote" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8E58729823A8953A38337CA7 /* Debug */,
+				82FF4FB869D54317862DF70D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		BB0D624550B7FB6BE36BF6A6 /* XCLocalSwiftPackageReference "ZeldaRemoteCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ZeldaRemoteCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		DF8545450C5428D44977295B /* ZeldaRemoteCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ZeldaRemoteCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 03EB6AB448190E3071E257AF /* Project object */;
+}
