@@ -20,7 +20,13 @@ from z3cli.app.runtime import (
     VALID_BACKENDS,
     VALID_MODES,
 )
-from z3cli.core.config import is_z3ui_model_entry, list_visible_zelda_models, z3ui_model_sort_key
+from z3cli.core.config import (
+    UI_HIDDEN_ZELDA_MODEL_TAGS,
+    is_zelda_model,
+    is_z3ui_model_entry,
+    list_visible_zelda_models,
+    z3ui_model_sort_key,
+)
 from z3cli.core.engine import ChatEngine
 from z3cli.core.provider import create_provider
 from z3cli.protocol.lmstudio import (
@@ -596,6 +602,36 @@ def _model_has_runtime_presence(
     )
 
 
+def _build_model_runtime_info(
+    model: Any,
+    loaded_lookup: dict[str, dict[str, Any]],
+    available_lookup: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    runtime_info = loaded_lookup.get(model.name) or loaded_lookup.get(model.model_id)
+    available_info = available_lookup.get(model.model_id) or available_lookup.get(model.name)
+    return {
+        "name": model.name,
+        "model_id": model.model_id,
+        "role": model.role,
+        "description": model.description,
+        "loaded": True if model.is_cloud else runtime_info is not None,
+        "available": True if model.is_cloud else available_info is not None,
+        "tools_enabled": model.tools_enabled,
+        "provider": model.provider,
+        "loaded_identifier": runtime_info.get("identifier", "") if runtime_info else "",
+        "size_bytes": runtime_info.get("size_bytes", 0) if runtime_info else 0,
+        "status": runtime_info.get("status", "") if runtime_info else "",
+        "parallel": runtime_info.get("parallel", 0) if runtime_info else 0,
+        "context_length": runtime_info.get("context_length", 0) if runtime_info else 0,
+        "max_context_length": runtime_info.get("max_context_length", 0) if runtime_info else 0,
+        "architecture": runtime_info.get("architecture", "") if runtime_info else "",
+        "quantization": runtime_info.get("quantization", "") if runtime_info else "",
+        "queued": runtime_info.get("queued", 0) if runtime_info else 0,
+        "estimated_gpu_bytes": runtime_info.get("estimated_gpu_bytes", 0) if runtime_info else 0,
+        "estimated_total_bytes": runtime_info.get("estimated_total_bytes", 0) if runtime_info else 0,
+    }
+
+
 def loaded_model_runtime_infos(state: Any) -> list[dict[str, Any]]:
     if getattr(state, "backend_name", "") == "llamacpp":
         model_name = str(getattr(state, "llamacpp_model", "") or "")
@@ -626,29 +662,34 @@ def visible_model_infos(state: Any) -> list[dict[str, Any]]:
 
     infos: list[dict[str, Any]] = []
     for model in sorted(visible.values(), key=lambda item: item.name):
-        runtime_info = loaded_lookup.get(model.name) or loaded_lookup.get(model.model_id)
-        available_info = available_lookup.get(model.model_id) or available_lookup.get(model.name)
-        infos.append({
-            "name": model.name,
-            "model_id": model.model_id,
-            "role": model.role,
-            "description": model.description,
-            "loaded": True if model.is_cloud else runtime_info is not None,
-            "available": True if model.is_cloud else available_info is not None,
-            "tools_enabled": model.tools_enabled,
-            "provider": model.provider,
-            "loaded_identifier": runtime_info.get("identifier", "") if runtime_info else "",
-            "size_bytes": runtime_info.get("size_bytes", 0) if runtime_info else 0,
-            "status": runtime_info.get("status", "") if runtime_info else "",
-            "parallel": runtime_info.get("parallel", 0) if runtime_info else 0,
-            "context_length": runtime_info.get("context_length", 0) if runtime_info else 0,
-            "max_context_length": runtime_info.get("max_context_length", 0) if runtime_info else 0,
-            "architecture": runtime_info.get("architecture", "") if runtime_info else "",
-            "quantization": runtime_info.get("quantization", "") if runtime_info else "",
-            "queued": runtime_info.get("queued", 0) if runtime_info else 0,
-            "estimated_gpu_bytes": runtime_info.get("estimated_gpu_bytes", 0) if runtime_info else 0,
-            "estimated_total_bytes": runtime_info.get("estimated_total_bytes", 0) if runtime_info else 0,
-        })
+        infos.append(_build_model_runtime_info(model, loaded_lookup, available_lookup))
+    return infos
+
+
+def model_catalog_infos(state: Any) -> list[dict[str, Any]]:
+    _runtime_infos, loaded_lookup, available_lookup, inventory_ok = _studio_runtime_inventory(state)
+    catalog: dict[str, Any] = {}
+    for model in state.models.values():
+        if model.is_cloud:
+            if _model_has_runtime_presence(model, loaded_lookup, available_lookup, inventory_ok):
+                catalog[model.name] = model
+            continue
+        if not is_zelda_model(model):
+            continue
+        tags_lower = {tag.lower() for tag in model.tags}
+        if UI_HIDDEN_ZELDA_MODEL_TAGS & tags_lower:
+            continue
+        if not _model_has_runtime_presence(model, loaded_lookup, available_lookup, inventory_ok):
+            continue
+        catalog[model.name] = model
+
+    active_model = state.models.get(getattr(state, "active_model", ""))
+    if active_model is not None and _model_has_runtime_presence(active_model, loaded_lookup, available_lookup, inventory_ok):
+        catalog[active_model.name] = active_model
+
+    infos: list[dict[str, Any]] = []
+    for model in sorted(catalog.values(), key=lambda item: item.name):
+        infos.append(_build_model_runtime_info(model, loaded_lookup, available_lookup))
     return infos
 
 
@@ -664,29 +705,7 @@ def z3ui_model_infos(state: Any) -> list[dict[str, Any]]:
         ),
         key=lambda item: z3ui_model_sort_key(item.name),
     ):
-        runtime_info = loaded_lookup.get(model.name) or loaded_lookup.get(model.model_id)
-        available_info = available_lookup.get(model.model_id) or available_lookup.get(model.name)
-        infos.append({
-            "name": model.name,
-            "model_id": model.model_id,
-            "role": model.role,
-            "description": model.description,
-            "loaded": runtime_info is not None,
-            "available": available_info is not None,
-            "tools_enabled": model.tools_enabled,
-            "provider": model.provider,
-            "loaded_identifier": runtime_info.get("identifier", "") if runtime_info else "",
-            "size_bytes": runtime_info.get("size_bytes", 0) if runtime_info else 0,
-            "status": runtime_info.get("status", "") if runtime_info else "",
-            "parallel": runtime_info.get("parallel", 0) if runtime_info else 0,
-            "context_length": runtime_info.get("context_length", 0) if runtime_info else 0,
-            "max_context_length": runtime_info.get("max_context_length", 0) if runtime_info else 0,
-            "architecture": runtime_info.get("architecture", "") if runtime_info else "",
-            "quantization": runtime_info.get("quantization", "") if runtime_info else "",
-            "queued": runtime_info.get("queued", 0) if runtime_info else 0,
-            "estimated_gpu_bytes": runtime_info.get("estimated_gpu_bytes", 0) if runtime_info else 0,
-            "estimated_total_bytes": runtime_info.get("estimated_total_bytes", 0) if runtime_info else 0,
-        })
+        infos.append(_build_model_runtime_info(model, loaded_lookup, available_lookup))
     return infos
 
 

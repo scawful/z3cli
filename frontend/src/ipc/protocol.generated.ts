@@ -173,6 +173,7 @@ export interface ReadyParams {
   tool_count: number;
   warnings: string[];
   models: ReadyModelInfo[];
+  model_catalog?: ReadyModelInfo[];
   session_path: string;
   loaded_models?: LoadedModelRuntimeInfo[];
   loaded_model_count?: number;

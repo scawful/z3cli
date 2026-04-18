@@ -330,6 +330,45 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([str(item["name"]) for item in params["models"]], ["oracle", "oracle-fast"])
 
+    def test_build_ready_params_exposes_model_catalog_for_manager_only_entries(self) -> None:
+        state = ServeState()
+        state.models = {
+            "oracle": ModelConfig(name="oracle", model_id="oracle", role="planner", tools_enabled=True),
+            "oracle-pro": ModelConfig(
+                name="oracle-pro",
+                model_id="gguf/zelda/switchhook-27b-v1-q4km.gguf",
+                role="heavy oracle",
+                tags=["oracle"],
+                hide_if_unavailable=True,
+                tools_enabled=True,
+            ),
+            "oracle-coder": ModelConfig(
+                name="oracle-coder",
+                model_id="qwen25-oracle-coder-7b-v1",
+                role="internal coder",
+                tags=["oracle"],
+                visibility="hidden",
+                spawn_only=True,
+                spawnable_by=["oracle"],
+                hide_if_unavailable=True,
+                tools_enabled=True,
+            ),
+        }
+
+        with patch("z3cli.app.shared_runtime.available_models", return_value=[
+            {"id": "oracle", "path": "oracle"},
+            {"id": "gguf/zelda/switchhook-27b-v1-q4km.gguf", "path": "gguf/zelda/switchhook-27b-v1-q4km.gguf"},
+            {"id": "qwen25-oracle-coder-7b-v1", "path": "qwen25-oracle-coder-7b-v1"},
+        ]), patch("z3cli.app.shared_runtime.loaded_models", return_value=[]):
+            params = build_ready_params(state)
+        catalog = params.get("model_catalog", [])
+
+        self.assertEqual([str(item["name"]) for item in params["models"]], ["oracle"])
+        self.assertEqual(
+            [str(item["name"]) for item in catalog],
+            ["oracle", "oracle-coder", "oracle-pro"],
+        )
+
     def test_build_ready_params_includes_tagged_local_z3ui_models(self) -> None:
         state = ServeState()
         state.models = {

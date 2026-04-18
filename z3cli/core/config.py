@@ -92,7 +92,6 @@ Z3UI_MODEL_TAGS = {
 Z3UI_MODEL_ORDER = (
     "oracle",
     "oracle-fast",
-    "oracle-pro",
     "qwen3-oracle-8b",
     "din",
     "farore",

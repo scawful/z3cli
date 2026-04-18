@@ -90,6 +90,7 @@ from z3cli.app.shared_runtime import (
     ensure_shell,
     get_backend,
     get_or_create_engine,
+    model_catalog_infos,
     permission_rule_key as _permission_rule_key,
     persist_state as _persist_state,
     refresh_focus_context as _refresh_focus_context,
@@ -1517,6 +1518,45 @@ async def _refresh_tool_bridge_immediately(state: ServeState) -> None:
         await _refresh_focus_context(state)
 
 
+def _ready_model_payload(state: ServeState, model: dict[str, object]) -> ReadyModelInfo:
+    cfg = state.models.get(str(model["name"]))
+    payload: ReadyModelInfo = {
+        "name": str(model["name"]),
+        "model_id": str(model["model_id"]),
+        "role": str(model["role"]),
+        "loaded": bool(model["loaded"]),
+        "tools_enabled": bool(model["tools_enabled"]),
+        "context_budget": cfg.context_budget if cfg is not None else 0,
+    }
+    if model.get("description"):
+        payload["description"] = str(model["description"])
+    if model.get("provider"):
+        payload["provider"] = str(model["provider"])
+    if model.get("loaded_identifier"):
+        payload["loaded_identifier"] = str(model["loaded_identifier"])
+    if int(model.get("size_bytes", 0) or 0) > 0:
+        payload["size_bytes"] = int(model["size_bytes"])
+    if model.get("status"):
+        payload["status"] = str(model["status"])
+    if int(model.get("parallel", 0) or 0) > 0:
+        payload["parallel"] = int(model["parallel"])
+    if int(model.get("context_length", 0) or 0) > 0:
+        payload["context_length"] = int(model["context_length"])
+    if int(model.get("max_context_length", 0) or 0) > 0:
+        payload["max_context_length"] = int(model["max_context_length"])
+    if model.get("architecture"):
+        payload["architecture"] = str(model["architecture"])
+    if model.get("quantization"):
+        payload["quantization"] = str(model["quantization"])
+    if int(model.get("queued", 0) or 0) > 0:
+        payload["queued"] = int(model["queued"])
+    if int(model.get("estimated_gpu_bytes", 0) or 0) > 0:
+        payload["estimated_gpu_bytes"] = int(model["estimated_gpu_bytes"])
+    if int(model.get("estimated_total_bytes", 0) or 0) > 0:
+        payload["estimated_total_bytes"] = int(model["estimated_total_bytes"])
+    return payload
+
+
 def build_ready_params(state: ServeState) -> ReadyParams:
     """Build the ready notification payload."""
     avg_tool_latency_ms = (
@@ -1556,44 +1596,8 @@ def build_ready_params(state: ServeState) -> ReadyParams:
         if int(item.get("estimated_total_bytes", 0) or 0) > 0:
             runtime_item["estimated_total_bytes"] = int(item["estimated_total_bytes"])
         loaded_runtime_payload.append(runtime_item)
-    models_info: list[ReadyModelInfo] = []
-    for model in z3ui_model_infos(state):
-        cfg = state.models.get(str(model["name"]))
-        payload: ReadyModelInfo = {
-            "name": str(model["name"]),
-            "model_id": str(model["model_id"]),
-            "role": str(model["role"]),
-            "loaded": bool(model["loaded"]),
-            "tools_enabled": bool(model["tools_enabled"]),
-            "context_budget": cfg.context_budget if cfg is not None else 0,
-        }
-        if model.get("description"):
-            payload["description"] = str(model["description"])
-        if model.get("provider"):
-            payload["provider"] = str(model["provider"])
-        if model.get("loaded_identifier"):
-            payload["loaded_identifier"] = str(model["loaded_identifier"])
-        if int(model.get("size_bytes", 0) or 0) > 0:
-            payload["size_bytes"] = int(model["size_bytes"])
-        if model.get("status"):
-            payload["status"] = str(model["status"])
-        if int(model.get("parallel", 0) or 0) > 0:
-            payload["parallel"] = int(model["parallel"])
-        if int(model.get("context_length", 0) or 0) > 0:
-            payload["context_length"] = int(model["context_length"])
-        if int(model.get("max_context_length", 0) or 0) > 0:
-            payload["max_context_length"] = int(model["max_context_length"])
-        if model.get("architecture"):
-            payload["architecture"] = str(model["architecture"])
-        if model.get("quantization"):
-            payload["quantization"] = str(model["quantization"])
-        if int(model.get("queued", 0) or 0) > 0:
-            payload["queued"] = int(model["queued"])
-        if int(model.get("estimated_gpu_bytes", 0) or 0) > 0:
-            payload["estimated_gpu_bytes"] = int(model["estimated_gpu_bytes"])
-        if int(model.get("estimated_total_bytes", 0) or 0) > 0:
-            payload["estimated_total_bytes"] = int(model["estimated_total_bytes"])
-        models_info.append(payload)
+    models_info = [_ready_model_payload(state, model) for model in z3ui_model_infos(state)]
+    model_catalog = [_ready_model_payload(state, model) for model in model_catalog_infos(state)]
 
     warnings = list(state.startup_warnings)
     warnings.extend(state.bridge_errors)
@@ -1617,6 +1621,7 @@ def build_ready_params(state: ServeState) -> ReadyParams:
         "tool_count": state.bridge.tool_count if state.bridge else 0,
         "warnings": _compact_warning_list(warnings),
         "models": models_info,
+        "model_catalog": model_catalog,
         "loaded_models": loaded_runtime_payload,
         "loaded_model_count": len(loaded_runtime_payload),
         "loaded_model_memory_bytes": total_loaded_model_bytes(loaded_runtime_payload),

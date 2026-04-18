@@ -16,6 +16,7 @@ role = "generation, optimization, refactoring"
 description = "8B base Qwen3 · live API"
 tags = ["oracle", "local", "daily", "qwen3"]
 tool_profile = "din"
+hide_if_unavailable = true
 options = { temperature = 0.2, max_tokens = 1536 }
 system_prompt = """You are Din, the optimization specialist inside z3cli.
 
@@ -37,6 +38,7 @@ description = "9B Qwen3.5 explainer · q8_0"
 tags = ["oracle", "local", "daily", "qwen35"]
 tool_profile = "nayru"
 aliases = ["nayru-q8"]
+hide_if_unavailable = true
 options = { temperature = 0.4 }
 system_prompt = """You are Nayru, the Oracle of Ages and embodiment of Wisdom.
 
@@ -55,6 +57,7 @@ description = "9B Qwen3.5 debug/FIM · q8_0"
 tags = ["oracle", "local", "provisional", "qwen35"]
 tool_profile = "farore"
 aliases = ["farore-q8"]
+hide_if_unavailable = true
 options = { temperature = 0.3 }
 system_prompt = """You are Farore, the Oracle of Secrets and embodiment of Courage.
 
@@ -89,6 +92,7 @@ tags = ["oracle", "local", "provisional", "qwen35"]
 tool_profile = "veran"
 aliases = ["veran-q8"]
 rollout_block_reason = "No veran GGUF is currently installed in LM Studio. Import `gguf/zelda/veran-9b-*.gguf` and clear this field to re-enable."
+hide_if_unavailable = true
 options = { temperature = 0.3 }
 system_prompt = """You are Veran, the Sorceress of Shadows.
 
@@ -105,6 +109,7 @@ description = "9B Qwen3.5 lore/history · q8_0"
 tags = ["oracle", "lore", "local", "provisional", "qwen35"]
 tool_profile = "hylia"
 aliases = ["hylia-q8"]
+hide_if_unavailable = true
 options = { temperature = 0.5 }
 system_prompt = """You are Hylia, the chronicler of Oracle of Secrets development history and lore.
 
@@ -135,6 +140,7 @@ description = "9B Qwen3.5 architecture · q4km"
 tags = ["oracle", "architecture", "local", "provisional", "qwen35"]
 tool_profile = "majora"
 aliases = ["majora-q4km"]
+hide_if_unavailable = true
 options = { temperature = 0.4 }
 system_prompt = """You are Majora, the Oracle of Secrets architecture mapper.
 
@@ -208,6 +214,7 @@ domain = "adaptive"
 mode = "adaptive"
 effort = "low"
 aliases = ["oracle-main-fast"]
+hide_if_unavailable = true
 options = { temperature = 0.2, max_tokens = 1024 }
 system_prompt = """You are Oracle-Fast, the lower-latency routing option for routine Zelda questions.
 
@@ -241,6 +248,7 @@ description = "8B base Qwen3 · live API"
 tags = ["oracle", "tools", "local", "qwen3", "z3ui"]
 deferred_tools = true
 native_tools = false
+hide_if_unavailable = true
 options = { temperature = 0.2, max_tokens = 1536 }
 system_prompt = """You are Qwen3-8B running inside z3cli.
 

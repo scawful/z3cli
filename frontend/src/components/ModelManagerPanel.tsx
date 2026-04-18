@@ -6,6 +6,51 @@ import { describeLoadedModelRuntime, formatModelEstimate, formatModelMemory } fr
 import { modelColor, modelSymbol, symbols } from "../theme/index.js";
 
 const VISIBLE_ROWS = 10;
+const ORACLE_MODEL_ORDER = [
+  "oracle",
+  "qwen3-oracle-8b",
+  "oracle-fast",
+  "oracle-pro",
+  "oracle-coder",
+  "din",
+  "nayru",
+  "farore",
+  "farore-q4km",
+  "majora",
+  "hylia",
+  "hylia-q4km",
+  "veran",
+] as const;
+const QWEN_MODEL_ORDER = [
+  "qwen3-local-8b",
+  "qwen3-local-14b",
+] as const;
+const CLOUD_MODEL_ORDER = ["claude-sonnet", "claude-opus", "gpt-4o"] as const;
+const FAMILY_ORDER = ["oracle", "qwen", "cloud", "resident", "other"] as const;
+const FAMILY_LABELS = {
+  oracle: "Oracle",
+  qwen: "Qwen",
+  cloud: "Cloud",
+  resident: "Resident",
+  other: "Other",
+} as const;
+const ORACLE_MODELS = new Set<string>([
+  "oracle",
+  "oracle-fast",
+  "oracle-pro",
+  "oracle-coder",
+  "qwen3-oracle-8b",
+  "din",
+  "nayru",
+  "farore",
+  "farore-q4km",
+  "majora",
+  "hylia",
+  "hylia-q4km",
+  "veran",
+]);
+
+type ModelManagerFamily = typeof FAMILY_ORDER[number];
 
 export interface ModelManagerEntry {
   key: string;
@@ -19,6 +64,14 @@ export interface ModelManagerEntry {
   canLoad: boolean;
   canUnload: boolean;
   actionTarget: string;
+  family: ModelManagerFamily;
+  catalogTag: string;
+}
+
+export interface ModelManagerTab {
+  key: ModelManagerFamily;
+  label: string;
+  entries: ModelManagerEntry[];
 }
 
 function loadedLookupKeys(entry: LoadedModelInfo): string[] {
@@ -35,15 +88,64 @@ function compactModelId(modelId: string): string {
   return `${modelId.slice(0, 24)}...${modelId.slice(-24)}`;
 }
 
+function inferModelManagerFamily(model: ModelInfo): ModelManagerFamily {
+  const name = model.name.toLowerCase();
+  if (model.provider && model.provider !== "studio" && model.provider !== "llamacpp" && model.provider !== "ollama") {
+    return "cloud";
+  }
+  if (ORACLE_MODELS.has(name) || name.startsWith("oracle")) {
+    return "oracle";
+  }
+  if (name.startsWith("qwen")) {
+    return "qwen";
+  }
+  return "other";
+}
+
+function familyOrderIndex(family: ModelManagerFamily): number {
+  return FAMILY_ORDER.indexOf(family);
+}
+
+function familyModelRank(family: ModelManagerFamily, name: string): number {
+  const lowered = name.toLowerCase();
+  if (family === "oracle") {
+    return ORACLE_MODEL_ORDER.indexOf(lowered as (typeof ORACLE_MODEL_ORDER)[number]);
+  }
+  if (family === "qwen") {
+    return QWEN_MODEL_ORDER.indexOf(lowered as (typeof QWEN_MODEL_ORDER)[number]);
+  }
+  if (family === "cloud") {
+    return CLOUD_MODEL_ORDER.indexOf(lowered as (typeof CLOUD_MODEL_ORDER)[number]);
+  }
+  return -1;
+}
+
+function modelCatalogTag(model: ModelInfo, selectable: boolean): string {
+  if (selectable) {
+    return "";
+  }
+  if (model.name === "oracle-coder") {
+    return "internal";
+  }
+  if (model.name === "oracle-pro") {
+    return "manual";
+  }
+  return "catalog";
+}
+
 export function buildModelManagerEntries(config: AppConfig): ModelManagerEntry[] {
   const loadedModels = config.loadedModels ?? [];
+  const selectableNames = new Set(config.models.map((model) => model.name));
+  const catalogModels = config.modelCatalog ?? config.models;
   const matchedLoaded = new Set<string>();
-  const entries: ModelManagerEntry[] = config.models.map((model) => {
+  const entries: ModelManagerEntry[] = catalogModels.map((model) => {
     const studioManaged = !model.provider || model.provider === "studio";
     const loaded = findLoadedModel(model, loadedModels);
     if (loaded) {
       matchedLoaded.add(loaded.identifier || loaded.modelKey);
     }
+    const family = inferModelManagerFamily(model);
+    const canActivate = selectableNames.has(model.name);
     const runtime = describeLoadedModelRuntime({
       sizeBytes: model.sizeBytes,
       status: model.status,
@@ -62,10 +164,12 @@ export function buildModelManagerEntries(config: AppConfig): ModelManagerEntry[]
       estimate: formatModelEstimate(model.estimatedGpuBytes, model.estimatedTotalBytes),
       active: model.name === config.activeModel,
       loaded: model.loaded,
-      canActivate: true,
+      canActivate,
       canLoad: config.backend === "studio" && studioManaged && !model.loaded,
       canUnload: config.backend === "studio" && studioManaged && model.loaded,
       actionTarget: model.loadedIdentifier || model.modelId || model.name,
+      family,
+      catalogTag: modelCatalogTag(model, canActivate),
     };
   });
 
@@ -93,13 +197,43 @@ export function buildModelManagerEntries(config: AppConfig): ModelManagerEntry[]
       canLoad: false,
       canUnload: config.backend === "studio",
       actionTarget: loaded.identifier || loaded.modelKey,
+      family: "resident",
+      catalogTag: "resident",
     });
   }
 
   return entries.sort((left, right) => {
-    if (left.active !== right.active) return left.active ? -1 : 1;
+    const familyDelta = familyOrderIndex(left.family) - familyOrderIndex(right.family);
+    if (familyDelta !== 0) return familyDelta;
+    const leftRank = familyModelRank(left.family, left.name);
+    const rightRank = familyModelRank(right.family, right.name);
+    if (leftRank !== rightRank) {
+      if (leftRank === -1) return 1;
+      if (rightRank === -1) return -1;
+      return leftRank - rightRank;
+    }
     if (left.loaded !== right.loaded) return left.loaded ? -1 : 1;
     return left.name.localeCompare(right.name);
+  });
+}
+
+export function buildModelManagerTabs(config: AppConfig): ModelManagerTab[] {
+  const grouped = new Map<ModelManagerFamily, ModelManagerEntry[]>();
+  for (const entry of buildModelManagerEntries(config)) {
+    const bucket = grouped.get(entry.family) ?? [];
+    bucket.push(entry);
+    grouped.set(entry.family, bucket);
+  }
+  return FAMILY_ORDER.flatMap((family) => {
+    const entries = grouped.get(family) ?? [];
+    if (entries.length === 0) {
+      return [];
+    }
+    return [{
+      key: family,
+      label: FAMILY_LABELS[family],
+      entries,
+    }];
   });
 }
 
@@ -110,8 +244,28 @@ interface ModelManagerPanelProps {
 
 export function ModelManagerPanel({ config, onClose }: ModelManagerPanelProps): React.ReactElement {
   const { colors, execCommand } = useSettingsContext();
-  const entries = useMemo(() => buildModelManagerEntries(config), [config]);
+  const tabs = useMemo(() => buildModelManagerTabs(config), [config]);
+  const [selectedTabKey, setSelectedTabKey] = useState<ModelManagerFamily | "">("");
   const [index, setIndex] = useState(0);
+  const tabIndex = Math.max(0, tabs.findIndex((tab) => tab.key === selectedTabKey));
+  const selectedTab = tabs[tabIndex] ?? tabs[0];
+  const entries = selectedTab?.entries ?? [];
+
+  useEffect(() => {
+    const activeEntryTab = tabs.findIndex((tab) => tab.entries.some((entry) => entry.active));
+    setSelectedTabKey((current) => {
+      if (tabs.length === 0) {
+        return "";
+      }
+      if (current && tabs.some((tab) => tab.key === current)) {
+        return current;
+      }
+      if (activeEntryTab >= 0) {
+        return tabs[activeEntryTab]?.key ?? tabs[0].key;
+      }
+      return tabs[0].key;
+    });
+  }, [tabs]);
 
   useEffect(() => {
     setIndex((current) => Math.max(0, Math.min(current, entries.length - 1)));
@@ -131,6 +285,16 @@ export function ModelManagerPanel({ config, onClose }: ModelManagerPanelProps): 
     }
     if (key.upArrow) {
       setIndex((current) => Math.max(0, current - 1));
+      return;
+    }
+    if (key.leftArrow && tabs.length > 1) {
+      setSelectedTabKey(tabs[(tabIndex - 1 + tabs.length) % tabs.length]?.key ?? "");
+      setIndex(0);
+      return;
+    }
+    if (key.rightArrow && tabs.length > 1) {
+      setSelectedTabKey(tabs[(tabIndex + 1) % tabs.length]?.key ?? "");
+      setIndex(0);
       return;
     }
     if (key.downArrow) {
@@ -175,11 +339,22 @@ export function ModelManagerPanel({ config, onClose }: ModelManagerPanelProps): 
       <Box marginTop={1} flexDirection="column">
         <Text color={colors.text}>{loadedModelCount} loaded{loadedMemory ? ` ${symbols.dot} ${loadedMemory}` : ""}</Text>
         <Text dimColor>
-          Enter switch active {symbols.dot} L load {symbols.dot} U unload {symbols.dot} A unload all
+          {tabs.length > 1 ? `←/→ sections ${symbols.dot} ` : ""}Enter switch active {symbols.dot} L load {symbols.dot} U unload {symbols.dot} A unload all
         </Text>
         {config.backend !== "studio" ? (
           <Text color={colors.warning}>load/unload controls are only active on the studio backend</Text>
         ) : null}
+      </Box>
+
+      <Box marginTop={1} gap={1} flexWrap="wrap">
+        {tabs.map((tab, currentTabIndex) => {
+          const activeTab = currentTabIndex === tabIndex;
+          return (
+            <Text key={tab.key} color={activeTab ? colors.triforce : colors.dim} bold={activeTab}>
+              [{tab.label}]
+            </Text>
+          );
+        })}
       </Box>
 
       <Box marginTop={1} flexDirection="column">
@@ -198,6 +373,7 @@ export function ModelManagerPanel({ config, onClose }: ModelManagerPanelProps): 
                 {entry.active ? <Text color={colors.triforce}>current</Text> : null}
                 {entry.loaded ? <Text color={colors.success}>loaded</Text> : null}
                 {!entry.loaded && entry.canLoad ? <Text dimColor>available</Text> : null}
+                {entry.catalogTag ? <Text dimColor>{entry.catalogTag}</Text> : null}
               </Box>
               <Box paddingLeft={3} flexDirection="column">
                 <Text dimColor>{entry.subtitle}</Text>

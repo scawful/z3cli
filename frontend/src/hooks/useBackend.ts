@@ -571,6 +571,43 @@ export function useBackend(pythonPath: string, args: string[] = []): UseBackendR
                   }),
                 )
               : [],
+            modelCatalog: Array.isArray(p.model_catalog)
+              ? p.model_catalog.map(
+                  (m): ModelInfo => ({
+                    name: m.name,
+                    modelId: m.model_id,
+                    role: m.role,
+                    description: typeof m.description === "string" ? m.description : undefined,
+                    loaded: m.loaded,
+                    toolsEnabled: m.tools_enabled,
+                    provider: typeof m.provider === "string" ? m.provider : undefined,
+                    contextBudget:
+                      typeof m.context_budget === "number" ? m.context_budget : undefined,
+                    loadedIdentifier:
+                      typeof m.loaded_identifier === "string" ? m.loaded_identifier : undefined,
+                    sizeBytes:
+                      typeof m.size_bytes === "number" ? m.size_bytes : undefined,
+                    status:
+                      typeof m.status === "string" ? m.status : undefined,
+                    parallel:
+                      typeof m.parallel === "number" ? m.parallel : undefined,
+                    contextLength:
+                      typeof m.context_length === "number" ? m.context_length : undefined,
+                    maxContextLength:
+                      typeof m.max_context_length === "number" ? m.max_context_length : undefined,
+                    architecture:
+                      typeof m.architecture === "string" ? m.architecture : undefined,
+                    quantization:
+                      typeof m.quantization === "string" ? m.quantization : undefined,
+                    queued:
+                      typeof m.queued === "number" ? m.queued : undefined,
+                    estimatedGpuBytes:
+                      typeof m.estimated_gpu_bytes === "number" ? m.estimated_gpu_bytes : undefined,
+                    estimatedTotalBytes:
+                      typeof m.estimated_total_bytes === "number" ? m.estimated_total_bytes : undefined,
+                  }),
+                )
+              : undefined,
             loadedModels: Array.isArray(p.loaded_models)
               ? p.loaded_models.flatMap((entry) => {
                   if (!entry || typeof entry !== "object") return [];

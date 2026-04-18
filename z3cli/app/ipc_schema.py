@@ -181,6 +181,7 @@ class ReadyParams(TypedDict):
     tool_count: int
     warnings: list[str]
     models: list[ReadyModelInfo]
+    model_catalog: NotRequired[list[ReadyModelInfo]]
     session_path: str
     loaded_models: NotRequired[list[LoadedModelRuntimeInfo]]
     loaded_model_count: NotRequired[int]

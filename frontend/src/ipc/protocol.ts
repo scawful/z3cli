@@ -91,6 +91,7 @@ export interface AppConfig {
   toolCount: ReadyParams["tool_count"];
   warnings: ReadyParams["warnings"];
   models: ModelInfo[];
+  modelCatalog?: ModelInfo[];
   loadedModels?: LoadedModelInfo[];
   loadedModelCount?: ReadyParams["loaded_model_count"];
   loadedModelMemoryBytes?: ReadyParams["loaded_model_memory_bytes"];
