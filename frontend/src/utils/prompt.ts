@@ -1,5 +1,5 @@
 import type { SessionInfo } from "../commands/index.js";
-import type { ConstructRef } from "../ipc/protocol.js";
+import type { AttachmentMeta, ConstructRef } from "../ipc/protocol.js";
 
 export interface FileMention {
   start: number;
@@ -28,6 +28,26 @@ export interface ConstructSearchResult {
   ambiguous: boolean;
   exactCount: number;
   totalCount: number;
+}
+
+export interface DraftConstructPreview extends ConstructRef {
+  token: string;
+  status: "resolved" | "suggested" | "ambiguous" | "unresolved";
+  matchCount: number;
+  source?: string;
+  detail?: string;
+}
+
+export interface DraftFilePreview extends AttachmentMeta {
+  origin: "picker" | "mention";
+  status: "resolved" | "pending";
+  typeLabel: string;
+  snippet?: string;
+}
+
+export interface FilePreviewMeta {
+  typeLabel: string;
+  snippet?: string;
 }
 
 export interface PaletteEntry {
@@ -76,6 +96,40 @@ const SPRITE_CATALOG_SECTION_KINDS: Record<string, "sprite" | "object"> = {
   NPCs: "sprite",
   Objects: "object",
 };
+const FILE_TYPE_LABELS: Record<string, string> = {
+  asm: "asm",
+  c: "c",
+  cfg: "config",
+  cpp: "cpp",
+  css: "css",
+  h: "header",
+  hpp: "header",
+  html: "html",
+  ini: "config",
+  java: "java",
+  js: "js",
+  json: "json",
+  jsx: "jsx",
+  md: "md",
+  org: "org",
+  py: "py",
+  rs: "rust",
+  s: "asm",
+  sh: "shell",
+  toml: "toml",
+  ts: "ts",
+  tsx: "tsx",
+  txt: "text",
+  xml: "xml",
+  yaml: "yaml",
+  yml: "yaml",
+};
+const FILE_PREVIEW_SNIPPET_LIMIT = 72;
+const ASM_PREVIEW_LINE_LIMIT = 2;
+const JSON_KEY_PREVIEW_LIMIT = 4;
+const YAML_KEY_PREVIEW_LIMIT = 4;
+const TOML_ENTRY_PREVIEW_LIMIT = 4;
+const MARKDOWN_HEADING_PREVIEW_LIMIT = 4;
 
 function normalizeConstructKind(kind: string): string | null {
   return CONSTRUCT_KIND_ALIASES[kind.trim().toLowerCase()] ?? null;
@@ -131,6 +185,169 @@ function mergeDistinct(parts: Array<string | undefined>, separator: string): str
     merged.push(part);
   }
   return merged.join(separator);
+}
+
+function fileExtension(filePath: string): string {
+  const base = filePath.split("/").pop()?.toLowerCase() ?? filePath.toLowerCase();
+  const dotIndex = base.lastIndexOf(".");
+  if (dotIndex <= 0 || dotIndex === base.length - 1) {
+    return "";
+  }
+  return base.slice(dotIndex + 1);
+}
+
+function fileExtensionLabel(filePath: string): string {
+  const extension = fileExtension(filePath);
+  if (!extension) {
+    return "file";
+  }
+  return FILE_TYPE_LABELS[extension] ?? extension.slice(0, 8);
+}
+
+function normalizeSnippetLine(line: string): string {
+  return line.replace(/\t/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function truncateSnippetLine(line: string, limit: number = FILE_PREVIEW_SNIPPET_LIMIT): string {
+  if (line.length <= limit) return line;
+  return `${line.slice(0, limit - 3).trimEnd()}...`;
+}
+
+function summarizePreviewList(prefix: string, values: string[], limit: number): string | undefined {
+  const unique = [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+  if (unique.length === 0) return undefined;
+  const visible = unique.slice(0, limit).join(", ");
+  const suffix = unique.length > limit ? ` +${unique.length - limit}` : "";
+  return truncateSnippetLine(`${prefix}: ${visible}${suffix}`);
+}
+
+function sanitizeFileSnippet(text: string): string | undefined {
+  if (!text || text.includes("\0")) return undefined;
+  const line = text
+    .split("\n")
+    .map(normalizeSnippetLine)
+    .find(Boolean);
+  if (!line) return undefined;
+  return truncateSnippetLine(line);
+}
+
+function buildAsmSnippet(text: string): string | undefined {
+  if (!text || text.includes("\0")) return undefined;
+  const lines = text
+    .split(/\r?\n/)
+    .map(normalizeSnippetLine)
+    .filter(Boolean)
+    .filter((line) => !/^(;|\/\/|\*)/.test(line));
+  if (lines.length === 0) {
+    return sanitizeFileSnippet(text);
+  }
+  return lines
+    .slice(0, ASM_PREVIEW_LINE_LIMIT)
+    .map((line) => truncateSnippetLine(line, 56))
+    .join("\n");
+}
+
+function summarizeJsonValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `array[${value.length}]`;
+  }
+  if (value && typeof value === "object") {
+    return "object";
+  }
+  return JSON.stringify(value);
+}
+
+function buildJsonSnippet(text: string): string | undefined {
+  if (!text || text.includes("\0")) return undefined;
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (Array.isArray(parsed)) {
+      if (parsed.length === 0) return "array[0]";
+      const sample = parsed.slice(0, 3).map(summarizeJsonValue).join(", ");
+      const suffix = parsed.length > 3 ? ` +${parsed.length - 3}` : "";
+      return truncateSnippetLine(`array[${parsed.length}] ${sample}${suffix}`);
+    }
+    if (parsed && typeof parsed === "object") {
+      const keys = Object.keys(parsed as Record<string, unknown>);
+      if (keys.length === 0) return "{}";
+      return summarizePreviewList("keys", keys, JSON_KEY_PREVIEW_LIMIT);
+    }
+    return truncateSnippetLine(`value: ${JSON.stringify(parsed)}`);
+  } catch {
+    return undefined;
+  }
+}
+
+function buildYamlSnippet(text: string): string | undefined {
+  if (!text || text.includes("\0")) return undefined;
+  const keys: string[] = [];
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.replace(/\t/g, "    ");
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#") || trimmed === "---" || trimmed === "...") continue;
+    if (/^\s/.test(line)) continue;
+    const match = trimmed.match(/^([A-Za-z0-9_.-]+|"(?:[^"\\]|\\.)+"|'[^']+')\s*:/);
+    if (!match) continue;
+    const key = match[1]?.replace(/^['"]|['"]$/g, "");
+    if (key) {
+      keys.push(key);
+    }
+  }
+  return summarizePreviewList("keys", keys, YAML_KEY_PREVIEW_LIMIT);
+}
+
+function buildTomlSnippet(text: string): string | undefined {
+  if (!text || text.includes("\0")) return undefined;
+  const tables: string[] = [];
+  const keys: string[] = [];
+  for (const rawLine of text.split(/\r?\n/)) {
+    const trimmed = rawLine.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const arrayTableMatch = trimmed.match(/^\[\[([^\]]+)\]\]$/);
+    if (arrayTableMatch?.[1]) {
+      tables.push(arrayTableMatch[1].trim());
+      continue;
+    }
+    const tableMatch = trimmed.match(/^\[([^\]]+)\]$/);
+    if (tableMatch?.[1]) {
+      tables.push(tableMatch[1].trim());
+      continue;
+    }
+    if (/^\s/.test(rawLine)) continue;
+    const keyMatch = trimmed.match(/^([A-Za-z0-9_.-]+)\s*=/);
+    if (keyMatch?.[1]) {
+      keys.push(keyMatch[1]);
+    }
+  }
+  return summarizePreviewList(tables.length > 0 ? "tables" : "keys", tables.length > 0 ? tables : keys, TOML_ENTRY_PREVIEW_LIMIT);
+}
+
+function buildMarkdownSnippet(text: string): string | undefined {
+  if (!text || text.includes("\0")) return undefined;
+  const headings: string[] = [];
+  let inFence = false;
+  for (const rawLine of text.split(/\r?\n/)) {
+    const trimmed = rawLine.trim();
+    if (/^(```|~~~)/.test(trimmed)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence || !trimmed) continue;
+    const headingMatch = trimmed.match(/^#{1,6}\s+(.+)$/);
+    if (headingMatch?.[1]) {
+      headings.push(cleanMarkdownCell(headingMatch[1]));
+    }
+  }
+  return summarizePreviewList("headings", headings, MARKDOWN_HEADING_PREVIEW_LIMIT);
+}
+
+function candidateMatchesRef(candidate: ConstructCandidate, ref: ConstructRef): boolean {
+  if (candidate.kind !== ref.kind) return false;
+  const refId = normalizeConstructKey(ref.id ?? ref.query);
+  const refQuery = normalizeConstructKey(ref.query);
+  const refLabel = normalizeConstructKey(ref.label ?? "");
+  const candidateKeys = [candidate.id, candidate.query, candidate.label, candidate.token].map(normalizeConstructKey);
+  return candidateKeys.includes(refId) || candidateKeys.includes(refQuery) || (refLabel ? candidateKeys.includes(refLabel) : false);
 }
 
 export function constructToken(ref: Pick<ConstructRef, "kind" | "query"> & { id?: string; token?: string }): string {
@@ -459,6 +676,94 @@ export function filterConstructs(
   query: string,
 ): ConstructCandidate[] {
   return searchConstructs(candidates, kind, query).matches;
+}
+
+export function buildDraftConstructPreview(
+  ref: ConstructRef,
+  candidates: ConstructCandidate[],
+): DraftConstructPreview {
+  const token = constructToken(ref);
+  const direct = candidates.find((candidate) => candidateMatchesRef(candidate, ref));
+  if (direct) {
+    return {
+      ...ref,
+      id: direct.id,
+      label: direct.label,
+      token,
+      ...(direct.source ? { source: direct.source } : {}),
+      ...(direct.detail ? { detail: direct.detail } : {}),
+      status: "resolved",
+      matchCount: 1,
+    };
+  }
+
+  const search = searchConstructs(candidates, ref.kind, ref.id ?? ref.query);
+  const topMatch = search.matches[0];
+  if (!topMatch) {
+    return {
+      ...ref,
+      token,
+      status: "unresolved",
+      matchCount: 0,
+    };
+  }
+
+  const status = search.ambiguous
+    ? "ambiguous"
+    : search.exactCount === 1
+      ? "resolved"
+      : "suggested";
+  return {
+    ...ref,
+    id: ref.id ?? topMatch.id,
+    label: topMatch.label,
+    token,
+    ...(topMatch.source ? { source: topMatch.source } : {}),
+    ...(topMatch.detail ? { detail: topMatch.detail } : {}),
+    status,
+    matchCount: search.totalCount,
+  };
+}
+
+export function buildDraftConstructPreviews(
+  refs: ConstructRef[],
+  candidates: ConstructCandidate[],
+): DraftConstructPreview[] {
+  return refs.map((ref) => buildDraftConstructPreview(ref, candidates));
+}
+
+export function buildDraftFilePreviews(
+  draftFiles: AttachmentMeta[],
+  attachedFiles: string[],
+  previewMeta: Record<string, FilePreviewMeta> = {},
+): DraftFilePreview[] {
+  const pickedPaths = new Set(attachedFiles);
+  return draftFiles.map((file) => ({
+    ...file,
+    origin: pickedPaths.has(file.path) ? "picker" : "mention",
+    status: file.lines > 0 || file.chars > 0 ? "resolved" : "pending",
+    typeLabel: previewMeta[file.path]?.typeLabel ?? fileExtensionLabel(file.path),
+    ...(previewMeta[file.path]?.snippet ? { snippet: previewMeta[file.path]!.snippet } : {}),
+  }));
+}
+
+export function buildFilePreviewMeta(filePath: string, content: string): FilePreviewMeta {
+  const extension = fileExtension(filePath);
+  const snippet = extension === "json"
+    ? buildJsonSnippet(content) ?? sanitizeFileSnippet(content)
+    : extension === "asm" || extension === "s"
+      ? buildAsmSnippet(content) ?? sanitizeFileSnippet(content)
+      : extension === "yaml" || extension === "yml"
+        ? buildYamlSnippet(content) ?? sanitizeFileSnippet(content)
+        : extension === "toml"
+          ? buildTomlSnippet(content) ?? sanitizeFileSnippet(content)
+          : extension === "md"
+            ? buildMarkdownSnippet(content) ?? sanitizeFileSnippet(content)
+      : sanitizeFileSnippet(content);
+  return {
+    typeLabel: fileExtensionLabel(filePath),
+    ...(snippet ? { snippet } : {}),
+  };
 }
 
 export function filterPalette(entries: PaletteEntry[], query: string): PaletteEntry[] {

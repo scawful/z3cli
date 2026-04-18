@@ -15,6 +15,7 @@ import { symbols, modelColor, modelSymbol, getThemeColors, uiModeColor } from ".
 import type { AttachmentMeta, ConstructRef, LoadedModelInfo, ModelInfo } from "../ipc/protocol.js";
 import type { SessionInfo } from "../commands/index.js";
 import { buildBasePaletteEntries, COMMAND_CATALOG } from "../commands/catalog.js";
+import { PromptDraftPreview } from "./PromptDraftPreview.js";
 import { useSettingsContext } from "../contexts/SettingsContext.js";
 import { basename, shortenPath } from "../utils/path.js";
 import { describeLoadedModelRuntime, formatModelMemory, modelPickerDescription } from "../utils/models.js";
@@ -22,9 +23,11 @@ import { scrollTargetBy } from "../utils/scrolling.js";
 import {
   activeConstructMention,
   activeFileMention,
+  buildDraftConstructPreviews,
+  buildDraftFilePreviews,
+  buildFilePreviewMeta,
   buildConstructCandidates,
   buildSpriteCatalogConstructCandidates,
-  constructToken,
   extractMentionedConstructRefs,
   extractMentionedFiles,
   filterFiles,
@@ -35,7 +38,7 @@ import {
   sessionMatches,
   sessionSlug,
 } from "../utils/prompt.js";
-import type { ConstructCandidate, PaletteEntry } from "../utils/prompt.js";
+import type { ConstructCandidate, FilePreviewMeta, PaletteEntry } from "../utils/prompt.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -167,6 +170,7 @@ export function PromptInput({
   const [attachedFiles, setAttachedFiles] = useState<string[]>([]);
   const [attachedConstructRefs, setAttachedConstructRefs] = useState<ConstructRef[]>([]);
   const [attachmentMeta, setAttachmentMeta] = useState<Record<string, AttachmentMeta>>({});
+  const [filePreviewMeta, setFilePreviewMeta] = useState<Record<string, FilePreviewMeta>>({});
   const [constructCandidates, setConstructCandidates] = useState<ConstructCandidate[]>([]);
   const [constructIndex, setConstructIndex] = useState(0);
   const [constructScrollOffset, setConstructScrollOffset] = useState(0);
@@ -333,6 +337,10 @@ export function PromptInput({
     }),
     [attachmentMeta, draftFilePaths],
   );
+  const draftFilePreviews = useMemo(
+    () => buildDraftFilePreviews(draftFiles, attachedFiles, filePreviewMeta),
+    [attachedFiles, draftFiles, filePreviewMeta],
+  );
   const mentionedConstructRefs = useMemo(
     () => extractMentionedConstructRefs(value),
     [value],
@@ -347,6 +355,10 @@ export function PromptInput({
     }
     return [...merged.values()];
   }, [attachedConstructRefs, mentionedConstructRefs]);
+  const draftConstructPreviews = useMemo(
+    () => buildDraftConstructPreviews(draftConstructRefs, constructCandidates),
+    [constructCandidates, draftConstructRefs],
+  );
   const constructMention = useMemo(() => activeConstructMention(value, cursor), [value, cursor]);
   const constructSearch = useMemo(() => {
     if (selector || !constructMention) {
@@ -528,7 +540,7 @@ export function PromptInput({
 
   useEffect(() => {
     let cancelled = false;
-    const missing = draftFilePaths.filter((filePath) => !attachmentMeta[filePath]);
+    const missing = draftFilePaths.filter((filePath) => !attachmentMeta[filePath] || !filePreviewMeta[filePath]);
     if (missing.length === 0) return undefined;
     void Promise.all(
       missing.map(async (filePath) => {
@@ -541,12 +553,14 @@ export function PromptInput({
             path: filePath,
             lines: content.split("\n").length,
             chars: content.length,
+            preview: buildFilePreviewMeta(filePath, content),
           };
         } catch {
           return {
             path: filePath,
             lines: 0,
             chars: 0,
+            preview: buildFilePreviewMeta(filePath, ""),
           };
         }
       }),
@@ -555,10 +569,18 @@ export function PromptInput({
       setAttachmentMeta((current) => {
         const next = { ...current };
         for (const result of results) {
-          if ("chars" in result) {
-            next[result.path] = result;
-            continue;
-          }
+          next[result.path] = {
+            path: result.path,
+            lines: result.lines,
+            chars: result.chars,
+          };
+        }
+        return next;
+      });
+      setFilePreviewMeta((current) => {
+        const next = { ...current };
+        for (const result of results) {
+          next[result.path] = result.preview;
         }
         return next;
       });
@@ -566,7 +588,7 @@ export function PromptInput({
     return () => {
       cancelled = true;
     };
-  }, [attachmentMeta, draftFilePaths, workspace]);
+  }, [attachmentMeta, draftFilePaths, filePreviewMeta, workspace]);
 
   useEffect(() => {
     if (!paletteTrigger || disabled || !rawModeSupported) return;
@@ -1558,32 +1580,12 @@ export function PromptInput({
         </Box>
       ) : null}
 
-      {(draftFiles.length > 0 || draftConstructRefs.length > 0) && !selector ? (
-        <Box paddingLeft={2} flexDirection="column">
-          {draftFiles.length > 0 ? (
-            <Box gap={1} flexWrap="wrap">
-              <Text dimColor>files</Text>
-              {draftFiles.slice(0, 8).map((file) => (
-                <Text key={file.path} color={colors.nayru}>
-                  @{file.path}{file.lines > 0 ? ` ${file.lines}L` : ""}{file.chars > 0 ? ` ${file.chars}C` : ""}
-                </Text>
-              ))}
-            </Box>
-          ) : null}
-          {draftConstructRefs.length > 0 ? (
-            <Box gap={1} flexWrap="wrap">
-              <Text dimColor>refs</Text>
-              {draftConstructRefs.slice(0, 8).map((ref) => (
-                <Text key={constructToken(ref)} color={colors.accent}>
-                  {constructToken(ref)}{ref.label ? ` ${ref.label}` : ""}
-                </Text>
-              ))}
-            </Box>
-          ) : null}
-          {attachedFiles.length > 0 || attachedConstructRefs.length > 0 ? (
-            <Text dimColor>Backspace on an empty prompt removes the last @file or #ref</Text>
-          ) : null}
-        </Box>
+      {!selector ? (
+        <PromptDraftPreview
+          files={draftFilePreviews}
+          constructs={draftConstructPreviews}
+          showRemovalHint={attachedFiles.length > 0 || attachedConstructRefs.length > 0}
+        />
       ) : null}
 
       {/* ── Input line ── */}

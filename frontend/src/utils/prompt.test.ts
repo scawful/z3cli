@@ -5,6 +5,9 @@ import {
   activeConstructMention,
   activeFileMention,
   buildConstructCandidates,
+  buildDraftConstructPreview,
+  buildDraftFilePreviews,
+  buildFilePreviewMeta,
   buildSpriteCatalogConstructCandidates,
   extractMentionedConstructRefs,
   extractMentionedFiles,
@@ -112,6 +115,156 @@ test("searchConstructs flags ambiguous top matches", () => {
   assert.equal(result.ambiguous, true);
   assert.equal(result.totalCount, 2);
   assert.deepEqual(result.matches.map((candidate) => candidate.token), ["#room:0x46", "#room:0x45"]);
+});
+
+test("buildDraftConstructPreview enriches attached refs with project metadata", () => {
+  const candidates = buildConstructCandidates({
+    room: {
+      "0x45": "Glacia Estate (Jail Cells)",
+    },
+  });
+
+  const preview = buildDraftConstructPreview({
+    kind: "room",
+    query: "0x45",
+    token: "#room:0x45",
+  }, candidates);
+
+  assert.deepEqual(preview, {
+    kind: "room",
+    query: "0x45",
+    token: "#room:0x45",
+    id: "0x45",
+    label: "Glacia Estate (Jail Cells)",
+    source: "resource labels",
+    status: "resolved",
+    matchCount: 1,
+  });
+});
+
+test("buildDraftConstructPreview marks ambiguous typed refs before send", () => {
+  const candidates = buildConstructCandidates({
+    room: {
+      "0x45": "Glacia Estate (Jail Cells)",
+      "0x46": "Glade Ruins",
+    },
+  });
+
+  const preview = buildDraftConstructPreview({
+    kind: "room",
+    query: "gla",
+    token: "#room:gla",
+  }, candidates);
+
+  assert.equal(preview.status, "ambiguous");
+  assert.equal(preview.matchCount, 2);
+  assert.equal(preview.label, "Glade Ruins");
+});
+
+test("buildFilePreviewMeta builds multi-line asm previews from meaningful lines", () => {
+  const preview = buildFilePreviewMeta("src/room.asm", "; init room\nroomStart:\nlda #$01\nsta $7E0010\n");
+
+  assert.deepEqual(preview, {
+    typeLabel: "asm",
+    snippet: "roomStart:\nlda #$01",
+  });
+});
+
+test("buildFilePreviewMeta summarizes root json keys", () => {
+  const preview = buildFilePreviewMeta(
+    "Docs/Dev/Planning/oracle_resource_labels.json",
+    JSON.stringify({ room: {}, sprite: {}, message: {}, music: {}, item: {} }),
+  );
+
+  assert.deepEqual(preview, {
+    typeLabel: "json",
+    snippet: "keys: room, sprite, message, music +1",
+  });
+});
+
+test("buildFilePreviewMeta summarizes top-level yaml keys", () => {
+  const preview = buildFilePreviewMeta(
+    "config/settings.yml",
+    [
+      "# active config",
+      "workspace: oracle-of-secrets",
+      "models:",
+      "  planner: nayru",
+      "backend: studio",
+      "profiles:",
+      "  default: fast",
+      "tools: true",
+    ].join("\n"),
+  );
+
+  assert.deepEqual(preview, {
+    typeLabel: "yaml",
+    snippet: "keys: workspace, models, backend, profiles +1",
+  });
+});
+
+test("buildFilePreviewMeta summarizes toml tables before plain keys", () => {
+  const preview = buildFilePreviewMeta(
+    "z3dk.toml",
+    [
+      "name = \"oracle\"",
+      "version = \"1\"",
+      "[backend]",
+      "provider = \"studio\"",
+      "[models.plan]",
+      "name = \"nayru\"",
+      "[[profiles.dev]]",
+      "label = \"local\"",
+    ].join("\n"),
+  );
+
+  assert.deepEqual(preview, {
+    typeLabel: "toml",
+    snippet: "tables: backend, models.plan, profiles.dev",
+  });
+});
+
+test("buildFilePreviewMeta summarizes markdown headings outside code fences", () => {
+  const preview = buildFilePreviewMeta(
+    "README.md",
+    [
+      "# Oracle of Secrets",
+      "",
+      "## Build",
+      "```md",
+      "# ignored heading",
+      "```",
+      "## Debugging",
+      "## Notes",
+      "## Appendix",
+    ].join("\n"),
+  );
+
+  assert.deepEqual(preview, {
+    typeLabel: "md",
+    snippet: "headings: Oracle of Secrets, Build, Debugging, Notes +1",
+  });
+});
+
+test("buildDraftFilePreviews enriches files with origin and preview metadata", () => {
+  const previews = buildDraftFilePreviews([
+    { path: "src/room.asm", lines: 2, chars: 18 },
+  ], ["src/room.asm"], {
+    "src/room.asm": {
+      typeLabel: "asm",
+      snippet: "lda #$01",
+    },
+  });
+
+  assert.deepEqual(previews, [{
+    path: "src/room.asm",
+    lines: 2,
+    chars: 18,
+    origin: "picker",
+    status: "resolved",
+    typeLabel: "asm",
+    snippet: "lda #$01",
+  }]);
 });
 
 test("buildSpriteCatalogConstructCandidates exposes object refs from sprite catalog markdown", () => {

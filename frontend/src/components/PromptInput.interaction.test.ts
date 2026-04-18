@@ -162,7 +162,7 @@ test("PromptInput inserts @file references from the interactive picker", async (
   const restoreTTY = setTTY(true);
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "z3cli-prompt-"));
   fs.mkdirSync(path.join(workspace, "src"), { recursive: true });
-  fs.writeFileSync(path.join(workspace, "src", "room.asm"), "lda #$01\n", "utf8");
+  fs.writeFileSync(path.join(workspace, "src", "room.asm"), "roomStart:\nlda #$01\nsta $7E0010\n", "utf8");
   fs.writeFileSync(path.join(workspace, "src", "main.asm"), "sta $7E0010\n", "utf8");
 
   let draftFiles: AttachmentMeta[] = [];
@@ -201,6 +201,45 @@ test("PromptInput inserts @file references from the interactive picker", async (
         draftFiles.map((file) => file.path),
         ["src/room.asm"],
       );
+    }, 4000);
+  } finally {
+    app.unmount();
+    restoreTTY();
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("PromptInput shows file preview cards before send", async () => {
+  const restoreTTY = setTTY(true);
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "z3cli-prompt-"));
+  fs.mkdirSync(path.join(workspace, "src"), { recursive: true });
+  fs.writeFileSync(path.join(workspace, "src", "room.asm"), "lda #$01\n", "utf8");
+
+  const app = renderPromptInput({
+    mode: "manual",
+    model: "nayru",
+    models: MODEL_FIXTURE,
+    workspace,
+    disabled: false,
+    onSubmit: () => {},
+  });
+
+  try {
+    await sleep(250);
+    await typeText(app.stdin, "@room");
+    await waitFor(() => {
+      assert.ok(normalizeFrame(app.lastFrame()).includes("File reference"));
+    }, 4000);
+
+    app.stdin.write("\r");
+
+    await waitFor(() => {
+      const frame = normalizeFrame(app.lastFrame());
+      assert.ok(frame.includes("attached files"));
+      assert.ok(frame.includes("workspace file confirmed"));
+      assert.ok(frame.includes("picked from workspace"));
+      assert.ok(frame.includes("[asm]"));
+      assert.ok(frame.includes("lda #$01"));
     }, 4000);
   } finally {
     app.unmount();
@@ -315,6 +354,47 @@ test("PromptInput shows construct disambiguation metadata before attach", async 
         id: "0x46",
         label: "Glade Ruins",
       }]);
+    }, 4000);
+  } finally {
+    app.unmount();
+    restoreTTY();
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("PromptInput shows construct preview cards before send", async () => {
+  const restoreTTY = setTTY(true);
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "z3cli-prompt-"));
+  fs.mkdirSync(path.join(workspace, "Docs", "Dev", "Planning"), { recursive: true });
+  fs.writeFileSync(
+    path.join(workspace, "Docs", "Dev", "Planning", "oracle_resource_labels.json"),
+    JSON.stringify({ room: { "0x45": "Glacia Estate (Jail Cells)" } }),
+    "utf8",
+  );
+
+  const app = renderPromptInput({
+    mode: "manual",
+    model: "nayru",
+    models: MODEL_FIXTURE,
+    workspace,
+    disabled: false,
+    onSubmit: () => {},
+  });
+
+  try {
+    await sleep(250);
+    await typeText(app.stdin, "#room:gla");
+    await waitFor(() => {
+      assert.ok(normalizeFrame(app.lastFrame()).includes("Game reference"));
+    }, 4000);
+
+    app.stdin.write("\r");
+
+    await waitFor(() => {
+      const frame = normalizeFrame(app.lastFrame());
+      assert.ok(frame.includes("attached game refs"));
+      assert.ok(frame.includes("project ref confirmed"));
+      assert.ok(frame.includes("resource labels"));
     }, 4000);
   } finally {
     app.unmount();
