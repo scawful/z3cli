@@ -5,6 +5,7 @@ import type { SessionInfo } from "../commands/index.js";
 import { heartBar, modelColor, modelSymbol, symbols, formatTokens } from "../theme/index.js";
 import { useSettingsContext } from "../contexts/SettingsContext.js";
 import { basename, shortenPath } from "../utils/path.js";
+import { describeLoadedModelRuntime, formatModelMemory } from "../utils/models.js";
 import { constructToken } from "../utils/prompt.js";
 
 interface ContextPanelProps {
@@ -36,6 +37,7 @@ export interface ContextPanelLimits {
   diagnosticsLineLimit: number;
   draftFilesLimit: number;
   recentSessionsLimit: number;
+  loadedModelsLimit: number;
 }
 
 export function deriveContextPanelLimits(
@@ -49,7 +51,25 @@ export function deriveContextPanelLimits(
     diagnosticsLineLimit: veryTight ? 4 : compact ? 5 : 7,
     draftFilesLimit: veryTight ? 3 : compact ? 4 : 5,
     recentSessionsLimit: veryTight ? 2 : compact ? 3 : 4,
+    loadedModelsLimit: veryTight ? 2 : compact ? 3 : 4,
   };
+}
+
+export function buildLoadedModelLines(config: AppConfig, lineLimit: number): string[] {
+  return (config.loadedModels ?? [])
+    .slice(0, lineLimit)
+    .map((entry) => {
+      const runtime = describeLoadedModelRuntime({
+        sizeBytes: entry.sizeBytes,
+        status: entry.status,
+        parallel: entry.parallel,
+        queued: entry.queued,
+        contextLength: entry.contextLength,
+        quantization: entry.quantization,
+      });
+      const label = entry.identifier || entry.displayName || entry.modelKey;
+      return [label, runtime].filter(Boolean).join(" · ");
+    });
 }
 
 export function buildDiagnosticsLines(
@@ -152,6 +172,10 @@ export function ContextPanel({
     limits.diagnosticsLineLimit,
     limits.compact,
   );
+  const loadedModels = config.loadedModels ?? [];
+  const loadedModelLines = buildLoadedModelLines(config, limits.loadedModelsLimit);
+  const loadedModelCount = config.loadedModelCount ?? loadedModels.length;
+  const loadedModelMemoryText = formatModelMemory(config.loadedModelMemoryBytes);
 
   return (
     <Box width={width} flexDirection="column" gap={1}>
@@ -176,6 +200,9 @@ export function ContextPanel({
           <Text color={tokenColor}>{tokenText}</Text>
           <Text dimColor>{config.servers.length} servers · {config.toolCount} tools</Text>
         </Box>
+        {loadedModelCount > 0 ? (
+          <Text dimColor>load {loadedModelCount} · {loadedModelMemoryText || "tracked"}</Text>
+        ) : null}
       </Box>
 
       <Box borderStyle="double" borderColor={colors.border} paddingX={1} flexDirection="column">
@@ -189,6 +216,20 @@ export function ContextPanel({
         {cancelCount > 0 || restartCount > 0 ? (
           <Text dimColor>cancel {cancelCount} · restart {restartCount}</Text>
         ) : null}
+      </Box>
+
+      <Box borderStyle="double" borderColor={colors.border} paddingX={1} flexDirection="column">
+        <Text bold color={colors.triforce}>Loaded Models</Text>
+        {loadedModels.length === 0 ? (
+          <Text dimColor>none</Text>
+        ) : (
+          <>
+            <Text dimColor>{loadedModelCount} live · {loadedModelMemoryText || "memory n/a"}</Text>
+            {loadedModelLines.map((line) => (
+              <Text key={line} dimColor>{line}</Text>
+            ))}
+          </>
+        )}
       </Box>
 
       {settings.showDiagnostics ? (

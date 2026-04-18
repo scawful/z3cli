@@ -38,7 +38,9 @@ session, UX, shell, and write-review work.
 - The prompt supports `Ctrl+P` for the command palette, `Ctrl+A` and other
   cursor/editing shortcuts, and `Ctrl+C` clear-first then exit-on-second-press.
 - A context panel surfaces workspace, focus file, attached files, permissions,
-  stats, and recent sessions.
+  stats, recent sessions, and concurrently loaded models with memory/size data.
+- The model picker now shows loaded runtime details and supports unloading a
+  selected loaded model.
 
 ### Permissions, write review, and verification
 
@@ -92,6 +94,7 @@ Core commands:
 - `/route <prompt>`
 - `/broadcast <a,b,c>`
 - `/load [name]`
+- `/unload [name|all]`
 - `/workspace <path>`
 - `/rom <path|none>`
 - `/focus <path|clear>`

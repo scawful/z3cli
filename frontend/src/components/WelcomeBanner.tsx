@@ -9,6 +9,7 @@ import { symbols, modelColor, modelSymbol } from "../theme/index.js";
 import type { AppConfig } from "../ipc/protocol.js";
 import { useSettingsContext } from "../contexts/SettingsContext.js";
 import { shortenPath } from "../utils/path.js";
+import { formatModelMemory } from "../utils/models.js";
 
 interface WelcomeBannerProps {
   config: AppConfig;
@@ -21,7 +22,8 @@ export function WelcomeBanner({ config }: WelcomeBannerProps): React.ReactElemen
   const romName = config.romPath
     ? config.romPath.split("/").pop() ?? ""
     : "";
-  const loadedCount = config.models.filter((m) => m.loaded).length;
+  const loadedCount = config.loadedModelCount ?? config.models.filter((m) => m.loaded).length;
+  const loadedMemory = formatModelMemory(config.loadedModelMemoryBytes);
   const serverCount = config.servers.length;
 
   return (
@@ -90,6 +92,13 @@ export function WelcomeBanner({ config }: WelcomeBannerProps): React.ReactElemen
           <Text dimColor>ITEMS:</Text>
           <Text color={colors.oracleTools}>
             {config.servers.length} servers {symbols.dot} {config.toolCount} tools
+          </Text>
+        </Box>
+
+        <Box gap={1}>
+          <Text dimColor>LOAD:</Text>
+          <Text color={colors.success}>
+            {loadedCount} live{loadedMemory ? ` ${symbols.dot} ${loadedMemory}` : ""}
           </Text>
         </Box>
       </Box>

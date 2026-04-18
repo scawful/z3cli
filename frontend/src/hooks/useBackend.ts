@@ -546,9 +546,54 @@ export function useBackend(pythonPath: string, args: string[] = []): UseBackendR
                     provider: typeof m.provider === "string" ? m.provider : undefined,
                     contextBudget:
                       typeof m.context_budget === "number" ? m.context_budget : undefined,
+                    loadedIdentifier:
+                      typeof m.loaded_identifier === "string" ? m.loaded_identifier : undefined,
+                    sizeBytes:
+                      typeof m.size_bytes === "number" ? m.size_bytes : undefined,
+                    status:
+                      typeof m.status === "string" ? m.status : undefined,
+                    parallel:
+                      typeof m.parallel === "number" ? m.parallel : undefined,
+                    contextLength:
+                      typeof m.context_length === "number" ? m.context_length : undefined,
+                    maxContextLength:
+                      typeof m.max_context_length === "number" ? m.max_context_length : undefined,
+                    architecture:
+                      typeof m.architecture === "string" ? m.architecture : undefined,
+                    quantization:
+                      typeof m.quantization === "string" ? m.quantization : undefined,
+                    queued:
+                      typeof m.queued === "number" ? m.queued : undefined,
                   }),
                 )
               : [],
+            loadedModels: Array.isArray(p.loaded_models)
+              ? p.loaded_models.flatMap((entry) => {
+                  if (!entry || typeof entry !== "object") return [];
+                  const candidate = entry as unknown as Record<string, unknown>;
+                  if (typeof candidate.identifier !== "string" || typeof candidate.model_key !== "string") {
+                    return [];
+                  }
+                  return [{
+                    identifier: candidate.identifier,
+                    modelKey: candidate.model_key,
+                    ...(typeof candidate.display_name === "string" ? { displayName: candidate.display_name } : {}),
+                    ...(typeof candidate.size_bytes === "number" ? { sizeBytes: candidate.size_bytes } : {}),
+                    ...(typeof candidate.architecture === "string" ? { architecture: candidate.architecture } : {}),
+                    ...(typeof candidate.quantization === "string" ? { quantization: candidate.quantization } : {}),
+                    ...(typeof candidate.context_length === "number" ? { contextLength: candidate.context_length } : {}),
+                    ...(typeof candidate.max_context_length === "number" ? { maxContextLength: candidate.max_context_length } : {}),
+                    ...(typeof candidate.parallel === "number" ? { parallel: candidate.parallel } : {}),
+                    ...(typeof candidate.status === "string" ? { status: candidate.status } : {}),
+                    ...(typeof candidate.queued === "number" ? { queued: candidate.queued } : {}),
+                    ...(typeof candidate.ttl_ms === "number" ? { ttlMs: candidate.ttl_ms } : {}),
+                  }];
+                })
+              : undefined,
+            loadedModelCount:
+              typeof p.loaded_model_count === "number" ? p.loaded_model_count : undefined,
+            loadedModelMemoryBytes:
+              typeof p.loaded_model_memory_bytes === "number" ? p.loaded_model_memory_bytes : undefined,
             sessionMessages:
               typeof p.session_messages === "number" ? p.session_messages : undefined,
             sessionToolCalls:

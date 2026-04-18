@@ -185,6 +185,93 @@ test("dispatchCommand keeps shell state in sync after /shell-reset", async () =>
   assert.match(messages[0] ?? "", /Persistent shell reset\./);
 });
 
+test("dispatchCommand formats loaded model details", async () => {
+  const messages: string[] = [];
+
+  await dispatchCommand("/loaded", [], {
+    config: null,
+    settings: {} as any,
+    addSystemMessage: (content: string) => {
+      messages.push(content);
+    },
+    replaceMessages: () => {},
+    replaceSubagents: () => {},
+    updateConfig: () => {},
+    sendCommand: async (cmd: string) => {
+      assert.equal(cmd, "/loaded");
+      return {
+        loaded_models: [
+          {
+            identifier: "nayru",
+            model_key: "gguf/zelda/nayru-9b-q8_0.gguf",
+            display_name: "Nayru 9B",
+            size_bytes: 9_527_501_152,
+            status: "idle",
+            parallel: 4,
+            context_length: 262144,
+            quantization: "Q8_0",
+          },
+        ],
+        loaded_model_count: 1,
+        loaded_model_memory_bytes: 9_527_501_152,
+      };
+    },
+    sendMessage: async () => {},
+    setSetting: () => {},
+    resetSettings: () => {},
+    openSettings: () => {},
+    openHelp: () => {},
+    openSessionPicker: () => {},
+    exit: () => {},
+  });
+
+  assert.match(messages[0] ?? "", /Loaded Models/);
+  assert.match(messages[0] ?? "", /nayru/);
+  assert.match(messages[0] ?? "", /8\.87 GiB/);
+});
+
+test("dispatchCommand reports unload results", async () => {
+  const messages: string[] = [];
+
+  await dispatchCommand("/unload", ["nayru"], {
+    config: {
+      version: "0.2.0-test",
+      backend: "studio",
+      activeModel: "nayru",
+      mode: "manual",
+      workspace: "/tmp",
+      romPath: "",
+      toolsEnabled: true,
+      servers: [],
+      toolCount: 0,
+      warnings: [],
+      models: [],
+      sessionPath: "",
+    },
+    settings: {} as any,
+    addSystemMessage: (content: string) => {
+      messages.push(content);
+    },
+    replaceMessages: () => {},
+    replaceSubagents: () => {},
+    updateConfig: () => {},
+    sendCommand: async (cmd: string, args?: string[]) => {
+      assert.equal(cmd, "/unload");
+      assert.deepEqual(args, ["nayru"]);
+      return { target: "nayru", unloaded: ["nayru"], all: false };
+    },
+    sendMessage: async () => {},
+    setSetting: () => {},
+    resetSettings: () => {},
+    openSettings: () => {},
+    openHelp: () => {},
+    openSessionPicker: () => {},
+    exit: () => {},
+  });
+
+  assert.match(messages[0] ?? "", /Unloaded \*\*nayru\*\*/);
+});
+
 test("dispatchCommand restores assistant thinking traces on /resume", async () => {
   let restoredMessages: any[] = [];
 

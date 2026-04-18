@@ -507,13 +507,14 @@ export function App({ pythonPath, backendArgs, batchCommands, onSummaryUpdate }:
           />
         ) : null}
 
-        <PromptInput
-          mode={config.mode}
-          model={config.activeModel}
-          models={config.models}
-          workspace={config.workspace}
-          backend={config.backend}
-          focusFile={config.focusFile}
+          <PromptInput
+            mode={config.mode}
+            model={config.activeModel}
+            models={config.models}
+            loadedModels={config.loadedModels}
+            workspace={config.workspace}
+            backend={config.backend}
+            focusFile={config.focusFile}
           hasStickyPermissions={Object.keys(config.permissionRules ?? {}).length > 0}
           recentSessions={recentSessions}
           disabled={isStreaming || settingsOpen || helpOpen || Boolean(pendingPermission) || Boolean(pendingReview)}

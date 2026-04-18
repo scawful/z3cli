@@ -28,7 +28,7 @@ from z3cli.core.engine import (
     ChatEngine, DoneEvent, ErrorEvent, TextEvent, ThinkingEvent,
     ToolCallEvent, ToolResultEvent,
 )
-from z3cli.protocol.lmstudio import ensure_model_loaded, ensure_server, server_status
+from z3cli.protocol.lmstudio import ensure_server, server_status, total_loaded_model_bytes
 from z3cli.app.runtime import (
     DEFAULT_ACTIVE_MODEL, DEFAULT_BROADCAST_MODELS, DEFAULT_LLAMACPP_MODEL, DEFAULT_ROM,
     DEFAULT_WORKSPACE, LSP_CONTEXT_MODES, SPECIALIST_NAMES, VALID_BACKENDS, VALID_MODES, build_harness_prompt,
@@ -52,6 +52,7 @@ from z3cli.app.shared_runtime import (
     permission_rule_key as _permission_rule_key,
     persist_state as _persist_state,
     refresh_focus_context as _refresh_focus_context,
+    loaded_model_runtime_infos,
     resolve_focus_context as _resolve_focus_context,
     resolve_request_model_name as _resolve_request_model_name,
     restore_runtime_state as _restore_runtime_state,
@@ -355,6 +356,8 @@ def render_model_table(state: AppState) -> None:
     table.add_column("Alias")
     table.add_column("Provider")
     table.add_column("Loaded")
+    table.add_column("Mem")
+    table.add_column("Status")
     table.add_column("Available")
     table.add_column("Role")
     table.add_column("Description")
@@ -365,6 +368,8 @@ def render_model_table(state: AppState) -> None:
             str(model["name"]),
             str(model["provider"]),
             "yes" if model["loaded"] else "no",
+            _format_memory_bytes(int(model.get("size_bytes", 0) or 0)),
+            _format_loaded_status(model),
             "yes" if model["available"] else "no",
             str(model["role"]),
             str(model.get("description", "")),
@@ -377,12 +382,79 @@ def render_model_table(state: AppState) -> None:
     )
 
 
+def _format_memory_bytes(size_bytes: int) -> str:
+    if size_bytes <= 0:
+        return "-"
+    gib = size_bytes / (1024 ** 3)
+    if gib >= 10:
+        return f"{gib:.1f} GiB"
+    return f"{gib:.2f} GiB"
+
+
+def _format_context_length(context_length: int) -> str:
+    if context_length <= 0:
+        return ""
+    if context_length >= 1000:
+        return f"ctx {round(context_length / 1000)}k"
+    return f"ctx {context_length}"
+
+
+def _format_loaded_status(entry: dict[str, Any]) -> str:
+    parts: list[str] = []
+    status = str(entry.get("status", "") or "")
+    if status:
+        parts.append(status)
+    parallel = int(entry.get("parallel", 0) or 0)
+    if parallel > 0:
+        parts.append(f"p{parallel}")
+    queued = int(entry.get("queued", 0) or 0)
+    if queued > 0:
+        parts.append(f"q{queued}")
+    context_length = int(entry.get("context_length", 0) or 0)
+    context_text = _format_context_length(context_length)
+    if context_text:
+        parts.append(context_text)
+    quantization = str(entry.get("quantization", "") or "")
+    if quantization:
+        parts.append(quantization)
+    return " · ".join(parts) if parts else "-"
+
+
+def render_loaded_model_table(state: AppState, loaded: list[dict[str, Any]]) -> None:
+    from rich.table import Table
+
+    if not loaded:
+        state.console.print("No loaded API models reported by the active backend.")
+        return
+
+    table = Table(title="Loaded Models")
+    table.add_column("Identifier")
+    table.add_column("Model")
+    table.add_column("Mem")
+    table.add_column("Status")
+    for entry in loaded:
+        table.add_row(
+            str(entry.get("identifier", "") or "?"),
+            str(entry.get("display_name", "") or entry.get("model_key", "") or "?"),
+            _format_memory_bytes(int(entry.get("size_bytes", 0) or 0)),
+            _format_loaded_status(entry),
+        )
+    state.console.print(table)
+    state.console.print(
+        f"Concurrent loaded models: {len(loaded)} · total { _format_memory_bytes(total_loaded_model_bytes(loaded)) }",
+    )
+
+
 def print_status(state: AppState) -> None:
     state.console.print(f"Backend: {state.backend_name}")
     if state.backend_name == "studio":
         status = server_status(state.host, state.port)
+        loaded = loaded_model_runtime_infos(state)
         state.console.print(f"LM Studio running: {status.get('running')} on port {status.get('port')}")
         state.console.print(f"API base: {state.studio_api_base}")
+        state.console.print(
+            f"Loaded models: {len(loaded)} · total {_format_memory_bytes(total_loaded_model_bytes(loaded))}",
+        )
     else:
         state.console.print(f"llama.cpp API base: {state.llamacpp_api_base}")
         state.console.print(f"Pinned model: {state.llamacpp_model}")
@@ -417,11 +489,16 @@ def print_status(state: AppState) -> None:
 
 
 async def list_loaded_api(state: AppState) -> None:
-    loaded = await get_backend(state).list_loaded_models()
-    if loaded:
-        state.console.print("Loaded API models: " + ", ".join(loaded))
+    backend = get_backend(state)
+    details_method = getattr(backend, "list_loaded_model_details", None)
+    if callable(details_method):
+        loaded = await details_method()  # type: ignore[misc]
+    elif hasattr(backend, "list_loaded_models"):
+        names = await backend.list_loaded_models()  # type: ignore[misc]
+        loaded = [{"identifier": name, "model_key": name, "display_name": name} for name in names]
     else:
-        state.console.print("No loaded API models reported by the active backend.")
+        loaded = []
+    render_loaded_model_table(state, loaded)
 
 
 # ---------------------------------------------------------------------------
@@ -759,12 +836,22 @@ async def handle_command(state: AppState, line: str) -> bool:
     if command == "/backend-status":
         backend = get_backend(state)
         status = await backend.check_connection()
-        loaded = await backend.list_loaded_models()
+        details_method = getattr(backend, "list_loaded_model_details", None)
+        if callable(details_method):
+            loaded = await details_method()  # type: ignore[misc]
+        elif hasattr(backend, "list_loaded_models"):
+            names = await backend.list_loaded_models()  # type: ignore[misc]
+            loaded = [{"identifier": name, "model_key": name, "display_name": name} for name in names]
+        else:
+            loaded = []
         state.console.print(f"Backend: {status.name}")
         state.console.print(f"Connected: {status.connected}")
         if status.detail:
             state.console.print(f"Detail: {status.detail}")
-        state.console.print("Loaded: " + (", ".join(loaded) if loaded else "(none)"))
+        state.console.print(
+            f"Loaded: {len(loaded)} · total {_format_memory_bytes(total_loaded_model_bytes(loaded))}",
+        )
+        render_loaded_model_table(state, loaded)
         return True
 
     if command == "/models":
@@ -916,6 +1003,34 @@ async def handle_command(state: AppState, line: str) -> bool:
             state.console.print(f"[yellow]Legacy alias '{_alias}' now resolves to '{target_name}'.[/yellow]")
         request_name = get_backend(state).resolve_request_model(target, auto_load=True, manual_load=True)
         state.console.print(f"Loaded {target.name} as {request_name}")
+        await list_loaded_api(state)
+        return True
+
+    if command == "/unload":
+        if state.backend_name != "studio":
+            state.console.print("/unload is only available on the studio backend.")
+            return True
+        target_name = parts[1] if len(parts) >= 2 else state.active_model
+        unload_all = target_name.strip().lower() == "all"
+        _alias = None
+        if not unload_all:
+            try:
+                target_name, _alias = resolve_existing_model_name(target_name, state.models)
+            except RuntimeError:
+                target_name = target_name.strip()
+        if _alias:
+            state.console.print(f"[yellow]Legacy alias '{_alias}' now resolves to '{target_name}'.[/yellow]")
+        try:
+            result = await get_backend(state).unload_model(target_name, all_models=unload_all)
+        except RuntimeError as exc:
+            state.console.print(f"[red]{exc}[/red]")
+            return True
+        unloaded = [str(item) for item in result.get("unloaded", []) if item]
+        if unload_all:
+            state.console.print(f"Unloaded all LM Studio models ({len(unloaded)}).")
+        else:
+            state.console.print(f"Unloaded {', '.join(unloaded) if unloaded else target_name}.")
+        await list_loaded_api(state)
         return True
 
     if command == "/workspace":

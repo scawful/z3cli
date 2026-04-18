@@ -294,6 +294,49 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
             ["oracle", "qwen3-local-8b"],
         )
 
+    def test_build_ready_params_includes_loaded_model_memory_details(self) -> None:
+        state = ServeState()
+        state.models = {
+            "nayru": ModelConfig(name="nayru", model_id="gguf/zelda/nayru-9b-q8_0.gguf", role="analysis"),
+        }
+
+        with patch("z3cli.app.serve.z3ui_model_infos", return_value=[{
+            "name": "nayru",
+            "model_id": "gguf/zelda/nayru-9b-q8_0.gguf",
+            "role": "analysis",
+            "description": "9B explainer",
+            "loaded": True,
+            "available": True,
+            "tools_enabled": True,
+            "provider": "studio",
+            "loaded_identifier": "nayru",
+            "size_bytes": 9_527_501_152,
+            "status": "idle",
+            "parallel": 4,
+            "context_length": 262144,
+            "max_context_length": 262144,
+            "architecture": "qwen35",
+            "quantization": "Q8_0",
+            "queued": 0,
+        }]), patch("z3cli.app.serve.loaded_model_runtime_infos", return_value=[{
+            "identifier": "nayru",
+            "model_key": "gguf/zelda/nayru-9b-q8_0.gguf",
+            "display_name": "Nayru 9B",
+            "size_bytes": 9_527_501_152,
+            "status": "idle",
+            "parallel": 4,
+            "context_length": 262144,
+            "max_context_length": 262144,
+            "architecture": "qwen35",
+            "quantization": "Q8_0",
+        }]):
+            params = build_ready_params(state)
+
+        self.assertEqual(params.get("loaded_model_count"), 1)
+        self.assertEqual(params.get("loaded_model_memory_bytes"), 9_527_501_152)
+        self.assertEqual(params["models"][0].get("size_bytes"), 9_527_501_152)
+        self.assertEqual((params.get("loaded_models") or [])[0].get("identifier"), "nayru")
+
     def test_build_ready_params_compacts_collision_warning_bursts(self) -> None:
         state = ServeState()
         state.models = {

@@ -12,12 +12,12 @@ import * as nodePath from "node:path";
 import { createInterface } from "node:readline";
 import { promisify } from "node:util";
 import { symbols, modelColor, modelSymbol, getThemeColors, uiModeColor } from "../theme/index.js";
-import type { AttachmentMeta, ConstructRef, ModelInfo } from "../ipc/protocol.js";
+import type { AttachmentMeta, ConstructRef, LoadedModelInfo, ModelInfo } from "../ipc/protocol.js";
 import type { SessionInfo } from "../commands/index.js";
 import { buildBasePaletteEntries, COMMAND_CATALOG } from "../commands/catalog.js";
 import { useSettingsContext } from "../contexts/SettingsContext.js";
 import { basename, shortenPath } from "../utils/path.js";
-import { modelPickerDescription } from "../utils/models.js";
+import { describeLoadedModelRuntime, formatModelMemory, modelPickerDescription } from "../utils/models.js";
 import { scrollTargetBy } from "../utils/scrolling.js";
 import {
   activeConstructMention,
@@ -97,6 +97,7 @@ interface PromptInputProps {
   mode: string;
   model: string;
   models: ModelInfo[];
+  loadedModels?: LoadedModelInfo[];
   workspace: string;
   backend?: string;
   focusFile?: string;
@@ -120,6 +121,7 @@ export function PromptInput({
   mode,
   model,
   models,
+  loadedModels = [],
   workspace,
   backend,
   focusFile,
@@ -394,6 +396,26 @@ export function PromptInput({
         aliases: `model ${modelInfo.name} ${description}`,
       });
     }
+    for (const loadedModel of loadedModels) {
+      const name = loadedModel.identifier || loadedModel.displayName || loadedModel.modelKey;
+      const memory = formatModelMemory(loadedModel.sizeBytes);
+      entries.push({
+        key: `unload-${loadedModel.identifier || loadedModel.modelKey}`,
+        label: `Unload ${name}`,
+        description: [loadedModel.status, memory].filter(Boolean).join(" · ") || "Unload loaded model",
+        command: `/unload ${loadedModel.identifier || loadedModel.modelKey}`,
+        aliases: `unload ${name} ${loadedModel.modelKey} ${loadedModel.displayName ?? ""}`,
+      });
+    }
+    if (loadedModels.length > 1) {
+      entries.push({
+        key: "unload-all",
+        label: "Unload All Models",
+        description: `${loadedModels.length} currently loaded`,
+        command: "/unload all",
+        aliases: "unload all loaded models memory",
+      });
+    }
     for (const modeInfo of MODES) {
       entries.push({
         key: `mode-${modeInfo.name}`,
@@ -413,7 +435,7 @@ export function PromptInput({
       });
     }
     return entries;
-  }, [backend, focusFile, hasStickyPermissions, model, models, recentSessions]);
+  }, [backend, focusFile, hasStickyPermissions, loadedModels, model, models, recentSessions]);
   const filteredPalette = useMemo(
     () => filterPalette(paletteEntries, paletteFilter),
     [paletteEntries, paletteFilter],
@@ -896,6 +918,14 @@ export function PromptInput({
           setSelector(null);
           return;
         }
+        if (selector === "model" && input.toLowerCase() === "u") {
+          const sel = models[selectorIndex];
+          if (sel?.loaded) {
+            submitAndRecord(`/unload ${sel.name}`);
+            setSelector(null);
+          }
+          return;
+        }
         if (ctrlC) {
           handleInterrupt();
           return;
@@ -1211,6 +1241,7 @@ export function PromptInput({
           {models.map((m, i) => {
             const isSelected = i === selectorIndex;
             const description = modelPickerDescription(m);
+            const runtime = describeLoadedModelRuntime(m);
             return (
               <Box key={m.name} gap={1}>
                 <Text color={isSelected ? colors.triforce : colors.dim}>
@@ -1224,6 +1255,7 @@ export function PromptInput({
                   {m.name.padEnd(18)}
                 </Text>
                 {description ? <Text dimColor>{description}</Text> : null}
+                {runtime ? <Text color={colors.success}> {runtime}</Text> : null}
                 {m.loaded ? <Text color={colors.success}> {symbols.dot}</Text> : null}
                 {m.toolsEnabled ? <Text color={colors.tool}> {symbols.sword}</Text> : null}
                 {m.name === model ? (
@@ -1233,7 +1265,7 @@ export function PromptInput({
             );
           })}
           <Box marginTop={1}>
-            <Text dimColor>↑↓ navigate {symbols.dot} Enter select</Text>
+            <Text dimColor>↑↓ navigate {symbols.dot} Enter select {symbols.dot} U unload loaded model</Text>
           </Box>
         </Box>
 

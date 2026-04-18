@@ -403,8 +403,29 @@ class ReplCommandTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("quest & navigation", output)
         self.assertIn("#kind:query", output)
         self.assertIn("/lsp-context [mode]", output)
+        self.assertIn("/unload [name|all]", output)
         self.assertIn("oracle-pro", output)
         self.assertIn("manual-heavy model", output)
+
+    async def test_unload_command_uses_backend_identifier_resolution(self) -> None:
+        state = _state()
+
+        class FakeBackend:
+            async def unload_model(self, target: str = "", *, all_models: bool = False) -> dict[str, object]:
+                self.last_target = target
+                self.last_all = all_models
+                return {"all": all_models, "unloaded": [target]}
+
+            async def list_loaded_model_details(self) -> list[dict[str, object]]:
+                return []
+
+        backend = FakeBackend()
+        with patch("z3cli.app.repl.get_backend", return_value=backend):
+            await handle_command(state, "/unload oracle-main-plan")
+
+        self.assertEqual(backend.last_target, "oracle-main-plan")
+        self.assertFalse(backend.last_all)
+        self.assertIn("Unloaded oracle-main-plan.", state.console.export_text())
 
     async def test_model_command_rejects_unknown_name(self) -> None:
         state = _state()

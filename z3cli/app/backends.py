@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 import httpx
 
 from z3cli.core.config import ModelConfig
-from z3cli.protocol.lmstudio import ensure_model_loaded, loaded_models, server_status
+from z3cli.protocol.lmstudio import (
+    available_models_async,
+    ensure_model_loaded,
+    loaded_models_async,
+    normalize_loaded_model_entry,
+    server_status_async,
+    unload_model_async,
+)
 
 
 DEFAULT_LLAMACPP_API_BASE = "http://127.0.0.1:8080/v1"
@@ -31,7 +38,19 @@ class ChatBackend(Protocol):
     async def list_loaded_models(self) -> list[str]:
         ...
 
-    def resolve_request_model(self, target: ModelConfig, auto_load: bool) -> str:
+    async def list_loaded_model_details(self) -> list[dict[str, Any]]:
+        ...
+
+    async def unload_model(self, target: str = "", *, all_models: bool = False) -> dict[str, Any]:
+        ...
+
+    def resolve_request_model(
+        self,
+        target: ModelConfig,
+        auto_load: bool,
+        *,
+        manual_load: bool = False,
+    ) -> str:
         ...
 
 
@@ -44,7 +63,12 @@ class LMStudioBackend:
         self.port = port
 
     async def check_connection(self) -> BackendStatus:
-        status = server_status(self.host, self.port)
+        try:
+            status = await server_status_async(self.host, self.port)
+        except Exception as exc:
+            return BackendStatus(
+                name=self.name, connected=False, detail=str(exc)[:120],
+            )
         return BackendStatus(
             name=self.name,
             connected=bool(status.get("running")),
@@ -53,20 +77,59 @@ class LMStudioBackend:
 
     async def list_loaded_models(self) -> list[str]:
         names: list[str] = []
-        for entry in loaded_models(self.host, self.port):
+        try:
+            entries = await loaded_models_async(self.host, self.port)
+        except Exception:
+            return names
+        for entry in entries:
             for key in ("identifier", "modelKey", "name", "model", "id"):
                 value = entry.get(key)
                 if isinstance(value, str) and value not in names:
                     names.append(value)
         return names
 
-    def resolve_request_model(self, target: ModelConfig, auto_load: bool) -> str:
+    async def list_loaded_model_details(self) -> list[dict[str, Any]]:
+        try:
+            available_entries = await available_models_async(self.host, self.port)
+            loaded_entries = await loaded_models_async(self.host, self.port)
+        except Exception:
+            return []
+        lookup: dict[str, dict[str, Any]] = {}
+        for entry in available_entries:
+            if not isinstance(entry, dict):
+                continue
+            for key in ("modelKey", "indexedModelIdentifier", "path", "displayName"):
+                value = entry.get(key)
+                if isinstance(value, str) and value:
+                    lookup.setdefault(value, entry)
+        return [
+            normalize_loaded_model_entry(entry, available_lookup=lookup)
+            for entry in loaded_entries
+            if isinstance(entry, dict)
+        ]
+
+    async def unload_model(self, target: str = "", *, all_models: bool = False) -> dict[str, Any]:
+        return await unload_model_async(self.host, self.port, target, all_models=all_models)
+
+    def resolve_request_model(
+        self,
+        target: ModelConfig,
+        auto_load: bool,
+        *,
+        manual_load: bool = False,
+    ) -> str:
         return ensure_model_loaded(
             alias=target.name,
             model_id=target.model_id,
             host=self.host,
             port=self.port,
             auto_load=auto_load,
+            allow_auto_load=target.allow_auto_load,
+            manual_load=manual_load,
+            context_length=target.lmstudio_context_length or None,
+            parallel=target.lmstudio_parallel or None,
+            gpu=target.lmstudio_gpu or None,
+            ttl=target.lmstudio_ttl or None,
         )
 
 
@@ -101,6 +164,20 @@ class LlamaCppBackend:
         except Exception:
             return []
 
-    def resolve_request_model(self, target: ModelConfig, auto_load: bool) -> str:
-        del auto_load
+    async def list_loaded_model_details(self) -> list[dict[str, Any]]:
+        names = await self.list_loaded_models()
+        return [{"identifier": name, "model_key": name, "display_name": name, "status": "loaded"} for name in names]
+
+    async def unload_model(self, target: str = "", *, all_models: bool = False) -> dict[str, Any]:
+        del target, all_models
+        raise RuntimeError("/unload is only available on the studio backend.")
+
+    def resolve_request_model(
+        self,
+        target: ModelConfig,
+        auto_load: bool,
+        *,
+        manual_load: bool = False,
+    ) -> str:
+        del auto_load, manual_load
         return self.model or target.model_id or target.name

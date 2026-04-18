@@ -12,7 +12,7 @@
 
 import { symbols } from "../theme/index.js";
 import { shortenPath } from "../utils/path.js";
-import { modelPickerDescription } from "../utils/models.js";
+import { describeLoadedModelRuntime, formatModelMemory, modelPickerDescription } from "../utils/models.js";
 import { UI_MODES, UI_THEMES, UI_THINKING_DETAILS, UI_THINKING_MODES } from "../hooks/useSettings.js";
 import type { AppConfig, ConstructRef, Message } from "../ipc/protocol.js";
 import type { ShowThinkingMode, ThinkingDetailMode, UISettings, UIMode, UITheme } from "../hooks/useSettings.js";
@@ -83,6 +83,62 @@ function runCmd(
 
 function fmtTok(n: number): string {
   return n > 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
+}
+
+function renderLoadedModels(result: unknown): string {
+  const payload = (result && typeof result === "object") ? result as Record<string, unknown> : {};
+  const loadedModels = Array.isArray(payload.loaded_models)
+    ? payload.loaded_models.flatMap((entry) => {
+        if (!entry || typeof entry !== "object") return [];
+        const model = entry as Record<string, unknown>;
+        if (typeof model.identifier !== "string" || typeof model.model_key !== "string") return [];
+        return [{
+          identifier: model.identifier,
+          model_key: model.model_key,
+          display_name: typeof model.display_name === "string" ? model.display_name : undefined,
+          size_bytes: typeof model.size_bytes === "number" ? model.size_bytes : undefined,
+          status: typeof model.status === "string" ? model.status : undefined,
+          parallel: typeof model.parallel === "number" ? model.parallel : undefined,
+          queued: typeof model.queued === "number" ? model.queued : undefined,
+          context_length: typeof model.context_length === "number" ? model.context_length : undefined,
+          quantization: typeof model.quantization === "string" ? model.quantization : undefined,
+        }];
+      })
+    : [];
+  if (loadedModels.length === 0) {
+    return "No loaded API models reported by the active backend.";
+  }
+  const totalBytes = typeof payload.loaded_model_memory_bytes === "number" ? payload.loaded_model_memory_bytes : 0;
+  const header = `### Loaded Models\n\n${loadedModels.length} live${totalBytes > 0 ? ` · ${formatModelMemory(totalBytes)}` : ""}`;
+  const lines = loadedModels.map((model) => {
+    const runtime = describeLoadedModelRuntime({
+      sizeBytes: model.size_bytes,
+      status: model.status,
+      parallel: model.parallel,
+      queued: model.queued,
+      contextLength: model.context_length,
+      quantization: model.quantization,
+    });
+    const label = model.identifier;
+    const displayName = model.display_name && model.display_name !== label ? ` _${model.display_name}_` : "";
+    return `- **${label}**${displayName}${runtime ? ` · ${runtime}` : ""}`;
+  });
+  return `${header}\n\n${lines.join("\n")}`;
+}
+
+function renderBackendStatus(result: unknown): string {
+  const payload = (result && typeof result === "object") ? result as Record<string, unknown> : {};
+  const totalBytes = typeof payload.loaded_model_memory_bytes === "number" ? payload.loaded_model_memory_bytes : 0;
+  const loadedCount = typeof payload.loaded_model_count === "number" ? payload.loaded_model_count : 0;
+  const lines = [
+    `- **backend**: \`${String(payload.backend ?? "?")}\``,
+    `- **connected**: \`${String(payload.connected ?? false)}\``,
+  ];
+  if (typeof payload.detail === "string" && payload.detail) {
+    lines.push(`- **detail**: \`${payload.detail}\``);
+  }
+  lines.push(`- **loaded**: \`${loadedCount}\`${totalBytes > 0 ? ` (${formatModelMemory(totalBytes)})` : ""}`);
+  return `### Backend Status\n\n${lines.join("\n")}`;
 }
 
 function settingUsage(key: "theme" | "uiMode" | "showThinking" | "thinkingDetail"): string {
@@ -287,7 +343,8 @@ const COMMANDS: Record<string, Handler> = {
       const loaded = m.loaded ? "✓" : " ";
       const tools = m.toolsEnabled ? "🔨" : " ";
       const summary = modelPickerDescription(m);
-      return `${active} **${m.name}** · ${loaded} loaded · ${tools} tools · _${summary}_`;
+      const runtime = describeLoadedModelRuntime(m);
+      return `${active} **${m.name}** · ${loaded} loaded · ${tools} tools · _${summary}_${runtime ? ` · ${runtime}` : ""}`;
     });
     ctx.addSystemMessage(`### Available Models\n\n${lines.join("\n")}`);
   },
@@ -397,8 +454,24 @@ const COMMANDS: Record<string, Handler> = {
 
   "/backend-status": (args, ctx) =>
     runCmd("/backend-status", args, ctx, (result) =>
-      ctx.addSystemMessage("```json\n" + JSON.stringify(result, null, 2) + "\n```"),
+      ctx.addSystemMessage(renderBackendStatus(result)),
     ),
+
+  "/loaded": (args, ctx) =>
+    runCmd("/loaded", args, ctx, (result) =>
+      ctx.addSystemMessage(renderLoadedModels(result)),
+    ),
+
+  "/load": (args, ctx) =>
+    runCmd("/load", args, ctx, (result) => {
+      const r = result as { loaded?: string; warning?: string } | null;
+      if (r?.loaded) {
+        ctx.addSystemMessage(`Loaded **${r.loaded}**.`);
+      }
+      if (r?.warning) {
+        ctx.addSystemMessage(`Warning: ${r.warning}`);
+      }
+    }),
 
   "/mode": (args, ctx) =>
     runCmd("/mode", args, ctx, (result) => {
@@ -425,6 +498,20 @@ const COMMANDS: Record<string, Handler> = {
       ctx.addSystemMessage(
         `History cleared for ${args[0] || ctx.config?.activeModel || "current model"}.`,
       );
+    }),
+
+  "/unload": (args, ctx) =>
+    runCmd("/unload", args, ctx, (result) => {
+      const r = result as { target?: string; unloaded?: string[]; all?: boolean; warning?: string } | null;
+      const unloaded = Array.isArray(r?.unloaded) ? r.unloaded : [];
+      if (r?.all) {
+        ctx.addSystemMessage(`Unloaded **all** models${unloaded.length > 0 ? ` (${unloaded.length})` : ""}.`);
+      } else {
+        ctx.addSystemMessage(`Unloaded **${unloaded[0] ?? r?.target ?? args[0] ?? ctx.config?.activeModel ?? "model"}**.`);
+      }
+      if (r?.warning) {
+        ctx.addSystemMessage(`Warning: ${r.warning}`);
+      }
     }),
 
   "/tools": (args, ctx) => {

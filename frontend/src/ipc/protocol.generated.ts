@@ -131,6 +131,30 @@ export interface ReadyModelInfo {
   tools_enabled: boolean;
   provider?: string;
   context_budget?: number;
+  loaded_identifier?: string;
+  size_bytes?: number;
+  status?: string;
+  parallel?: number;
+  context_length?: number;
+  max_context_length?: number;
+  architecture?: string;
+  quantization?: string;
+  queued?: number;
+}
+
+export interface LoadedModelRuntimeInfo {
+  identifier: string;
+  model_key: string;
+  display_name?: string;
+  size_bytes?: number;
+  architecture?: string;
+  quantization?: string;
+  context_length?: number;
+  max_context_length?: number;
+  parallel?: number;
+  status?: string;
+  queued?: number;
+  ttl_ms?: number;
 }
 
 export interface ReadyParams {
@@ -146,6 +170,9 @@ export interface ReadyParams {
   warnings: string[];
   models: ReadyModelInfo[];
   session_path: string;
+  loaded_models?: LoadedModelRuntimeInfo[];
+  loaded_model_count?: number;
+  loaded_model_memory_bytes?: number;
   studio_model?: string;
   tools_write?: boolean;
   verify_hooks?: boolean;

@@ -139,6 +139,30 @@ class ReadyModelInfo(TypedDict):
     tools_enabled: bool
     provider: NotRequired[str]
     context_budget: NotRequired[int]
+    loaded_identifier: NotRequired[str]
+    size_bytes: NotRequired[int]
+    status: NotRequired[str]
+    parallel: NotRequired[int]
+    context_length: NotRequired[int]
+    max_context_length: NotRequired[int]
+    architecture: NotRequired[str]
+    quantization: NotRequired[str]
+    queued: NotRequired[int]
+
+
+class LoadedModelRuntimeInfo(TypedDict):
+    identifier: str
+    model_key: str
+    display_name: NotRequired[str]
+    size_bytes: NotRequired[int]
+    architecture: NotRequired[str]
+    quantization: NotRequired[str]
+    context_length: NotRequired[int]
+    max_context_length: NotRequired[int]
+    parallel: NotRequired[int]
+    status: NotRequired[str]
+    queued: NotRequired[int]
+    ttl_ms: NotRequired[int]
 
 
 class ReadyParams(TypedDict):
@@ -154,6 +178,9 @@ class ReadyParams(TypedDict):
     warnings: list[str]
     models: list[ReadyModelInfo]
     session_path: str
+    loaded_models: NotRequired[list[LoadedModelRuntimeInfo]]
+    loaded_model_count: NotRequired[int]
+    loaded_model_memory_bytes: NotRequired[int]
     studio_model: NotRequired[str]
     tools_write: NotRequired[bool]
     verify_hooks: NotRequired[bool]
@@ -683,6 +710,7 @@ _TS_TYPE_ORDER: list[type[TypedDict] | object] = [
     MessageParams,
     DoneParams,
     ReadyModelInfo,
+    LoadedModelRuntimeInfo,
     ReadyParams,
     ToolPermissionRequestParams,
     ToolReviewRequestParams,

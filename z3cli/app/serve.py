@@ -23,6 +23,7 @@ from z3cli.app.backends import DEFAULT_LLAMACPP_API_BASE, LMStudioBackend, Llama
 from z3cli.app.ipc_schema import (
     AttachmentMeta,
     ConstructRef,
+    LoadedModelRuntimeInfo,
     MessageRole,
     NotificationParams,
     ReadyModelInfo,
@@ -66,7 +67,7 @@ from z3cli.core.subagent import (
     SubagentThinkingEvent, SubagentToolCallEvent, SubagentToolResultEvent,
     format_subagent_summary, get_current_subagent,
 )
-from z3cli.protocol.lmstudio import ensure_model_loaded, ensure_server, loaded_models, server_status
+from z3cli.protocol.lmstudio import ensure_server, total_loaded_model_bytes
 from z3cli.app.runtime import (
     DEFAULT_ACTIVE_MODEL, DEFAULT_BROADCAST_MODELS, DEFAULT_LLAMACPP_MODEL, DEFAULT_ROM,
     DEFAULT_WORKSPACE, LSP_CONTEXT_MODES, ORCHESTRATOR_MODE, SPECIALIST_NAMES, VALID_BACKENDS, VALID_MODES,
@@ -91,6 +92,7 @@ from z3cli.app.shared_runtime import (
     permission_rule_key as _permission_rule_key,
     persist_state as _persist_state,
     refresh_focus_context as _refresh_focus_context,
+    loaded_model_runtime_infos,
     resolve_focus_context as _resolve_focus_context,
     resolve_request_model_name,
     restore_runtime_state as _restore_runtime_state,
@@ -1517,19 +1519,68 @@ def build_ready_params(state: ServeState) -> ReadyParams:
         if state.tool_latency_samples > 0 else 0
     )
     latency = state.request_latency_snapshot()
+    loaded_runtime_models = loaded_model_runtime_infos(state)
+    loaded_runtime_payload: list[LoadedModelRuntimeInfo] = []
+    for item in loaded_runtime_models:
+        runtime_item: LoadedModelRuntimeInfo = {
+            "identifier": str(item.get("identifier", "")),
+            "model_key": str(item.get("model_key", "")),
+        }
+        if item.get("display_name"):
+            runtime_item["display_name"] = str(item["display_name"])
+        if int(item.get("size_bytes", 0) or 0) > 0:
+            runtime_item["size_bytes"] = int(item["size_bytes"])
+        if item.get("architecture"):
+            runtime_item["architecture"] = str(item["architecture"])
+        if item.get("quantization"):
+            runtime_item["quantization"] = str(item["quantization"])
+        if int(item.get("context_length", 0) or 0) > 0:
+            runtime_item["context_length"] = int(item["context_length"])
+        if int(item.get("max_context_length", 0) or 0) > 0:
+            runtime_item["max_context_length"] = int(item["max_context_length"])
+        if int(item.get("parallel", 0) or 0) > 0:
+            runtime_item["parallel"] = int(item["parallel"])
+        if item.get("status"):
+            runtime_item["status"] = str(item["status"])
+        if int(item.get("queued", 0) or 0) > 0:
+            runtime_item["queued"] = int(item["queued"])
+        if int(item.get("ttl_ms", 0) or 0) > 0:
+            runtime_item["ttl_ms"] = int(item["ttl_ms"])
+        loaded_runtime_payload.append(runtime_item)
     models_info: list[ReadyModelInfo] = []
     for model in z3ui_model_infos(state):
         cfg = state.models.get(str(model["name"]))
-        models_info.append({
-            "name": model["name"],
-            "model_id": model["model_id"],
-            "role": model["role"],
-            "description": model.get("description", ""),
-            "loaded": model["loaded"],
-            "tools_enabled": model["tools_enabled"],
-            "provider": model["provider"],
+        payload: ReadyModelInfo = {
+            "name": str(model["name"]),
+            "model_id": str(model["model_id"]),
+            "role": str(model["role"]),
+            "loaded": bool(model["loaded"]),
+            "tools_enabled": bool(model["tools_enabled"]),
             "context_budget": cfg.context_budget if cfg is not None else 0,
-        })
+        }
+        if model.get("description"):
+            payload["description"] = str(model["description"])
+        if model.get("provider"):
+            payload["provider"] = str(model["provider"])
+        if model.get("loaded_identifier"):
+            payload["loaded_identifier"] = str(model["loaded_identifier"])
+        if int(model.get("size_bytes", 0) or 0) > 0:
+            payload["size_bytes"] = int(model["size_bytes"])
+        if model.get("status"):
+            payload["status"] = str(model["status"])
+        if int(model.get("parallel", 0) or 0) > 0:
+            payload["parallel"] = int(model["parallel"])
+        if int(model.get("context_length", 0) or 0) > 0:
+            payload["context_length"] = int(model["context_length"])
+        if int(model.get("max_context_length", 0) or 0) > 0:
+            payload["max_context_length"] = int(model["max_context_length"])
+        if model.get("architecture"):
+            payload["architecture"] = str(model["architecture"])
+        if model.get("quantization"):
+            payload["quantization"] = str(model["quantization"])
+        if int(model.get("queued", 0) or 0) > 0:
+            payload["queued"] = int(model["queued"])
+        models_info.append(payload)
 
     warnings = list(state.startup_warnings)
     warnings.extend(state.bridge_errors)
@@ -1537,7 +1588,7 @@ def build_ready_params(state: ServeState) -> ReadyParams:
     if state.startup_tool_bridge_warming:
         warnings.append("Tool bridge warming up; tools and server list will populate shortly.")
 
-    return {
+    ready: ReadyParams = {
         "version": __version__,
         "backend": state.backend_name,
         "active_model": active_model_name(state),
@@ -1553,6 +1604,9 @@ def build_ready_params(state: ServeState) -> ReadyParams:
         "tool_count": state.bridge.tool_count if state.bridge else 0,
         "warnings": _compact_warning_list(warnings),
         "models": models_info,
+        "loaded_models": loaded_runtime_payload,
+        "loaded_model_count": len(loaded_runtime_payload),
+        "loaded_model_memory_bytes": total_loaded_model_bytes(loaded_runtime_payload),
         "session_path": str(state.session.path) if state.session.path else "",
         "focus_file": str(state.focus_path) if state.focus_path else "",
         "lsp_context_mode": state.lsp_context_mode,
@@ -1624,6 +1678,7 @@ def build_ready_params(state: ServeState) -> ReadyParams:
         "last_request_tool_ms": int(latency["last_request_tool_ms"]),
         "last_request_total_ms": int(latency["last_request_total_ms"]),
     }
+    return ready
 async def handle_chat(
     state: ServeState,
     req_id: int | None,
@@ -2319,12 +2374,15 @@ async def handle_command(state: ServeState, req_id: int, params: dict) -> None:
     if cmd == "/backend-status":
         backend = get_backend(state)
         status = await backend.check_connection()
-        loaded = await backend.list_loaded_models()
+        loaded = await backend.list_loaded_model_details()
         _respond(req_id, result={
             "backend": status.name,
             "connected": status.connected,
             "detail": status.detail,
-            "loaded": loaded,
+            "loaded": [str(item.get("identifier", "")) for item in loaded if item.get("identifier")],
+            "loaded_models": loaded,
+            "loaded_model_count": len(loaded),
+            "loaded_model_memory_bytes": total_loaded_model_bytes(loaded),
         })
         return
 
@@ -2443,7 +2501,46 @@ async def handle_command(state: ServeState, req_id: int, params: dict) -> None:
         return
 
     if cmd == "/loaded":
-        _respond(req_id, result={"loaded": await get_backend(state).list_loaded_models()})
+        loaded = await get_backend(state).list_loaded_model_details()
+        _respond(req_id, result={
+            "loaded": [str(item.get("identifier", "")) for item in loaded if item.get("identifier")],
+            "loaded_models": loaded,
+            "loaded_model_count": len(loaded),
+            "loaded_model_memory_bytes": total_loaded_model_bytes(loaded),
+        })
+        return
+
+    if cmd == "/unload":
+        if state.backend_name != "studio":
+            _respond(req_id, error="/unload is only available on the studio backend.")
+            return
+        target_name = str(args[0]).strip() if args else state.active_model
+        unload_all = target_name.lower() == "all"
+        alias = ""
+        if not unload_all and target_name:
+            try:
+                resolved_name, alias = resolve_existing_model_name(target_name, state.models)
+                target_cfg = state.models.get(resolved_name)
+                if target_cfg is not None and target_cfg.is_cloud:
+                    _respond(req_id, error="/unload only applies to LM Studio models.")
+                    return
+                target_name = resolved_name
+            except RuntimeError:
+                pass
+        try:
+            unload_result = await get_backend(state).unload_model(target_name, all_models=unload_all)
+        except RuntimeError as exc:
+            _respond(req_id, error=str(exc))
+            return
+        _notify("ready", build_ready_params(state))
+        result = {
+            "all": bool(unload_result.get("all")),
+            "unloaded": unload_result.get("unloaded", []),
+            "target": target_name,
+        }
+        if alias:
+            result["warning"] = f"Legacy alias '{alias}' now resolves to '{target_name}'."
+        _respond(req_id, result=result)
         return
 
     if cmd == "/reset":

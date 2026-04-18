@@ -121,6 +121,7 @@ python3 -m z3cli --mode broadcast --broadcast-models farore,majora,nayru
 - `/route <prompt>`
 - `/broadcast <alias1,alias2,...>`
 - `/load [name]`
+- `/unload [name|all]`
 - `/workspace <path>`
 - `/rom <path|none>`
 - `/focus <path|clear>`
@@ -162,6 +163,8 @@ python3 -m z3cli --mode broadcast --broadcast-models farore,majora,nayru
   persistent shell commands too, but diff review is still auto-accepted there.
 - Auto-load is enabled by default. If a model is not loaded in LM Studio,
   `z3cli` will try `lms load <modelKey> --identifier <alias> --yes`.
+- `z3ui` now surfaces concurrently loaded models plus LM Studio-reported loaded
+  size, and `/unload` can evict one model or all loaded LM Studio models.
 - For fragile local LM Studio setups, `--no-auto-start-server --no-auto-load`
   keeps `z3cli` passive so it talks only to the server you started manually in
   the already-open LM Studio app.

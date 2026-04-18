@@ -28,6 +28,7 @@
     {"name":"/route","args":"<prompt>","description":"Preview routing","group":"models","groupTitle":"Models & Routing","groupSymbol":"⚔","aliases":"route preview"},
     {"name":"/broadcast","args":"<a,b,c>","description":"Set broadcast models","group":"models","groupTitle":"Models & Routing","groupSymbol":"⚔","aliases":"broadcast fanout"},
     {"name":"/load","args":"[name]","description":"Load model in LM Studio","group":"models","groupTitle":"Models & Routing","groupSymbol":"⚔","aliases":"load lm studio"},
+    {"name":"/unload","args":"[name|all]","description":"Unload model from LM Studio","group":"models","groupTitle":"Models & Routing","groupSymbol":"⚔","aliases":"unload lm studio memory"},
     {"name":"/loaded","args":"","description":"List loaded API models","group":"models","groupTitle":"Models & Routing","groupSymbol":"⚔","aliases":"loaded models"},
 
     {"name":"/servers","args":"","description":"Tool server info","group":"tools","groupTitle":"Tools & Context","groupSymbol":"✦","aliases":"servers tools"},

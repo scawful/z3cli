@@ -2,6 +2,7 @@ import type { ModelInfo } from "../ipc/protocol.js";
 
 const CLOUD_NAME_HINTS = ["claude", "gpt", "gemini", "orchestrator"];
 const FAST_LANE_HINTS = ["oracle-fast", "oracle-main-fast"];
+const HEAVY_LANE_HINTS = ["oracle-pro", "oracle-main-27b-v1", "switchhook", "switchhook-plan", "switchhook-act"];
 const ORACLE_MAIN_HINT = "oracle";
 const LEGACY_ORACLE_MODEL_HINTS = [
   "oracle-main",
@@ -48,22 +49,53 @@ export function isFastLaneModel(model: Pick<ModelInfo, "name" | "modelId" | "rol
 }
 
 export function isHeavyOptInModel(model: Pick<ModelInfo, "name" | "modelId" | "role"> | string): boolean {
-  return isFastLaneModel(model);
+  const values = typeof model === "string"
+    ? [model]
+    : [model.name, model.modelId, model.role];
+  return values.some((value) => {
+    const lowered = normalizeModelName(value);
+    return HEAVY_LANE_HINTS.some((hint) => lowered === hint || lowered.includes("switchhook-27b"));
+  });
 }
 
 export function modelOptInLabel(model: Pick<ModelInfo, "name" | "modelId" | "role"> | string): string {
-  return isFastLaneModel(model) ? "fast lane" : "";
+  if (isFastLaneModel(model)) return "fast";
+  if (isHeavyOptInModel(model)) return "manual heavy";
+  return "";
 }
 
-export function modelPickerDescription(model: Pick<ModelInfo, "name" | "modelId" | "role">): string {
-  const role = model.role.trim().toLowerCase();
-  let shortRole = role;
-  if (role === "orchestrator") shortRole = "orch";
-  else if (role === "specialist") shortRole = "spec";
-  else if (role === "planner") shortRole = "plan";
-  else if (role === "executor") shortRole = "act";
+export function modelPickerDescription(
+  model: Pick<ModelInfo, "name" | "modelId" | "role" | "description">,
+): string {
+  const summary = (model.description || model.role).trim();
+  const parts = [summary, modelOptInLabel(model)].filter(Boolean);
+  return parts.join(" · ");
+}
 
-  const parts = [shortRole, modelOptInLabel(model)].filter(Boolean);
+export function formatModelMemory(sizeBytes?: number): string {
+  if (!sizeBytes || sizeBytes <= 0) return "";
+  const gib = sizeBytes / (1024 ** 3);
+  if (gib >= 10) return `${gib.toFixed(1)} GiB`;
+  return `${gib.toFixed(2)} GiB`;
+}
+
+export function formatContextLength(contextLength?: number): string {
+  if (!contextLength || contextLength <= 0) return "";
+  if (contextLength >= 1000) return `ctx ${Math.round(contextLength / 1000)}k`;
+  return `ctx ${contextLength}`;
+}
+
+export function describeLoadedModelRuntime(
+  model: Pick<ModelInfo, "sizeBytes" | "status" | "parallel" | "queued" | "contextLength" | "quantization">,
+): string {
+  const parts = [
+    formatModelMemory(model.sizeBytes),
+    model.status?.trim() || "",
+    model.parallel && model.parallel > 0 ? `p${model.parallel}` : "",
+    model.queued && model.queued > 0 ? `q${model.queued}` : "",
+    formatContextLength(model.contextLength),
+    model.quantization?.trim() || "",
+  ].filter(Boolean);
   return parts.join(" · ");
 }
 
@@ -78,6 +110,9 @@ export function estimateContextWindow(modelName: string, models: ModelInfo[] = [
 
   const lowered = normalizeModelName(modelName);
   if (lowered === ORACLE_MAIN_HINT) {
+    return 32768;
+  }
+  if (HEAVY_LANE_HINTS.includes(lowered)) {
     return 32768;
   }
   if (FAST_LANE_HINTS.includes(lowered)) {

@@ -8,7 +8,11 @@
 
 export * from "./protocol.generated.js";
 
-import type { AttachmentMeta, ConstructRef, ReadyParams } from "./protocol.generated.js";
+import type {
+  AttachmentMeta,
+  ConstructRef,
+  ReadyParams,
+} from "./protocol.generated.js";
 
 // ---------------------------------------------------------------------------
 // App-level types
@@ -43,6 +47,30 @@ export interface ModelInfo {
   toolsEnabled: boolean;
   provider?: string;
   contextBudget?: number;
+  loadedIdentifier?: string;
+  sizeBytes?: number;
+  status?: string;
+  parallel?: number;
+  contextLength?: number;
+  maxContextLength?: number;
+  architecture?: string;
+  quantization?: string;
+  queued?: number;
+}
+
+export interface LoadedModelInfo {
+  identifier: string;
+  modelKey: string;
+  displayName?: string;
+  sizeBytes?: number;
+  architecture?: string;
+  quantization?: string;
+  contextLength?: number;
+  maxContextLength?: number;
+  parallel?: number;
+  status?: string;
+  queued?: number;
+  ttlMs?: number;
 }
 
 export interface AppConfig {
@@ -59,6 +87,9 @@ export interface AppConfig {
   toolCount: ReadyParams["tool_count"];
   warnings: ReadyParams["warnings"];
   models: ModelInfo[];
+  loadedModels?: LoadedModelInfo[];
+  loadedModelCount?: ReadyParams["loaded_model_count"];
+  loadedModelMemoryBytes?: ReadyParams["loaded_model_memory_bytes"];
   sessionPath: ReadyParams["session_path"];
   focusFile?: ReadyParams["focus_file"];
   registryPath?: ReadyParams["registry_path"];
