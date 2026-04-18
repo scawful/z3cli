@@ -15,12 +15,24 @@ interface ToolReviewDialogProps {
   onReject: () => void;
 }
 
-function lineColor(line: string, colors: any): string {
+interface DialogColors {
+  success: string;
+  error: string;
+  warning: string;
+  muted: string;
+}
+
+function lineColor(line: string, colors: DialogColors): string {
   if (line.startsWith("+") && !line.startsWith("+++")) return colors.success;
   if (line.startsWith("-") && !line.startsWith("---")) return colors.error;
   if (line.startsWith("@@") || line.startsWith("---") || line.startsWith("+++")) return colors.warning;
   return colors.muted;
 }
+
+const actionPrompts = [
+  "Y/Enter keep changes",
+  "N/Esc revert",
+];
 
 export function ToolReviewDialog({
   name,
@@ -49,19 +61,19 @@ export function ToolReviewDialog({
   return (
     <Box borderStyle="double" borderColor={colors.warning} paddingX={1} flexDirection="column" marginY={1}>
       <Box gap={1} marginBottom={1} justifyContent="center">
-        <Text bold color={colors.warning}>{symbols.triforce} REVIEW THE MASTER'S WORK {symbols.triforce}</Text>
+        <Text bold color={colors.warning}>{symbols.triforce} REVIEW TOOL OUTPUT {symbols.triforce}</Text>
       </Box>
       <Box gap={1} paddingLeft={1}>
         <Text color={sc}>{serverSymbol(server)}</Text>
         {server ? <Text dimColor>{server} {symbols.arrow}</Text> : null}
         <Text bold color={sc}>{name}</Text>
       </Box>
-      <Text dimColor>{"  "}{summary}</Text>
+      <Text dimColor>{"  "}summary {symbols.arrow} {summary}</Text>
       {paths.length > 0 ? (
         <Text dimColor>{"  "}targets {symbols.arrow} {paths.join(", ")}</Text>
       ) : null}
       <Box borderStyle="round" borderColor={colors.warning} paddingX={1} flexDirection="column" marginTop={1}>
-        <Text color={colors.warning}>actual diff</Text>
+        <Text color={colors.warning}>diff preview</Text>
         {diffLines.map((line, index) => (
           <Text key={`${index}-${line}`} color={lineColor(line, colors)}>
             {line}
@@ -73,14 +85,16 @@ export function ToolReviewDialog({
       </Box>
       {verificationCommands.length > 0 ? (
         <Box flexDirection="column" paddingLeft={1} marginTop={1}>
-          <Text dimColor>verification on accept</Text>
+          <Text color={colors.warning}>verification on accept</Text>
           {verificationCommands.map((command) => (
             <Text key={command} dimColor>{"  "}{command}</Text>
           ))}
         </Box>
       ) : null}
-      <Box marginTop={1}>
-        <Text dimColor>{"  "}Y/Enter keep changes {symbols.dot} N/Esc revert</Text>
+      <Box marginTop={1} flexDirection="column">
+        {actionPrompts.map((prompt) => (
+          <Text key={prompt} dimColor>{"  "}{prompt}</Text>
+        ))}
       </Box>
     </Box>
   );

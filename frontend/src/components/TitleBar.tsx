@@ -74,7 +74,7 @@ export function TitleBar({
         <Box gap={1} paddingLeft={1}>
           <Text dimColor>broadcast {symbols.arrow}</Text>
           {broadcastModels!.map((m, i) => (
-            <React.Fragment key={m}>
+            <React.Fragment key={`${m}-${i}`}>
               {i > 0 ? <Text dimColor>+</Text> : null}
               <Text color={modelColor(m, colors)}>{modelSymbol(m)} {m}</Text>
             </React.Fragment>

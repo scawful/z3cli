@@ -49,12 +49,12 @@ async function waitFor(assertion: () => void, timeoutMs = 2000): Promise<void> {
 }
 
 test("useTerminalWidth reacts to stdout resize events", async () => {
-  const restoreColumns = setColumns(120);
+  const restoreColumns = setColumns(100);
   const app = render(React.createElement(WidthProbe));
 
   try {
     await waitFor(() => {
-      assert.ok(app.lastFrame()?.includes("narrow:120"));
+      assert.ok(app.lastFrame()?.includes("narrow:100"));
     });
 
     Object.defineProperty(process.stdout, "columns", {

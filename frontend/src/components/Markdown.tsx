@@ -21,6 +21,15 @@ const marked = new Marked(
 // ANSI codes for address highlighting (bold gold)
 const ADDR_ON = "\x1b[1;33m";
 const ADDR_OFF = "\x1b[0m";
+const UNSUPPORTED_FENCE_LANGS = new Set([
+  "asm",
+  "65816",
+  "65c816",
+  "ca65",
+  "asar",
+  "wla",
+  "wla-dx",
+]);
 
 // Match SNES-style hex addresses: $XX, $XXXX, $XXXXXX
 // but only when NOT inside an ANSI escape sequence
@@ -32,6 +41,16 @@ const HEX_ADDR_RE = /(?<!\x1b\[[0-9;]*)\$[0-9A-Fa-f]{2,6}\b/g;
  */
 export function highlightHexAddresses(text: string): string {
   return text.replace(HEX_ADDR_RE, (match) => `${ADDR_ON}${match}${ADDR_OFF}`);
+}
+
+export function sanitizeMarkdownForTerminal(markdown: string): string {
+  return markdown.replace(/^(\s*```+)([^\s`]+)([ \t]*)$/gm, (_match, fence: string, lang: string, trailing: string) => {
+    const normalized = String(lang).trim().toLowerCase();
+    if (!UNSUPPORTED_FENCE_LANGS.has(normalized)) {
+      return `${fence}${lang}${trailing}`;
+    }
+    return `${fence}${trailing}`;
+  });
 }
 
 function isIndentedLine(line: string): boolean {
@@ -118,7 +137,7 @@ interface MarkdownProps {
 export function Markdown({ children }: MarkdownProps): React.ReactElement {
   const rendered = useMemo(() => {
     try {
-      const result = marked.parse(children);
+      const result = marked.parse(sanitizeMarkdownForTerminal(children));
       if (typeof result === "string") {
         let output = addLineNumbers(result.replace(/\n$/, ""));
         output = highlightHexAddresses(output);

@@ -12,6 +12,7 @@ build/
 frontend/node_modules/
 frontend/dist/
 frontend/*.tsbuildinfo
+frontend/.tmp/
 
 # Editor
 .DS_Store
@@ -20,4 +21,5 @@ frontend/*.tsbuildinfo
 
 # Secrets / local config
 .env
+.bridge.env
 *.local

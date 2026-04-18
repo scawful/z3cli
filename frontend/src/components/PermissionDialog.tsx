@@ -16,17 +16,31 @@ interface PermissionDialogProps {
   server: string;
   workspace: string;
   arguments: string;
+  /**
+   * Optional backend-supplied explanation for why approval is being requested
+   * (sticky-deny rule, write-access policy, subagent spawn, etc). Rendered
+   * inline under the tool header when present.
+   */
+  reason?: string;
   onApproveOnce: () => void;
   onApproveSession: () => void;
   onDenyOnce: () => void;
   onDenySession: () => void;
 }
 
+const actionPrompts = [
+  "Y/Enter allow once",
+  "A allow for session",
+  "N/Esc deny once",
+  "D deny for session",
+];
+
 export function PermissionDialog({
   name,
   server,
   workspace,
   arguments: args,
+  reason,
   onApproveOnce,
   onApproveSession,
   onDenyOnce,
@@ -56,7 +70,7 @@ export function PermissionDialog({
   return (
     <Box borderStyle="double" borderColor={colors.warning} paddingX={1} flexDirection="column" marginY={1}>
       <Box gap={1} marginBottom={1} justifyContent="center">
-        <Text bold color={colors.warning}>{symbols.triforce} THE ORACLE REQUESTS PERMISSION {symbols.triforce}</Text>
+        <Text bold color={colors.warning}>{symbols.triforce} THE ORACLE REQUESTS ACTION {symbols.triforce}</Text>
       </Box>
       <Box gap={1} paddingLeft={1}>
         <Text color={sc}>{serverSymbol(server)}</Text>
@@ -64,17 +78,19 @@ export function PermissionDialog({
         <Text bold color={sc}>{name}</Text>
         {preview?.isWrite ? <Text color={colors.warning}>write</Text> : null}
       </Box>
-      {preview?.summary ? (
-        <Text dimColor>{"  "}{preview.summary}</Text>
-      ) : null}
+      <Text dimColor>{"  "}summary {symbols.arrow} {preview?.summary ?? "pending tool preview"}</Text>
       {preview?.targetPath ? (
         <Text dimColor>{"  "}target {symbols.arrow} {preview.targetPath}</Text>
       ) : null}
+      {reason ? (
+        <Box paddingLeft={1} marginTop={1}>
+          <Text color={colors.warning}>why {symbols.arrow} </Text>
+          <Text>{reason}</Text>
+        </Box>
+      ) : null}
       {preview && preview.lines.length > 0 ? (
         <Box borderStyle="round" borderColor={colors.warning} paddingX={1} flexDirection="column" marginTop={1}>
-          <Text color={colors.warning}>
-            {preview.isWrite ? "diff preview" : "preview"}
-          </Text>
+          <Text color={colors.warning}>{preview.isWrite ? "diff preview" : "argument preview"}</Text>
           {preview.lines.map((line, index) => (
             <Text
               key={`${index}-${line.text}`}
@@ -100,8 +116,9 @@ export function PermissionDialog({
         <JsonArgList jsonStr={args} colored={settings.coloredToolArgs} />
       </Box>
       <Box marginTop={1} flexDirection="column">
-        <Text dimColor>{"  "}Y/Enter allow once {symbols.dot} A allow for session</Text>
-        <Text dimColor>{"  "}N/Esc deny once {symbols.dot} D deny for session</Text>
+        {actionPrompts.map((prompt) => (
+          <Text key={prompt} dimColor>{"  "}{prompt}</Text>
+        ))}
       </Box>
     </Box>
   );
