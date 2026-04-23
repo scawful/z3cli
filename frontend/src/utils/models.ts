@@ -2,8 +2,10 @@ import type { ModelInfo } from "../ipc/protocol.js";
 
 const CLOUD_NAME_HINTS = ["claude", "gpt", "gemini", "orchestrator"];
 const FAST_LANE_HINTS = ["oracle-fast", "oracle-main-fast"];
-const HEAVY_LANE_HINTS = ["oracle-pro", "oracle-main-27b-v1", "switchhook", "switchhook-plan", "switchhook-act"];
+const HEAVY_LANE_HINTS = ["oracle-mythic", "oracle-main-27b-v1", "switchhook", "switchhook-plan", "switchhook-act"];
 const ORACLE_MAIN_HINT = "oracle";
+const ORACLE_PRO_HINT = "oracle-pro";
+const ORACLE_MYTHIC_HINT = "oracle-mythic";
 const LEGACY_ORACLE_MODEL_HINTS = [
   "oracle-main",
   "oracle-main-plan",
@@ -127,6 +129,12 @@ export function estimateContextWindow(modelName: string, models: ModelInfo[] = [
   const lowered = normalizeModelName(modelName);
   if (lowered === ORACLE_MAIN_HINT) {
     return 32768;
+  }
+  if (lowered === ORACLE_PRO_HINT) {
+    return 16384;
+  }
+  if (lowered === ORACLE_MYTHIC_HINT) {
+    return 8192;
   }
   if (HEAVY_LANE_HINTS.includes(lowered)) {
     return 32768;

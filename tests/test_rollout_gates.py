@@ -174,7 +174,7 @@ allowed_model_ids = ["oracle-fast"]
                 """
 [[models]]
 name = "oracle"
-model_id = "gguf/zelda/switchhook-27b-v1-q4km.gguf"
+model_id = "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf"
 provider = "studio"
 aliases = ["oracle-pro"]
 role = "planner"
@@ -184,7 +184,7 @@ role = "planner"
             rollout_path.write_text(
                 """
 [aliases.oracle-pro]
-allowed_model_ids = ["oracle", "gguf/zelda/switchhook-27b-v1-q4km.gguf", "switchhook-27b-v1"]
+allowed_model_ids = ["oracle", "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf", "qwen3-oracle-14b-v7"]
 required_checks = ["ROM-hacking eval gate", "live tool smoke run"]
 """.strip(),
                 encoding="utf-8",

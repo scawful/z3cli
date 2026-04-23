@@ -41,6 +41,11 @@ session, UX, shell, and write-review work.
   stats, recent sessions, and concurrently loaded models with memory/size data.
 - The model picker now shows loaded runtime details and supports unloading a
   selected loaded model.
+- Oracle-family chat turns now use hidden prompt-profile routing plus light
+  automatic context prefetch in the normal chat flow. When a prompt clearly
+  implies Oracle grounding, the backend can preload compact register docs,
+  symbol/address lookups, and one nearby disassembly snippet before the model
+  answers, without requiring a visible slash-mode switch.
 
 ### Permissions, write review, and verification
 
@@ -105,14 +110,36 @@ Core commands:
 
 Model notes:
 
-- `oracle` now points at the smaller corrective Qwen3 local model instead of the
-  switchhook-backed 27B artifact.
-- `oracle-pro` is exposed in the plain CLI as a manual-only heavy-model alias.
-- It does not appear in the z3ui picker.
-- Use `/load oracle-pro` before first use when you explicitly want the current
-  switchhook-backed model.
-- Legacy `switchhook*` names resolve through `oracle-pro`; legacy
-  `oracle-main*` names still resolve through `oracle`.
+- `oracle-fast` is now the real pinned local Oracle model: the current 8B
+  corrective GGUF.
+- `oracle` is the reserved mainline slot. It stays hidden until LM Studio
+  reports a runnable local install.
+- `/models` and the top-level ready payload keep the primary surface simple:
+  `oracle-fast`, `oracle`, plus the active specialist when it differs.
+- The wider local bench stays available through the model manager catalog tabs:
+  `qwen3-oracle-8b`, `nayru`, `farore`, `majora`, `hylia`, and related quants.
+- `oracle-pro` now points at the gate-cleared local `14B Oracle-Pro · q4km`
+  artifact.
+- `oracle-mythic` is the manual-only heavy-model alias for the older 27B
+  switchhook lane.
+- `oracle-coder` remains internal and spawn-only. It should appear only in
+  delegation surfaces or bench/internal catalog views, not as part of the main
+  Oracle surface.
+- The intended local host is now `medical-mechanica` WSL2 + RTX `5090`; Mac is
+  the control plane/fallback machine, and Vast is the fallback when the shared
+  desktop cannot spare the GPU.
+- The preferred studio control path for that host is now `afs-hostd`: set
+  `AFS_HOSTD_URL=http://127.0.0.1:8766` plus `LMSTUDIO_BASE_URL` pointing at a
+  local tunnel (for example `http://127.0.0.1:2234/v1`) so `/load`, `/unload`,
+  `/loaded`, and backend-status checks go through the Windows host API.
+- The same host daemon now exposes WSL runtime status and start/stop control
+  for training and `vllm`, so the Windows-side training controller can use the
+  same local tunnel instead of a second SSH + PowerShell control path.
+- The older `Z3CLI_LMSTUDIO_REMOTE_HOST=medical-mechanica` path still exists as
+  a fallback when the daemon is not running, but it is no longer the preferred
+  control-plane shape.
+- Legacy `switchhook*` names resolve through `oracle-mythic`; legacy
+  `oracle-main*` names now resolve through `oracle-fast`.
 - `/shell [command]`
 - `/shell-log [n]`
 - `/shell-reset`

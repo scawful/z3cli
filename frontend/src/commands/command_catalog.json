@@ -1,6 +1,7 @@
 {
   "welcomeHints": [
     "/help",
+    "/oracle-tips",
     "/resume",
     "@file",
     "#room:0x45",
@@ -9,6 +10,7 @@
   ],
   "commands": [
     {"name":"/help","args":"","description":"Show available commands","group":"quest","groupTitle":"Quest & Navigation","groupSymbol":"◎","aliases":"help commands","paletteLabel":"Help"},
+    {"name":"/oracle-tips","args":"","description":"Show a short cheat sheet for talking to local Oracle models","group":"quest","groupTitle":"Quest & Navigation","groupSymbol":"◎","aliases":"oracle tips prompt prompting local ai help","paletteLabel":"Oracle Prompt Tips","paletteDescription":"Show prompt tips for local Oracle models"},
     {"name":"/workspace","args":"<path>","description":"Change workspace","group":"quest","groupTitle":"Quest & Navigation","groupSymbol":"◎","aliases":"workspace project root"},
     {"name":"/rom","args":"<path|none>","description":"Change ROM target","group":"quest","groupTitle":"Quest & Navigation","groupSymbol":"◎","aliases":"rom target"},
     {"name":"/status","args":"","description":"Connection and state info","group":"quest","groupTitle":"Quest & Navigation","groupSymbol":"◎","aliases":"status info runtime","paletteLabel":"Status","paletteDescription":"Show current runtime state"},
@@ -17,8 +19,13 @@
     {"name":"/resume","args":"<name>","description":"Resume a saved session","group":"quest","groupTitle":"Quest & Navigation","groupSymbol":"◎","aliases":"resume restore session","paletteLabel":"Resume Session Picker","paletteDescription":"Open session search"},
 
     {"name":"/backend","args":"[name]","description":"Show or set backend","group":"models","groupTitle":"Models & Routing","groupSymbol":"⚔","aliases":"backend studio llamacpp"},
+    {"name":"/use","args":"[target]","description":"One-step switch for backend, node, and model","group":"models","groupTitle":"Models & Routing","groupSymbol":"⚔","aliases":"use home vast oracle-pro switch target"},
     {"name":"/backends","args":"","description":"List available backends","group":"models","groupTitle":"Models & Routing","groupSymbol":"⚔","aliases":"backend list"},
     {"name":"/backend-status","args":"","description":"Show backend status","group":"models","groupTitle":"Models & Routing","groupSymbol":"⚔","aliases":"backend health"},
+    {"name":"/studio-nodes","args":"","description":"List named LM Studio inference nodes","group":"models","groupTitle":"Models & Routing","groupSymbol":"⚔","aliases":"studio nodes inference nodes"},
+    {"name":"/studio-node","args":"[name]","description":"Show or switch the active LM Studio node","group":"models","groupTitle":"Models & Routing","groupSymbol":"⚔","aliases":"studio node switch inference node"},
+    {"name":"/llamacpp-nodes","args":"","description":"List named llama.cpp inference nodes","group":"models","groupTitle":"Models & Routing","groupSymbol":"⚔","aliases":"llama nodes inference nodes"},
+    {"name":"/llamacpp-node","args":"[name]","description":"Show or switch the active llama.cpp node","group":"models","groupTitle":"Models & Routing","groupSymbol":"⚔","aliases":"llama node switch inference node"},
     {"name":"/model","args":"<name>","description":"Switch active model","group":"models","groupTitle":"Models & Routing","groupSymbol":"⚔","aliases":"model switch oracle","paletteLabel":"Model Picker","paletteDescription":"Choose the active model"},
     {"name":"/models","args":"","description":"List Zelda models","group":"models","groupTitle":"Models & Routing","groupSymbol":"⚔","aliases":"model list"},
     {"name":"/mode","args":"<name>","description":"Set routing mode","group":"models","groupTitle":"Models & Routing","groupSymbol":"⚔","aliases":"mode route routing","paletteLabel":"Mode Picker","paletteDescription":"Choose routing mode"},

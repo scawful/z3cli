@@ -136,6 +136,7 @@ class ReadyModelInfo(TypedDict):
     role: str
     description: NotRequired[str]
     loaded: bool
+    selectable: NotRequired[bool]
     tools_enabled: bool
     provider: NotRequired[str]
     context_budget: NotRequired[int]
@@ -187,6 +188,11 @@ class ReadyParams(TypedDict):
     loaded_model_count: NotRequired[int]
     loaded_model_memory_bytes: NotRequired[int]
     studio_model: NotRequired[str]
+    studio_api_base: NotRequired[str]
+    studio_node: NotRequired[str]
+    llamacpp_api_base: NotRequired[str]
+    llamacpp_model: NotRequired[str]
+    llamacpp_node: NotRequired[str]
     tools_write: NotRequired[bool]
     verify_hooks: NotRequired[bool]
     focus_file: NotRequired[str]

@@ -524,7 +524,7 @@ class ModeAndAliasTests(unittest.IsolatedAsyncioTestCase):
         finally:
             del os.environ["ANTHROPIC_API_KEY"]
 
-    def test_cloud_models_show_up_in_render_model_table(self) -> None:
+    def test_render_model_table_restores_visible_specialists_for_cli(self) -> None:
         os.environ["ANTHROPIC_API_KEY"] = "test-key"
         try:
             state = _state()
@@ -533,8 +533,11 @@ class ModeAndAliasTests(unittest.IsolatedAsyncioTestCase):
             render_model_table(state)
 
             output = state.console.export_text().lower()
-            self.assertIn("claude-so", output)
-            self.assertIn("anthropic", output)
+            self.assertNotIn("claude-sonnet", output)
+            self.assertIn("primary local contract", output)
+            self.assertIn("nayru", output)
+            self.assertIn("farore", output)
+            self.assertIn("din", output)
         finally:
             del os.environ["ANTHROPIC_API_KEY"]
 
@@ -545,7 +548,7 @@ class ModeAndAliasTests(unittest.IsolatedAsyncioTestCase):
 
         output = state.console.export_text().lower()
         self.assertIn("oracle-pro", output)
-        self.assertIn("manual-only heavy model", output)
+        self.assertIn("manual-only", output)
 
     def test_get_engine_uses_cloud_provider_for_cloud_models(self) -> None:
         os.environ["ANTHROPIC_API_KEY"] = "test-key"

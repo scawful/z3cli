@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from z3cli.app.runtime import (
+    build_oracle_hidden_routing_prompt,
     resolve_model_name,
     resolve_oracle_profile_system_prompts,
     resolve_targets_with_reason,
@@ -189,6 +190,47 @@ model_id = "gguf/zelda/main-1"
 
             self.assertIn("Use vanilla conventions.", prompts)
             self.assertIn("Trace first, patch second.", prompts)
+
+    def test_hidden_oracle_routing_prompt_surfaces_inferred_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            registry_path = self._write_registry(
+                tmp,
+                """
+[profile_defaults]
+domain = "adaptive"
+mode = "adaptive"
+
+[[domain_profiles]]
+name = "adaptive"
+
+[[domain_profiles]]
+name = "oos"
+keywords = ["oracle of secrets", "oos"]
+system_prompt = "Use Oracle of Secrets conventions."
+
+[[mode_profiles]]
+name = "adaptive"
+
+[[mode_profiles]]
+name = "debug"
+keywords = ["debug", "triage", "crash"]
+system_prompt = "Debug first."
+
+[[models]]
+name = "oracle"
+provider = "studio"
+model_id = "gguf/zelda/main-1"
+                """.strip(),
+            )
+            config_mod.load_registry(
+                registry_path,
+                rollout_path=self._write_empty_rollout(tmp),
+            )
+
+            prompt = build_oracle_hidden_routing_prompt("debug this Oracle of Secrets crash quickly")
+            self.assertIn("domain: oos", prompt)
+            self.assertIn("task mode: debug", prompt)
+            self.assertIn("effort: low", prompt)
 
     def test_resolve_targets_with_reason_includes_profile_axis(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

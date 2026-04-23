@@ -128,6 +128,7 @@ export interface ReadyModelInfo {
   role: string;
   description?: string;
   loaded: boolean;
+  selectable?: boolean;
   tools_enabled: boolean;
   provider?: string;
   context_budget?: number;

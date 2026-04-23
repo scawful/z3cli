@@ -75,8 +75,9 @@ def build_repl_help_text() -> str:
         lines.append("")
     lines.extend([
         "Model notes:",
-        "  oracle-pro                  27B switchhook · q4km manual-heavy model",
-        "                              Use /load oracle-pro before first use when you explicitly want that path",
+        "  oracle-pro                  14B Oracle-Pro · q4km current local pro lane",
+        "  oracle-mythic               27B switchhook · q4km manual-heavy model",
+        "                              Use /load oracle-mythic before first use when you explicitly want that path",
         "",
         "Inline prompt features:",
         "  @path                       Attach a workspace file to the turn",

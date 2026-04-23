@@ -20,7 +20,7 @@ from z3cli.app.serve import (
     run_budgeted_chat_request,
     serve_main,
 )
-from z3cli.core.config import ModelConfig
+from z3cli.core.config import LlamaCppNodeConfig, ModelConfig, StudioNodeConfig
 from z3cli.core.engine import CompactionEvent, DoneEvent, TextEvent, ThinkingEvent, ToolCallEvent, ToolResultEvent
 from z3cli.core.subagent import (
     SubagentContext,
@@ -196,7 +196,7 @@ class FakeZ3LspBridge(Z3LspBridge):
 
 
 class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
-    def test_build_ready_params_orders_z3ui_models_and_hides_non_picker_entries(self) -> None:
+    def test_build_ready_params_limits_primary_picker_to_oracle_contract(self) -> None:
         os.environ["ANTHROPIC_API_KEY"] = "test-key"
         try:
             state = ServeState()
@@ -241,7 +241,7 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(
                 names,
-                ["oracle", "oracle-fast", "din", "farore", "nayru", "majora", "veran", "hylia"],
+                ["oracle", "oracle-fast"],
             )
             self.assertNotIn("avatar-debugger", names)
             self.assertNotIn("claude-sonnet", names)
@@ -287,6 +287,7 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
         state.models = {
             "oracle": ModelConfig(name="oracle", model_id="oracle", role="planner", tools_enabled=True),
             "oracle-fast": ModelConfig(name="oracle-fast", model_id="oracle-fast", role="fast", tools_enabled=True),
+            "oracle-pro": ModelConfig(name="oracle-pro", model_id="oracle-pro", role="pro", tools_enabled=True),
             "oracle-coder": ModelConfig(
                 name="oracle-coder",
                 model_id="qwen25-oracle-coder-7b-v1",
@@ -305,13 +306,14 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
         ):
             params = build_ready_params(state)
 
-        self.assertEqual([str(item["name"]) for item in params["models"]], ["oracle", "oracle-fast"])
+        self.assertEqual([str(item["name"]) for item in params["models"]], ["oracle", "oracle-fast", "oracle-pro"])
 
     def test_build_ready_params_hides_unavailable_local_models(self) -> None:
         state = ServeState()
         state.models = {
             "oracle": ModelConfig(name="oracle", model_id="oracle", role="planner", tools_enabled=True),
             "oracle-fast": ModelConfig(name="oracle-fast", model_id="oracle-fast", role="fast", tools_enabled=True),
+            "oracle-pro": ModelConfig(name="oracle-pro", model_id="oracle-pro", role="pro", tools_enabled=True),
             "oracle-coder-preview": ModelConfig(
                 name="oracle-coder-preview",
                 model_id="qwen25-oracle-coder-14b-v1",
@@ -325,10 +327,58 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
         with patch("z3cli.app.shared_runtime.available_models", return_value=[
             {"id": "oracle", "path": "oracle"},
             {"id": "oracle-fast", "path": "oracle-fast"},
+            {"id": "oracle-pro", "path": "oracle-pro"},
         ]), patch("z3cli.app.shared_runtime.loaded_models", return_value=[]):
             params = build_ready_params(state)
 
-        self.assertEqual([str(item["name"]) for item in params["models"]], ["oracle", "oracle-fast"])
+        self.assertEqual([str(item["name"]) for item in params["models"]], ["oracle", "oracle-fast", "oracle-pro"])
+
+    def test_build_ready_params_keeps_active_specialist_visible_in_primary_picker(self) -> None:
+        state = ServeState()
+        state.active_model = "nayru"
+        state.models = {
+            "oracle": ModelConfig(name="oracle", model_id="oracle", role="planner", tools_enabled=True),
+            "oracle-fast": ModelConfig(name="oracle-fast", model_id="oracle-fast", role="fast", tools_enabled=True),
+            "nayru": ModelConfig(name="nayru", model_id="nayru", role="analysis", tool_profile="nayru"),
+        }
+
+        with patch("z3cli.app.shared_runtime.available_models", return_value=[]), patch(
+            "z3cli.app.shared_runtime.loaded_models",
+            return_value=[],
+        ):
+            params = build_ready_params(state)
+
+        self.assertEqual([str(item["name"]) for item in params["models"]], ["oracle", "oracle-fast", "nayru"])
+
+    def test_build_ready_params_surfaces_hidden_14b_slot_from_quantized_available_key(self) -> None:
+        state = ServeState()
+        state.models = {
+            "oracle": ModelConfig(name="oracle", model_id="oracle", role="planner", tools_enabled=True),
+            "qwen3-oracle-14b": ModelConfig(
+                name="qwen3-oracle-14b",
+                model_id="qwen3-oracle-14b-v7",
+                role="reserved local oracle main",
+                tags=["oracle"],
+                aliases=["oracle-main-14b", "oracle-main-14b-v7", "oracle-14b"],
+                hide_if_unavailable=True,
+                tools_enabled=True,
+            ),
+        }
+
+        with patch("z3cli.app.shared_runtime.available_models", return_value=[
+            {"id": "oracle", "path": "oracle"},
+            {
+                "id": "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf",
+                "path": "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf",
+            },
+        ]), patch("z3cli.app.shared_runtime.loaded_models", return_value=[]):
+            params = build_ready_params(state)
+
+        self.assertEqual(
+            [str(item["name"]) for item in params["model_catalog"]],
+            ["oracle", "qwen3-oracle-14b"],
+        )
+        self.assertEqual([str(item["name"]) for item in params["models"]], ["oracle"])
 
     def test_build_ready_params_exposes_model_catalog_for_manager_only_entries(self) -> None:
         state = ServeState()
@@ -336,8 +386,8 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
             "oracle": ModelConfig(name="oracle", model_id="oracle", role="planner", tools_enabled=True),
             "oracle-pro": ModelConfig(
                 name="oracle-pro",
-                model_id="gguf/zelda/switchhook-27b-v1-q4km.gguf",
-                role="heavy oracle",
+                model_id="gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf",
+                role="14b oracle pro",
                 tags=["oracle"],
                 hide_if_unavailable=True,
                 tools_enabled=True,
@@ -357,17 +407,21 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
 
         with patch("z3cli.app.shared_runtime.available_models", return_value=[
             {"id": "oracle", "path": "oracle"},
-            {"id": "gguf/zelda/switchhook-27b-v1-q4km.gguf", "path": "gguf/zelda/switchhook-27b-v1-q4km.gguf"},
+            {"id": "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf", "path": "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf"},
             {"id": "qwen25-oracle-coder-7b-v1", "path": "qwen25-oracle-coder-7b-v1"},
         ]), patch("z3cli.app.shared_runtime.loaded_models", return_value=[]):
             params = build_ready_params(state)
         catalog = params.get("model_catalog", [])
 
-        self.assertEqual([str(item["name"]) for item in params["models"]], ["oracle"])
+        self.assertEqual([str(item["name"]) for item in params["models"]], ["oracle", "oracle-pro"])
         self.assertEqual(
             [str(item["name"]) for item in catalog],
             ["oracle", "oracle-coder", "oracle-pro"],
         )
+        coder_entry = next(item for item in catalog if str(item["name"]) == "oracle-coder")
+        oracle_pro_entry = next(item for item in catalog if str(item["name"]) == "oracle-pro")
+        self.assertEqual(coder_entry.get("selectable"), False)
+        self.assertEqual(oracle_pro_entry.get("selectable"), True)
 
     def test_build_ready_params_includes_tagged_local_z3ui_models(self) -> None:
         state = ServeState()
@@ -390,7 +444,7 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             [str(item["name"]) for item in params["models"]],
-            ["oracle", "qwen3-local-8b"],
+            ["oracle"],
         )
 
     def test_build_ready_params_includes_loaded_model_memory_details(self) -> None:
@@ -399,7 +453,7 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
             "nayru": ModelConfig(name="nayru", model_id="gguf/zelda/nayru-9b-q8_0.gguf", role="analysis"),
         }
 
-        with patch("z3cli.app.serve.z3ui_model_infos", return_value=[{
+        with patch("z3cli.app.serve.primary_model_infos", return_value=[{
             "name": "nayru",
             "model_id": "gguf/zelda/nayru-9b-q8_0.gguf",
             "role": "analysis",
@@ -486,7 +540,7 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
                 """
 [[models]]
 name = "oracle-main-plan"
-model_id = "gguf/zelda/switchhook-27b-v1-q4km.gguf"
+model_id = "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf"
 provider = "studio"
 role = "planner"
 """.strip(),
@@ -652,7 +706,7 @@ rollout_block_reason = "nayru is still gated"
                 """
 [[models]]
 name = "oracle-main-plan"
-model_id = "gguf/zelda/switchhook-27b-v1-q4km.gguf"
+model_id = "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf"
 provider = "studio"
 role = "planner"
 """.strip(),
@@ -733,6 +787,44 @@ role = "planner"
             (103, None, "Model 'oracle-coder-preview' is not available in z3ui. Choose one of: oracle"),
         )
         self.assertEqual(state.active_model, "oracle")
+
+    async def test_handle_command_model_accepts_oracle_pro_when_available(self) -> None:
+        state = ServeState()
+        state.active_model = "oracle"
+        state.models = {
+            "oracle": ModelConfig(name="oracle", model_id="oracle", role="planner"),
+            "oracle-fast": ModelConfig(
+                name="oracle-fast",
+                model_id="gguf/zelda/qwen3-oracle-8b-v1-corrective2-q4km.gguf",
+                role="fast oracle",
+            ),
+            "oracle-pro": ModelConfig(
+                name="oracle-pro",
+                model_id="gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf",
+                role="14b oracle pro",
+            ),
+        }
+
+        responses: list[tuple[int, object, str | None]] = []
+        with patch("z3cli.app.shared_runtime.available_models", return_value=[
+            {"id": "gguf/zelda/qwen3-oracle-8b-v1-corrective2-q4km.gguf", "path": "gguf/zelda/qwen3-oracle-8b-v1-corrective2-q4km.gguf"},
+            {"id": "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf", "path": "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf"},
+        ]), patch("z3cli.app.shared_runtime.loaded_models", return_value=[]), patch(
+            "z3cli.app.serve.ensure_model_available"
+        ), patch(
+            "z3cli.app.serve._refresh_focus_context"
+        ), patch(
+            "z3cli.app.serve._persist_state"
+        ), patch(
+            "z3cli.app.serve._notify"
+        ), patch(
+            "z3cli.app.serve._respond",
+            side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
+        ):
+            await handle_command(state, 104, {"cmd": "/model", "args": ["oracle-pro"]})
+
+        self.assertEqual(responses[-1], (104, {"active_model": "oracle-pro"}, None))
+        self.assertEqual(state.active_model, "oracle-pro")
 
     async def test_handle_command_orchestrator_resolves_legacy_alias(self) -> None:
         state = ServeState()
@@ -845,6 +937,110 @@ role = "planner"
         self.assertIsInstance(result, dict)
         self.assertEqual(state.active_model, "oracle")
         self.assertIn("does not expose model 'avatar'", " ".join(result["warnings"]))
+
+    async def test_llamacpp_node_command_switches_named_endpoint(self) -> None:
+        state = ServeState()
+        state.llamacpp_nodes = {
+            "oracle-pro-vast": LlamaCppNodeConfig(
+                name="oracle-pro-vast",
+                api_base="http://127.0.0.1:18080/v1",
+                model="oracle-pro",
+                description="SSH tunnel",
+            ),
+        }
+        responses: list[tuple[int, object, str | None]] = []
+
+        with patch(
+            "z3cli.app.serve._respond",
+            side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
+        ), patch(
+            "z3cli.app.serve._notify",
+        ):
+            await handle_command(state, 216, {"cmd": "/llamacpp-node", "args": ["oracle-pro-vast"]})
+
+        self.assertEqual(state.llamacpp_node, "oracle-pro-vast")
+        self.assertEqual(state.llamacpp_api_base, "http://127.0.0.1:18080/v1")
+        self.assertEqual(state.llamacpp_model, "oracle-pro")
+        self.assertEqual(responses[-1][2], None)
+        self.assertEqual(responses[-1][1]["active"], "oracle-pro-vast")
+
+    async def test_studio_node_command_switches_named_endpoint(self) -> None:
+        state = ServeState()
+        state.models = {
+            "oracle-pro": ModelConfig(name="oracle-pro", model_id="oracle-pro", role="pro"),
+        }
+        state.studio_nodes = {
+            "oracle-pro-home": StudioNodeConfig(
+                name="oracle-pro-home",
+                api_base="http://127.0.0.1:2234/v1",
+                model="oracle-pro",
+                description="Windows tunnel",
+            ),
+        }
+        responses: list[tuple[int, object, str | None]] = []
+
+        with patch(
+            "z3cli.app.serve._respond",
+            side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
+        ), patch(
+            "z3cli.app.serve._notify",
+        ):
+            await handle_command(state, 217, {"cmd": "/studio-node", "args": ["oracle-pro-home"]})
+
+        self.assertEqual(state.studio_node, "oracle-pro-home")
+        self.assertEqual(state.studio_api_base, "http://127.0.0.1:2234/v1")
+        self.assertEqual(state.backend_name, "studio")
+        self.assertEqual(state.active_model, "oracle-pro")
+        self.assertEqual(responses[-1][2], None)
+        self.assertEqual(responses[-1][1]["active"], "oracle-pro-home")
+
+    async def test_use_command_switches_to_home_alias(self) -> None:
+        state = ServeState()
+        state.models = {
+            "oracle-pro": ModelConfig(name="oracle-pro", model_id="oracle-pro", role="pro"),
+        }
+        state.active_model = "oracle-pro"
+        state.studio_nodes = {
+            "oracle-pro-home": StudioNodeConfig(
+                name="oracle-pro-home",
+                api_base="http://127.0.0.1:2234/v1",
+                model="oracle-pro",
+                description="Windows tunnel",
+            ),
+        }
+        responses: list[tuple[int, object, str | None]] = []
+
+        with patch(
+            "z3cli.app.serve._respond",
+            side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
+        ), patch(
+            "z3cli.app.serve._notify",
+        ):
+            await handle_command(state, 218, {"cmd": "/use", "args": ["home"]})
+
+        self.assertEqual(state.backend_name, "studio")
+        self.assertEqual(state.studio_node, "oracle-pro-home")
+        self.assertEqual(state.active_model, "oracle-pro")
+        self.assertEqual(responses[-1][2], None)
+        self.assertEqual(responses[-1][1]["resolved"], "oracle-pro-home")
+
+    async def test_oracle_tips_command_returns_cheat_sheet(self) -> None:
+        state = ServeState()
+        responses: list[tuple[int, object, str | None]] = []
+
+        with patch(
+            "z3cli.app.serve._respond",
+            side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
+        ):
+            await handle_command(state, 219, {"cmd": "/oracle-tips", "args": []})
+
+        self.assertTrue(responses)
+        req_id, result, error = responses[-1]
+        self.assertEqual(req_id, 219)
+        self.assertIsNone(error)
+        payload = result if isinstance(result, dict) else {}
+        self.assertEqual(payload.get("title"), "Oracle Prompt Tips")
+        self.assertIn("symptom + anchor + intent", str(payload.get("text", "")))
 
     async def test_resume_can_strip_transcript_reasoning(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -7,12 +7,13 @@ import { modelColor, modelSymbol, symbols } from "../theme/index.js";
 
 const VISIBLE_ROWS = 10;
 const ORACLE_MODEL_ORDER = [
-  "oracle",
-  "qwen3-oracle-14b",
-  "qwen3-oracle-8b",
   "oracle-fast",
+  "oracle",
   "oracle-pro",
-  "oracle-coder",
+  "qwen3-oracle-14b",
+] as const;
+const BENCH_MODEL_ORDER = [
+  "qwen3-oracle-8b",
   "din",
   "nayru",
   "farore",
@@ -21,15 +22,17 @@ const ORACLE_MODEL_ORDER = [
   "hylia",
   "hylia-q4km",
   "veran",
+  "oracle-coder",
 ] as const;
 const QWEN_MODEL_ORDER = [
   "qwen3-local-8b",
   "qwen3-local-14b",
 ] as const;
 const CLOUD_MODEL_ORDER = ["claude-sonnet", "claude-opus", "gpt-4o"] as const;
-const FAMILY_ORDER = ["oracle", "qwen", "cloud", "resident", "other"] as const;
+const FAMILY_ORDER = ["oracle", "bench", "qwen", "cloud", "resident", "other"] as const;
 const FAMILY_LABELS = {
   oracle: "Oracle",
+  bench: "Bench",
   qwen: "Qwen",
   cloud: "Cloud",
   resident: "Resident",
@@ -37,10 +40,11 @@ const FAMILY_LABELS = {
 } as const;
 const ORACLE_MODELS = new Set<string>([
   "oracle",
-  "qwen3-oracle-14b",
-  "oracle-fast",
   "oracle-pro",
-  "oracle-coder",
+  "oracle-fast",
+  "qwen3-oracle-14b",
+]);
+const BENCH_MODELS = new Set<string>([
   "qwen3-oracle-8b",
   "din",
   "nayru",
@@ -50,6 +54,7 @@ const ORACLE_MODELS = new Set<string>([
   "hylia",
   "hylia-q4km",
   "veran",
+  "oracle-coder",
 ]);
 
 type ModelManagerFamily = typeof FAMILY_ORDER[number];
@@ -95,6 +100,9 @@ function inferModelManagerFamily(model: ModelInfo): ModelManagerFamily {
   if (model.provider && model.provider !== "studio" && model.provider !== "llamacpp" && model.provider !== "ollama") {
     return "cloud";
   }
+  if (BENCH_MODELS.has(name)) {
+    return "bench";
+  }
   if (ORACLE_MODELS.has(name) || name.startsWith("oracle")) {
     return "oracle";
   }
@@ -113,6 +121,9 @@ function familyModelRank(family: ModelManagerFamily, name: string): number {
   if (family === "oracle") {
     return ORACLE_MODEL_ORDER.indexOf(lowered as (typeof ORACLE_MODEL_ORDER)[number]);
   }
+  if (family === "bench") {
+    return BENCH_MODEL_ORDER.indexOf(lowered as (typeof BENCH_MODEL_ORDER)[number]);
+  }
   if (family === "qwen") {
     return QWEN_MODEL_ORDER.indexOf(lowered as (typeof QWEN_MODEL_ORDER)[number]);
   }
@@ -122,22 +133,25 @@ function familyModelRank(family: ModelManagerFamily, name: string): number {
   return -1;
 }
 
-function modelCatalogTag(model: ModelInfo, selectable: boolean): string {
-  if (selectable) {
-    return "";
-  }
+function modelCatalogTag(model: ModelInfo, selectable: boolean, primaryListed: boolean): string {
   if (model.name === "oracle-coder") {
     return "internal";
   }
   if (model.name === "oracle-pro") {
     return "manual";
   }
+  if (selectable && !primaryListed) {
+    return "catalog";
+  }
+  if (selectable) {
+    return "";
+  }
   return "catalog";
 }
 
 export function buildModelManagerEntries(config: AppConfig): ModelManagerEntry[] {
   const loadedModels = config.loadedModels ?? [];
-  const selectableNames = new Set(config.models.map((model) => model.name));
+  const primaryNames = new Set(config.models.map((model) => model.name));
   const catalogModels = config.modelCatalog ?? config.models;
   const matchedLoaded = new Set<string>();
   const entries: ModelManagerEntry[] = catalogModels.map((model) => {
@@ -147,7 +161,8 @@ export function buildModelManagerEntries(config: AppConfig): ModelManagerEntry[]
       matchedLoaded.add(loaded.identifier || loaded.modelKey);
     }
     const family = inferModelManagerFamily(model);
-    const canActivate = selectableNames.has(model.name);
+    const canActivate = Boolean(model.selectable ?? true);
+    const primaryListed = primaryNames.has(model.name);
     const runtime = describeLoadedModelRuntime({
       sizeBytes: model.sizeBytes,
       status: model.status,
@@ -171,7 +186,7 @@ export function buildModelManagerEntries(config: AppConfig): ModelManagerEntry[]
       canUnload: config.backend === "studio" && studioManaged && model.loaded,
       actionTarget: model.loadedIdentifier || model.modelId || model.name,
       family,
-      catalogTag: modelCatalogTag(model, canActivate),
+      catalogTag: modelCatalogTag(model, canActivate, primaryListed),
     };
   });
 

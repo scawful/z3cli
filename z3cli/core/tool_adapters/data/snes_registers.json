@@ -1,0 +1,296 @@
+{
+  "schema_version": 1,
+  "source": "Synthesized from /Users/scawful/.context/knowledge/snes/{cpu_memory,dma_registers,ppu_registers}.md",
+  "notes": [
+    "Address normalisation: strip leading '$', '0x', or '0X' and uppercase.",
+    "Names are uppercase shorthand (MDMAEN, VMADDL); aliases include long-form when common."
+  ],
+  "registers": [
+    {
+      "address": "2100",
+      "name": "INIDISP",
+      "category": "display",
+      "description": "Initial Display Settings. Bit 7 = forced blank (1=screen black, safe to write VRAM/CGRAM/OAM). Bits 0-3 = brightness 0-15.",
+      "see_also": ["INIDISPQ"]
+    },
+    {
+      "address": "2101",
+      "name": "OBSEL",
+      "category": "ppu",
+      "description": "Object size and OBJ character base. Selects sprite size pair and the BBA/NBA tile addresses for sprites."
+    },
+    {
+      "address": "2102",
+      "name": "OAMADDL",
+      "category": "oam",
+      "description": "OAM address low. Pair with OAMADDH at $2103 to set the OAM word address before writing OAMDATA."
+    },
+    {
+      "address": "2103",
+      "name": "OAMADDH",
+      "category": "oam",
+      "description": "OAM address high. Pair with OAMADDL at $2102."
+    },
+    {
+      "address": "2104",
+      "name": "OAMDATA",
+      "category": "oam",
+      "description": "OAM data write port. DMA target via B-bus $04. Writes consume one byte; word writes need two stores."
+    },
+    {
+      "address": "2105",
+      "name": "BGMODE",
+      "category": "ppu",
+      "description": "Background mode and per-BG character size. Bits 0-2 = mode 0-7. Bits 4-7 enable 16x16 tiles per BG."
+    },
+    {
+      "address": "210D",
+      "name": "BG1HOFS",
+      "category": "scroll",
+      "description": "BG1 horizontal scroll offset. Write twice (low byte, then high byte). Same write-twice pattern for $210E (BG1VOFS)."
+    },
+    {
+      "address": "2115",
+      "name": "VMAIN",
+      "category": "vram",
+      "description": "VRAM Address Increment Mode. Bit 7 selects when to auto-increment ($2118 vs $2119 write). Bits 0-1 set step size: 00=1 word, 01=32 words, 10/11=128 words. Common idiom: LDA #$80 / STA $2115 (increment after high byte writes).",
+      "see_also": ["VMADDL", "VMADDH", "VMDATAL", "VMDATAH"]
+    },
+    {
+      "address": "2116",
+      "name": "VMADDL",
+      "category": "vram",
+      "description": "VRAM Word Address Low. Pair with VMADDH at $2117 to point at the next VRAM word target before VMDATAL/H writes or DMA. Word-addressed (not byte-addressed)."
+    },
+    {
+      "address": "2117",
+      "name": "VMADDH",
+      "category": "vram",
+      "description": "VRAM Word Address High. Pair with VMADDL at $2116."
+    },
+    {
+      "address": "2118",
+      "name": "VMDATAL",
+      "category": "vram",
+      "description": "VRAM Data Write Low. DMA target via B-bus $18. Increments VMADD per the VMAIN setting."
+    },
+    {
+      "address": "2119",
+      "name": "VMDATAH",
+      "category": "vram",
+      "description": "VRAM Data Write High. DMA target via B-bus $19."
+    },
+    {
+      "address": "211B",
+      "name": "M7A",
+      "category": "mode7",
+      "description": "Mode 7 Matrix A. Also used as the multiplier for the signed 16x8 multiplier whose result appears at $2134-$2136."
+    },
+    {
+      "address": "211C",
+      "name": "M7B",
+      "category": "mode7",
+      "description": "Mode 7 Matrix B. Also used as the multiplicand for the signed 16x8 multiplier."
+    },
+    {
+      "address": "2121",
+      "name": "CGADD",
+      "category": "cgram",
+      "description": "CGRAM (palette) address. 256 colours, each two bytes. Auto-increments on byte writes to CGDATA at $2122."
+    },
+    {
+      "address": "2122",
+      "name": "CGDATA",
+      "category": "cgram",
+      "description": "CGRAM (palette) data write. DMA target via B-bus $22. Two bytes per colour: low byte then high byte."
+    },
+    {
+      "address": "212C",
+      "name": "TM",
+      "category": "screen",
+      "description": "Main screen layer enable. Bits 0-3 enable BG1-BG4, bit 4 enables OBJ."
+    },
+    {
+      "address": "212D",
+      "name": "TS",
+      "category": "screen",
+      "description": "Sub screen layer enable. Same bit layout as TM at $212C."
+    },
+    {
+      "address": "2134",
+      "name": "MPYL",
+      "category": "math",
+      "description": "Signed multiply result low byte. Available a few cycles after writing M7A and M7B."
+    },
+    {
+      "address": "2135",
+      "name": "MPYM",
+      "category": "math",
+      "description": "Signed multiply result middle byte."
+    },
+    {
+      "address": "2136",
+      "name": "MPYH",
+      "category": "math",
+      "description": "Signed multiply result high byte."
+    },
+    {
+      "address": "2139",
+      "name": "RDVRAML",
+      "category": "vram",
+      "description": "VRAM data read low (read-only). Increments VMADD per VMAIN."
+    },
+    {
+      "address": "213A",
+      "name": "RDVRAMH",
+      "category": "vram",
+      "description": "VRAM data read high (read-only)."
+    },
+    {
+      "address": "4200",
+      "name": "NMITIMEN",
+      "category": "cpu_control",
+      "description": "Interrupt enable. Bit 7 = NMI on VBlank, bits 4-5 = IRQ source, bit 0 = joypad auto-read."
+    },
+    {
+      "address": "4202",
+      "name": "WRMPYA",
+      "category": "math",
+      "description": "Unsigned multiply factor A (8x8). Result at $4216-$4217 a few cycles after writing WRMPYB."
+    },
+    {
+      "address": "4203",
+      "name": "WRMPYB",
+      "category": "math",
+      "description": "Unsigned multiply factor B (8x8). Writing this kicks off the multiply."
+    },
+    {
+      "address": "4204",
+      "name": "WRDIVL",
+      "category": "math",
+      "description": "Unsigned divide dividend low (16-bit dividend split across $4204/$4205)."
+    },
+    {
+      "address": "4205",
+      "name": "WRDIVH",
+      "category": "math",
+      "description": "Unsigned divide dividend high."
+    },
+    {
+      "address": "4206",
+      "name": "WRDIVB",
+      "category": "math",
+      "description": "Unsigned divide divisor (8-bit). Writing this starts the divide; quotient at $4214-$4215, remainder at $4216-$4217."
+    },
+    {
+      "address": "4207",
+      "name": "HTIMEL",
+      "category": "irq",
+      "description": "H-IRQ horizontal counter low."
+    },
+    {
+      "address": "4209",
+      "name": "VTIMEL",
+      "category": "irq",
+      "description": "V-IRQ vertical counter low."
+    },
+    {
+      "address": "420B",
+      "name": "MDMAEN",
+      "category": "dma",
+      "description": "DMA Enable. Writing a value with bit N set starts a one-shot DMA on channel N. Run during VBlank or forced blank, not active display.",
+      "see_also": ["HDMAEN"]
+    },
+    {
+      "address": "420C",
+      "name": "HDMAEN",
+      "category": "dma",
+      "description": "HDMA Enable. Writing a value with bit N set arms HDMA channel N for the next frame; HDMA fires once per scanline. Different beast from MDMAEN.",
+      "see_also": ["MDMAEN"]
+    },
+    {
+      "address": "4300",
+      "name": "DMAP0",
+      "category": "dma",
+      "description": "DMA/HDMA channel 0 parameters. Bit 7 direction (0=A->B), bit 6 indirect HDMA, bit 4 step (0=inc), bit 3 fixed, bits 0-2 transfer mode (0=p, 1=p p+1, 2=p p, 3=p p p+1 p+1, 4=p p+1 p+2 p+3, 5=p p+1 p p+1). Channel N at $43N0."
+    },
+    {
+      "address": "4301",
+      "name": "BBAD0",
+      "category": "dma",
+      "description": "DMA channel 0 B-bus address (PPU register low byte). Common values: $04 OAMDATA, $18/$19 VMDATAL/H, $22 CGDATA. Channel N at $43N1."
+    },
+    {
+      "address": "4302",
+      "name": "A1T0L",
+      "category": "dma",
+      "description": "DMA channel 0 A-bus source/dest address low. Pair with A1T0H ($4303) and A1B0 ($4304). Channel N at $43N2."
+    },
+    {
+      "address": "4303",
+      "name": "A1T0H",
+      "category": "dma",
+      "description": "DMA channel 0 A-bus address high."
+    },
+    {
+      "address": "4304",
+      "name": "A1B0",
+      "category": "dma",
+      "description": "DMA channel 0 A-bus bank byte."
+    },
+    {
+      "address": "4305",
+      "name": "DAS0L",
+      "category": "dma",
+      "description": "DMA channel 0 byte count low. CRITICAL: 0 means 65536 bytes for MDMA. Pair with DAS0H ($4306). Channel N at $43N5."
+    },
+    {
+      "address": "4306",
+      "name": "DAS0H",
+      "category": "dma",
+      "description": "DMA channel 0 byte count high. CRITICAL: must be set or transfer length is wrong."
+    },
+    {
+      "address": "4307",
+      "name": "DASB0",
+      "category": "dma",
+      "description": "DMA channel 0 HDMA indirect address bank."
+    },
+    {
+      "address": "4216",
+      "name": "RDMPYL",
+      "category": "math",
+      "description": "Unsigned multiply result low (or divide remainder low after WRDIVB)."
+    },
+    {
+      "address": "4217",
+      "name": "RDMPYH",
+      "category": "math",
+      "description": "Unsigned multiply result high (or divide remainder high)."
+    },
+    {
+      "address": "4214",
+      "name": "RDDIVL",
+      "category": "math",
+      "description": "Unsigned divide quotient low."
+    },
+    {
+      "address": "4215",
+      "name": "RDDIVH",
+      "category": "math",
+      "description": "Unsigned divide quotient high."
+    }
+  ],
+  "wram_quick_refs": [
+    {
+      "address": "7E0013",
+      "name": "INIDISPQ",
+      "description": "ALTTP/Oracle WRAM mirror staged into $2100 each frame. Written here, applied at NMI."
+    },
+    {
+      "address": "7E009B",
+      "name": "HDMAENQ",
+      "description": "ALTTP/Oracle WRAM mirror staged into $420C each frame. Written here, applied at NMI."
+    }
+  ]
+}

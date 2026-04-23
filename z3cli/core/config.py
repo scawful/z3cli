@@ -92,6 +92,7 @@ Z3UI_MODEL_TAGS = {
 Z3UI_MODEL_ORDER = (
     "oracle",
     "oracle-fast",
+    "oracle-pro",
     "qwen3-oracle-8b",
     "din",
     "farore",
@@ -215,6 +216,24 @@ class MCPServerConfig:
     command: str
     args: list[str] = field(default_factory=list)
     env: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class LlamaCppNodeConfig:
+    name: str
+    api_base: str
+    model: str
+    description: str = ""
+    lean_prompt: bool = False
+
+
+@dataclass
+class StudioNodeConfig:
+    name: str
+    api_base: str
+    model: str = ""
+    description: str = ""
+    hostd_url: str = ""
 
 
 @dataclass
@@ -650,6 +669,73 @@ def load_registry(
     apply_rollout_gates(models, load_rollout_gates(rollout_path))
 
     return models, routers
+
+
+def load_llamacpp_nodes(path: Path | None = None) -> dict[str, LlamaCppNodeConfig]:
+    """Load named llama.cpp inference nodes from chat_registry.toml."""
+    path = path or REGISTRY_PATH
+    nodes: dict[str, LlamaCppNodeConfig] = {}
+
+    if not path.exists():
+        return nodes
+
+    with path.open("rb") as handle:
+        loaded = tomllib.load(handle)
+    data: dict[str, Any] = loaded if isinstance(loaded, dict) else {}
+
+    raw_nodes = data.get("llamacpp_nodes", [])
+    if isinstance(raw_nodes, dict):
+        raw_nodes = [dict(value, name=name) for name, value in raw_nodes.items()]
+
+    for raw_node in raw_nodes:
+        if not isinstance(raw_node, dict):
+            continue
+        name = _normalize_profile_name(str(raw_node.get("name", "")))
+        api_base = str(raw_node.get("api_base", "") or "").strip().rstrip("/")
+        model = str(raw_node.get("model", "") or "").strip()
+        if not name or not api_base or not model:
+            continue
+        nodes[name] = LlamaCppNodeConfig(
+            name=name,
+            api_base=api_base,
+            model=model,
+            description=str(raw_node.get("description", "") or "").strip(),
+            lean_prompt=bool(raw_node.get("lean_prompt", False)),
+        )
+    return nodes
+
+
+def load_studio_nodes(path: Path | None = None) -> dict[str, StudioNodeConfig]:
+    """Load named LM Studio inference nodes from chat_registry.toml."""
+    path = path or REGISTRY_PATH
+    nodes: dict[str, StudioNodeConfig] = {}
+
+    if not path.exists():
+        return nodes
+
+    with path.open("rb") as handle:
+        loaded = tomllib.load(handle)
+    data: dict[str, Any] = loaded if isinstance(loaded, dict) else {}
+
+    raw_nodes = data.get("studio_nodes", [])
+    if isinstance(raw_nodes, dict):
+        raw_nodes = [dict(value, name=name) for name, value in raw_nodes.items()]
+
+    for raw_node in raw_nodes:
+        if not isinstance(raw_node, dict):
+            continue
+        name = _normalize_profile_name(str(raw_node.get("name", "")))
+        api_base = str(raw_node.get("api_base", "") or "").strip().rstrip("/")
+        if not name or not api_base:
+            continue
+        nodes[name] = StudioNodeConfig(
+            name=name,
+            api_base=api_base,
+            model=str(raw_node.get("model", "") or "").strip(),
+            description=str(raw_node.get("description", "") or "").strip(),
+            hostd_url=str(raw_node.get("hostd_url", "") or "").strip().rstrip("/"),
+        )
+    return nodes
 
 
 def load_mcp_servers(

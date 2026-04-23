@@ -12,8 +12,15 @@ from z3cli.core.engine import (
     ThinkingEvent,
     ToolResultEvent,
     _extract_xml_tool_calls,
+    summarize_tool_result_for_history,
 )
-from z3cli.app.runtime import build_local_identity_prompt, build_tool_bias_prompt, build_tool_use_prompt
+from z3cli.app.runtime import (
+    build_local_identity_prompt,
+    build_oracle_answer_after_grounding_prompt,
+    build_oracle_natural_chat_prompt,
+    build_tool_bias_prompt,
+    build_tool_use_prompt,
+)
 from z3cli.core.config import ModelConfig
 from z3cli.core.provider import CompletionChunk, CompletionRequest, ContentDelta, ProviderError, ToolCallDelta, UsageInfo
 
@@ -112,6 +119,43 @@ class ToolGuidancePromptTests(unittest.TestCase):
             native_tools=False,
         )
         self.assertIn("<tool_call>", prompt)
+
+    def test_history_summary_compacts_list_subagents_blob(self) -> None:
+        result = summarize_tool_result_for_history(
+            "list_subagents",
+            '{"specialists":[{"name":"din"},{"name":"farore"},{"name":"nayru"}]}',
+            max_chars=4000,
+        )
+
+        self.assertEqual(result, "Available specialists (3): din, farore, nayru")
+
+    def test_history_summary_reduces_workspace_symbol_dump(self) -> None:
+        result = summarize_tool_result_for_history(
+            "label_lookup",
+            "\n".join([
+                "Workspace symbols (4 of 4):",
+                "- A",
+                "- B",
+                "- C",
+                "- D",
+            ]),
+            max_chars=4000,
+        )
+
+        self.assertIn("Workspace symbols (4 of 4):", result)
+        self.assertIn("... (+1 more matches)", result)
+
+    def test_oracle_answer_after_grounding_prompt_skips_exhaustive_debug_turns(self) -> None:
+        prompt = build_oracle_answer_after_grounding_prompt("Investigate why this minecart regression happens step by step.")
+
+        self.assertEqual(prompt, "")
+
+    def test_oracle_natural_chat_prompt_encourages_single_clarifier(self) -> None:
+        prompt = build_oracle_natural_chat_prompt("minecart is weird")
+
+        self.assertIn("casually, tersely, or by implication", prompt)
+        self.assertIn("exactly one short clarifying question", prompt)
+        self.assertIn("Do not lecture the user about prompting quality", prompt)
 
 
 class FlakyProvider:
@@ -218,6 +262,34 @@ class MultiToolTimeoutProvider:
         pass
 
 
+class ToolThenAnswerProvider:
+    def __init__(self) -> None:
+        self.calls = 0
+        self.requests: list[CompletionRequest] = []
+
+    @property
+    def name(self) -> str:
+        return "local"
+
+    async def stream(
+        self,
+        request: CompletionRequest,
+    ) -> AsyncGenerator[CompletionChunk, None]:
+        self.requests.append(request)
+        self.calls += 1
+        if self.calls == 1:
+            yield CompletionChunk(tool_calls=[ToolCallDelta(id="tc-1", name="label_lookup", arguments='{"query":"Minecart"}')])
+            return
+        yield CompletionChunk(content=ContentDelta(text="grounded answer"))
+        yield CompletionChunk(usage=UsageInfo(prompt_tokens=2, completion_tokens=1))
+
+    async def check_connection(self) -> bool:
+        return True
+
+    async def close(self) -> None:
+        pass
+
+
 class HangingBridge:
     def get_openai_tools(self) -> list[dict]:
         return [{
@@ -284,6 +356,41 @@ class EchoBridge:
     @property
     def server_tool_counts(self) -> dict[str, int]:
         return {"mock": 1}
+
+    async def close(self) -> None:
+        return None
+
+
+class GroundingBridge:
+    def get_openai_tools(self) -> list[dict]:
+        return [{
+            "type": "function",
+            "function": {
+                "name": "label_lookup",
+                "description": "resolve label",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }]
+
+    async def call_tool(self, name: str, arguments: dict) -> str:
+        del name, arguments
+        return "Sprite_Minecart @ /tmp/minecart.asm:1"
+
+    def get_tool_server(self, tool_name: str) -> str:
+        del tool_name
+        return "oracle"
+
+    @property
+    def tool_count(self) -> int:
+        return 1
+
+    @property
+    def server_names(self) -> list[str]:
+        return ["oracle"]
+
+    @property
+    def server_tool_counts(self) -> dict[str, int]:
+        return {"oracle": 1}
 
     async def close(self) -> None:
         return None
@@ -539,6 +646,31 @@ class Qwen3ParsingTests(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertEqual(len(timeout_results), 1)
         self.assertEqual(engine.tool_timeout_count, 1)
+        self.assertTrue(any(isinstance(event, DoneEvent) for event in events))
+
+    async def test_answer_after_first_grounding_disables_extra_tool_rounds(self) -> None:
+        provider = ToolThenAnswerProvider()
+        engine = ChatEngine(
+            provider=provider,
+            bridge=GroundingBridge(),
+        )
+
+        events = [
+            event async for event in engine.chat(
+                "Let's take a look at the Minecart sprite.",
+                "oracle-pro",
+                use_tools=True,
+                answer_after_first_grounding=True,
+                answer_after_grounding_system="Answer from the grounded evidence now.",
+            )
+        ]
+
+        self.assertEqual(provider.calls, 2)
+        self.assertEqual(len(provider.requests), 2)
+        self.assertIsNotNone(provider.requests[0].tools)
+        self.assertIsNone(provider.requests[1].tools)
+        self.assertIn("Answer from the grounded evidence now.", provider.requests[1].system)
+        self.assertTrue(any(isinstance(event, TextEvent) and event.text == "grounded answer" for event in events))
         self.assertTrue(any(isinstance(event, DoneEvent) for event in events))
 
     async def test_retry_burst_429_counts_error_after_retry_budget_exhausted(self) -> None:

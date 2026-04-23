@@ -44,6 +44,7 @@ export interface ModelInfo {
   role: string;
   description?: string;
   loaded: boolean;
+  selectable?: boolean;
   toolsEnabled: boolean;
   provider?: string;
   contextBudget?: number;

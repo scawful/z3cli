@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -163,6 +164,8 @@ class RoutingDecision:
 _ATTACHMENT_RE = re.compile(r"(?<!\S)@([^\s@]+)")
 _CONSTRUCT_REF_RE = re.compile(r"(?<!\S)#([A-Za-z][A-Za-z0-9_-]*):([^\s#]+)")
 _SYMBOL_QUERY_RE = re.compile(r"(?<![@/\\\\$])!?[A-Za-z_][A-Za-z0-9_]{2,}")
+_HEX_ADDRESS_RE = re.compile(r"(?<![@/\\\\A-Za-z0-9])(?:\$|0x)([0-9A-Fa-f]{4,6})(?![A-Za-z0-9])")
+_ORACLE_REGISTER_NAME_RE = re.compile(r"(?<![@/\\\\$])([A-Z][A-Z0-9]{3,8})(?![A-Za-z0-9_])")
 LSP_CONTEXT_MODES = ("auto", "off", "minimal", "balanced", "rich")
 _RESOURCE_LABEL_FILES = (
     Path("Docs/Dev/Planning/oracle_resource_labels.json"),
@@ -241,6 +244,116 @@ _LSP_SYMBOL_STOPWORDS = {
     "using",
     "with",
 }
+_ORACLE_REGISTER_NAME_HINTS = (
+    "DMA",
+    "HDMA",
+    "BGMODE",
+    "CG",
+    "JOY",
+    "NMI",
+    "TM",
+    "TS",
+    "SETINI",
+    "MOSAIC",
+    "VMAIN",
+    "VMDATA",
+    "W12",
+    "W34",
+    "WBG",
+    "WOBJ",
+    "MDMAEN",
+    "HDMAEN",
+)
+_ORACLE_REGISTER_TOKEN_EXCLUSIONS = {
+    "OOS",
+    "ALTTP",
+    "ASM",
+    "JSR",
+    "JSL",
+    "RTL",
+    "RTS",
+    "REP",
+    "SEP",
+    "STZ",
+    "CPU",
+    "ROM",
+    "WRAM",
+}
+_FILESYSTEM_PROMPT_HINTS = (
+    "filesystem",
+    "file system",
+    "list files",
+    "show files",
+    "browse files",
+    "directory",
+    "directories",
+    "folder",
+    "folders",
+)
+_FILESYSTEM_TOOL_HINTS = (
+    "list_files",
+    "read_file",
+    "glob",
+    "search_files",
+    "workspace",
+    "read_context",
+)
+_ORACLE_DISASM_KEYWORDS = (
+    "jsr",
+    "jsl",
+    "rtl",
+    "rts",
+    "rep",
+    "sep",
+    "stz",
+    "hook",
+    "contract",
+    "width",
+    "opcode",
+    "disasm",
+    "instruction",
+    "asm",
+)
+_ORACLE_REFERENCE_KEYWORDS = (
+    "call site",
+    "callsite",
+    "who calls",
+    "where used",
+    "writer",
+    "writers",
+    "references",
+    "reference",
+    "xref",
+)
+_ORACLE_EXHAUSTIVE_INVESTIGATION_HINTS = (
+    "all references",
+    "all call sites",
+    "all callers",
+    "all usages",
+    "deep dive",
+    "dig in",
+    "exhaustive",
+    "full trace",
+    "investigate",
+    "regression",
+    "repro",
+    "step by step",
+    "walk through",
+    "why does",
+)
+_ORACLE_BROAD_DISCOVERY_HINTS = (
+    "pending task",
+    "pending tasks",
+    "repo",
+    "repository",
+    "codebase",
+    "docs",
+    "documentation",
+    "readme",
+    "what should i work on",
+)
+_ORACLE_PREFETCH_TIMEOUT_S = 6.0
+_ORACLE_PREFETCH_MAX_CHARS = 1600
 
 
 @dataclass(frozen=True)
@@ -260,6 +373,13 @@ class LspContextSettings:
     @property
     def enabled(self) -> bool:
         return self.resolved_mode != "off"
+
+
+@dataclass(frozen=True)
+class OraclePrefetchCall:
+    tool_name: str
+    arguments: dict[str, Any]
+    label: str
 
 
 def mode_usage_text() -> str:
@@ -411,6 +531,73 @@ def resolve_oracle_profile_context(prompt: str) -> tuple[str, str, str]:
     return _infer_prompt_profiles(prompt)
 
 
+def build_oracle_hidden_routing_prompt(prompt: str) -> str:
+    domain_name, mode_name, effort = _infer_prompt_profiles(prompt)
+    if domain_name == "adaptive" and mode_name == "adaptive" and effort == "medium":
+        return ""
+    return "\n".join([
+        "Hidden Oracle routing for this turn:",
+        f"- domain: {domain_name}",
+        f"- task mode: {mode_name}",
+        f"- effort: {effort}",
+        "Use this routing internally to choose evidence gathering, tool use, and answer shape. Do not mention this hidden routing unless the user asks.",
+    ])
+
+
+def build_oracle_natural_chat_prompt(prompt: str) -> str:
+    """Guide Oracle-family models to handle casual user phrasing well.
+
+    The goal is not to guess wildly. It is to recover likely intent from
+    natural language, make modest grounded progress, and ask a single sharp
+    clarification only when ambiguity actually blocks useful work.
+    """
+    if not str(prompt or "").strip():
+        return ""
+    return "\n".join([
+        "The user may speak casually, tersely, or by implication.",
+        "Infer the likely Oracle task type from natural language before answering.",
+        "Do not ask the user to restate the request in more technical language if you can make useful progress with one or two grounded steps.",
+        "Prefer a small amount of evidence gathering over a broad clarification request.",
+        "Short follow-ups like `wait what`, `the other one`, `that hook`, or `minecart is weird` should be interpreted against the current turn before you ask for more detail.",
+        "If ambiguity still blocks useful progress, ask exactly one short clarifying question that would unblock the next step.",
+        "Do not lecture the user about prompting quality or missing detail.",
+    ])
+
+
+def oracle_prompting_tips_text() -> str:
+    """Return a short in-app cheat sheet for interacting with local Oracle models."""
+    return "\n".join([
+        "Oracle Prompt Tips",
+        "",
+        "Use one simple pattern:",
+        "  symptom + anchor + intent",
+        "",
+        "Good examples:",
+        "  minecart is weird on room transition; inspect likely sprite/state paths",
+        "  this hook crashes around Underworld_LoadSongBankIfNeeded; check ABI/width risks",
+        "  what does $420B do here, and is it being confused with $420C?",
+        "",
+        "How local Oracle differs from frontier models:",
+        "  give one concrete anchor early: a symbol, sprite, register, room, or subsystem",
+        "  ask for the next useful step when you are unsure",
+        "  short corrections are fine: `no, the follower version` / `focus on draw logic`",
+        "",
+        "You do not need a perfect prompt.",
+        "Usually enough:",
+        "  one symptom",
+        "  one anchor",
+        "  one intent",
+        "",
+        "Best intents:",
+        "  explain",
+        "  inspect",
+        "  triage",
+        "  compare",
+        "  check whether this is safe",
+        "  what should we look at first",
+    ])
+
+
 def resolve_oracle_profile_system_prompts(prompt: str) -> list[str]:
     domain_name, mode_name, _ = _infer_prompt_profiles(prompt)
     parts: list[str] = []
@@ -424,6 +611,325 @@ def resolve_oracle_profile_system_prompts(prompt: str) -> list[str]:
         parts.append(mode_prompt.system_prompt)
 
     return parts
+
+
+def _extract_hex_address_queries(prompt: str, *, limit: int = 0) -> list[str]:
+    results: list[str] = []
+    seen: set[str] = set()
+    for match in _HEX_ADDRESS_RE.finditer(str(prompt or "")):
+        token = str(match.group(0) or "").strip()
+        if not token:
+            continue
+        normalized = token.upper().replace("0X", "$")
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        results.append(normalized)
+        if limit > 0 and len(results) >= limit:
+            break
+    return results
+
+
+def _looks_like_oracle_register_name(token: str) -> bool:
+    if not token:
+        return False
+    upper = token.upper()
+    if upper in _ORACLE_REGISTER_TOKEN_EXCLUSIONS:
+        return False
+    if any(hint in upper for hint in _ORACLE_REGISTER_NAME_HINTS):
+        return True
+    return False
+
+
+def _extract_register_name_queries(prompt: str, *, limit: int = 0) -> list[str]:
+    results: list[str] = []
+    seen: set[str] = set()
+    for match in _ORACLE_REGISTER_NAME_RE.finditer(str(prompt or "")):
+        token = str(match.group(1) or "").strip().upper()
+        if not _looks_like_oracle_register_name(token):
+            continue
+        if token in seen:
+            continue
+        seen.add(token)
+        results.append(token)
+        if limit > 0 and len(results) >= limit:
+            break
+    return results
+
+
+def _extract_oracle_register_queries(prompt: str, *, limit: int = 0) -> list[str]:
+    all_addresses = _extract_hex_address_queries(prompt, limit=4)
+    results: list[str] = []
+    seen: set[str] = set()
+
+    def add(query: str) -> None:
+        normalized = str(query or "").strip().upper()
+        if not normalized or normalized in seen:
+            return
+        seen.add(normalized)
+        results.append(normalized)
+
+    for token in all_addresses:
+        digits = token.lstrip("$").upper()
+        if digits.startswith(("21", "42", "43")) or digits == "7E0013":
+            add(token)
+            if limit > 0 and len(results) >= limit:
+                return results
+
+    for token in _extract_register_name_queries(prompt, limit=4):
+        add(token)
+        if limit > 0 and len(results) >= limit:
+            return results
+
+    return results
+
+
+def prompt_requires_oracle_register_grounding(prompt: str) -> bool:
+    return bool(_extract_oracle_register_queries(prompt, limit=1))
+
+
+def build_oracle_register_grounding_prompt(prompt: str) -> str:
+    if not prompt_requires_oracle_register_grounding(prompt):
+        return ""
+    return "\n".join([
+        "This turn is a register or MMIO question.",
+        "Treat `register_doc` evidence as authoritative when it is available.",
+        "If Oracle preloaded context includes register_doc output, answer from that evidence instead of memory.",
+        "If the register lookup says `Unknown register`, say that explicitly and do not infer adjacent-register behavior or bit fields.",
+        "When comparing multiple registers, ground each register before drawing the comparison.",
+    ])
+
+
+def plan_oracle_context_prefetch(prompt: str) -> list[OraclePrefetchCall]:
+    prompt_lower = str(prompt or "").lower()
+    profile_domain, profile_mode, _profile_effort = _infer_prompt_profiles(prompt)
+    all_addresses = _extract_hex_address_queries(prompt, limit=4)
+    register_queries: list[str] = []
+    code_queries: list[str] = []
+    for token in all_addresses:
+        digits = token.lstrip("$").upper()
+        if digits.startswith(("21", "42", "43")) or digits == "7E0013":
+            register_queries.append(token)
+        else:
+            code_queries.append(token)
+
+    register_queries.extend(_extract_register_name_queries(prompt, limit=2))
+    symbol_queries = extract_lsp_symbol_queries(prompt, limit=2)
+
+    calls: list[OraclePrefetchCall] = []
+    seen: set[tuple[str, str]] = set()
+
+    def add(tool_name: str, arguments: dict[str, Any], label: str) -> None:
+        key = (tool_name, json.dumps(arguments, sort_keys=True))
+        if key in seen:
+            return
+        seen.add(key)
+        calls.append(OraclePrefetchCall(tool_name=tool_name, arguments=arguments, label=label))
+
+    for query in register_queries[:2]:
+        add("register_doc", {"query": query}, f"register_doc({query})")
+
+    for query in symbol_queries[:2]:
+        add("label_lookup", {"query": query}, f"label_lookup({query})")
+
+    for query in code_queries[:1]:
+        add("label_lookup", {"query": query}, f"label_lookup({query})")
+
+    if code_queries and (
+        profile_mode in {"trace", "debug", "author"}
+        or profile_domain in {"oos", "crossref", "alttp-vanilla"}
+        or any(keyword in prompt_lower for keyword in _ORACLE_DISASM_KEYWORDS)
+    ):
+        add("disasm_at", {"address": code_queries[0], "count": 10}, f"disasm_at({code_queries[0]})")
+
+    if any(keyword in prompt_lower for keyword in _ORACLE_REFERENCE_KEYWORDS):
+        if symbol_queries:
+            add("grep_disasm", {"query": symbol_queries[0]}, f"grep_disasm({symbol_queries[0]})")
+        elif code_queries:
+            add("grep_disasm", {"query": code_queries[0]}, f"grep_disasm({code_queries[0]})")
+
+    return calls[:4]
+
+
+async def collect_oracle_context_packs(
+    prompt: str,
+    *,
+    bridge: ToolBridge | None,
+    model: ModelConfig | None = None,
+    max_chars: int = _ORACLE_PREFETCH_MAX_CHARS,
+    max_calls: int = 4,
+) -> list[dict[str, Any]]:
+    if bridge is None or not _is_oracle_family_model(model):
+        return []
+
+    available_tools: set[str] = set()
+    for tool in bridge.get_openai_tools():
+        fn = tool.get("function") or {}
+        name = fn.get("name")
+        if isinstance(name, str) and name.strip():
+            available_tools.add(name.strip())
+
+    contexts: list[dict[str, Any]] = []
+    for call in plan_oracle_context_prefetch(prompt)[:max(0, max_calls)]:
+        if call.tool_name not in available_tools:
+            continue
+        try:
+            raw = await asyncio.wait_for(bridge.call_tool(call.tool_name, dict(call.arguments)), timeout=_ORACLE_PREFETCH_TIMEOUT_S)
+        except Exception:
+            continue
+        text = str(raw or "").strip()
+        if not text or text.startswith("Error:"):
+            continue
+        if len(text) > max_chars:
+            text = text[:max_chars].rstrip() + "\n\n... (truncated)"
+        contexts.append({
+            "tool_name": call.tool_name,
+            "arguments": dict(call.arguments),
+            "server": bridge.get_tool_server(call.tool_name),
+            "label": call.label,
+            "content": text,
+        })
+    return contexts
+
+
+def enrich_prompt_with_oracle_context(prompt: str, contexts: list[dict[str, Any]]) -> str:
+    if not contexts:
+        return prompt
+
+    sections = [prompt.rstrip(), "", "Oracle preloaded context:"]
+    appended = 0
+    for item in contexts:
+        label = str(item.get("label", "") or "").strip()
+        content = str(item.get("content", "") or "").strip()
+        if not label or not content:
+            continue
+        sections.extend([
+            "",
+            label,
+            "```text",
+            content,
+            "```",
+        ])
+        appended += 1
+    if appended == 0:
+        return prompt
+    return "\n".join(sections).strip()
+
+
+def build_oracle_prefetch_session_records(
+    prompt: str,
+    contexts: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not prompt_requires_oracle_register_grounding(prompt):
+        return []
+
+    records: list[dict[str, Any]] = []
+    for index, item in enumerate(contexts, start=1):
+        tool_name = str(item.get("tool_name", "") or "").strip()
+        if tool_name != "register_doc":
+            continue
+        arguments = item.get("arguments") if isinstance(item.get("arguments"), dict) else {}
+        call_id = f"oracle-prefetch-register-{index}"
+        records.append({
+            "tool_name": tool_name,
+            "arguments": dict(arguments),
+            "arguments_json": json.dumps(arguments, sort_keys=True),
+            "server": str(item.get("server", "") or ""),
+            "tool_call_id": call_id,
+            "tool_group": call_id,
+            "content": str(item.get("content", "") or ""),
+        })
+    return records
+
+
+def build_oracle_prefetch_forced_reply(
+    prompt: str,
+    contexts: list[dict[str, Any]],
+) -> str:
+    if not prompt_requires_oracle_register_grounding(prompt):
+        return ""
+
+    register_contexts = [
+        item for item in contexts
+        if str(item.get("tool_name", "") or "").strip() == "register_doc"
+    ]
+    if len(register_contexts) != 1:
+        return ""
+
+    content = str(register_contexts[0].get("content", "") or "").strip()
+    if "unknown register" not in content.lower():
+        return ""
+
+    arguments = register_contexts[0].get("arguments")
+    query = ""
+    if isinstance(arguments, dict):
+        query = str(arguments.get("query", "") or "").strip()
+    if not query:
+        query = "that register"
+
+    return (
+        "I couldn't find an authoritative `register_doc` entry for that register in the loaded "
+        "register table. I don't want to infer its behavior from nearby registers, so I can't "
+        "say what it does from evidence here."
+    )
+
+
+def build_unavailable_tool_forced_reply(
+    prompt: str,
+    bridge: ToolBridge | None,
+) -> str:
+    lowered = str(prompt or "").strip().lower()
+    if not lowered:
+        return ""
+    if not any(hint in lowered for hint in _FILESYSTEM_PROMPT_HINTS):
+        return ""
+
+    tool_names: set[str] = set()
+    if bridge is not None:
+        for tool in bridge.get_openai_tools():
+            function = tool.get("function") if isinstance(tool, dict) else None
+            if not isinstance(function, dict):
+                continue
+            name = function.get("name")
+            if isinstance(name, str) and name.strip():
+                tool_names.add(name.strip().lower())
+
+    if any(any(hint in tool_name for hint in _FILESYSTEM_TOOL_HINTS) for tool_name in tool_names):
+        return ""
+
+    return (
+        "I don't have general filesystem browsing tools in this Oracle harness. "
+        "I can inspect Zelda-specific symbols, disassembly, ROM data, CPU state, and register docs, "
+        "but I can't do a generic file listing from here."
+    )
+
+
+def build_oracle_answer_after_grounding_prompt(prompt: str) -> str:
+    """Return a follow-up policy for lightweight Oracle trace turns.
+
+    After one successful grounding tool result, the next round should usually
+    answer instead of expanding into more tool calls. Deep debug/investigation
+    prompts opt out so they can keep gathering evidence.
+    """
+    prompt_text = str(prompt or "").strip()
+    if not prompt_text:
+        return ""
+
+    _domain_name, mode_name, _effort = _infer_prompt_profiles(prompt_text)
+    lowered = prompt_text.lower()
+    if mode_name in {"debug", "author"}:
+        return ""
+    if any(hint in lowered for hint in _ORACLE_EXHAUSTIVE_INVESTIGATION_HINTS):
+        return ""
+    if any(hint in lowered for hint in _ORACLE_BROAD_DISCOVERY_HINTS):
+        return ""
+
+    return "\n".join([
+        "You already have at least one grounded Oracle tool result for this turn.",
+        "Unless the user explicitly asked for an exhaustive investigation, answer from the current evidence instead of calling more tools.",
+        "Do not expand into ROM reads, emulator state, or extra cross-references just to be thorough.",
+        "If the evidence is partial, say what it establishes and name the next tool you would use only if the user wants deeper follow-up.",
+    ])
 
 
 def _pick_profiled_candidate(
@@ -2177,6 +2683,9 @@ def build_harness_prompt(
     workspace: Path,
     rom_path: Path | None,
     focus_context: str = "",
+    *,
+    include_project_context: bool = True,
+    include_focus_context: bool = True,
 ) -> str:
     lines = [
         "You are operating inside z3cli, a local Zelda ROM-hacking CLI harness.",
@@ -2188,10 +2697,12 @@ def build_harness_prompt(
     if rom_path:
         lines.append(f"Primary ROM target: {rom_path}")
     lines.append("Relevant local tools may include z3ed, yaze, Mesen2, Hyrule Historian, Book of Mudora, and AFS.")
-    project_ctx = load_project_context(workspace)
+    project_ctx = load_project_context(workspace) if include_project_context else ""
     if project_ctx:
         lines.append("\n--- Project Context ---\n" + project_ctx)
-    if focus_context:
+    elif not include_project_context:
+        lines.append("Project context is available locally, but this request is using a lean remote harness. Ask for extra file or project context only when it is required.")
+    if include_focus_context and focus_context:
         lines.append("\n--- Focus Context ---\n" + focus_context)
     return "\n".join(lines)
 

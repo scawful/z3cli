@@ -151,42 +151,26 @@ Do not invent file contents, addresses, banks, hooks, or tool output."""
 [[models]]
 name = "oracle"
 provider = "studio"
-model_id = "gguf/zelda/qwen3-oracle-8b-v1-corrective2-q4km.gguf"
-role = "primary hybrid ASM and tool specialist with adaptive domain and effort routing"
-description = "8B corrective Oracle · q4km"
+model_id = "qwen3-oracle-14b-v1"
+tool_profile = "oracle"
+role = "future 14B oracle mainline for grounded local Zelda work"
+description = "14B Oracle mainline · training label"
 tags = ["oracle", "tools", "asm", "local", "primary"]
 domain = "adaptive"
 mode = "adaptive"
 effort = "medium"
 thinking_tier = "medium"
 aliases = [
-  "oracle-q4km",
-  "oracle-main",
-  "oracle-main-plan",
-  "oracle-main-act",
-  "oracle-tools",
+  "oracle-main-14b",
+  "oracle-main-14b-v1",
+  "oracle-14b",
+  "qwen3-oracle-14b",
 ]
-options = { temperature = 0.15, max_tokens = 1280 }
-system_prompt = """You are Oracle, the mainline Zelda ROM hacking specialist for 65816 ASM, Oracle of Secrets, vanilla ALTTP disassembly, and structured tool use.
-
-Prefer canonical tool surfaces when available.
-Do not invent symbols, addresses, or tool names.
-Keep vanilla ALTTP and Oracle-specific conventions separate.
-When the task is primarily trace or debug work, gather evidence before proposing a fix."""
-
-[[models]]
-name = "qwen3-oracle-14b"
-provider = "studio"
-model_id = "qwen3-oracle-14b-v1"
-role = "future 14B oracle mainline variant for grounded local Zelda work"
-description = "14B Oracle mainline · training label"
-tags = ["oracle", "tools", "asm", "local", "variant"]
-aliases = ["oracle-main-14b", "oracle-main-14b-v1", "oracle-14b"]
-deferred_tools = true
+deferred_tools = false
 native_tools = false
 hide_if_unavailable = true
 options = { temperature = 0.15, max_tokens = 2048 }
-system_prompt = """You are a grounded 14B Oracle mainline variant running inside z3cli.
+system_prompt = """You are Oracle, the grounded 14B mainline variant running inside z3cli.
 
 Prefer canonical tool surfaces when available.
 Do not invent symbols, addresses, tool names, or ROM evidence.
@@ -196,26 +180,55 @@ When the task is primarily trace or debug work, gather evidence before proposing
 [[models]]
 name = "oracle-pro"
 provider = "studio"
-model_id = "gguf/zelda/switchhook-27b-v1-q4km.gguf"
-lmstudio_load = { context_length = 2048, parallel = 1, gpu = "0.80", ttl = 900 }
-allow_auto_load = false
+model_id = "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf"
+tool_profile = "oracle-pro"
+lmstudio_load = { context_length = 16384, parallel = 1, gpu = "0.80", ttl = 900 }
 hide_if_unavailable = true
-role = "manual-only heavy hybrid ASM and tool specialist for explicit larger-context runs"
-description = "27B switchhook Oracle · q4km"
-tags = ["oracle", "tools", "asm", "local", "heavy"]
+role = "gate-cleared 14B oracle-pro lane for grounded local Zelda work"
+description = "14B Oracle-Pro · q4km"
+tags = ["oracle", "tools", "asm", "local", "oracle-pro"]
 domain = "adaptive"
 mode = "adaptive"
 effort = "high"
 thinking_tier = "medium"
 aliases = [
   "oracle-pro-q4km",
+  "oracle-main-14b-v7",
+  "qwen3-oracle-14b-v7",
+  "oracle-pro-14b",
+]
+options = { temperature = 0.15, max_tokens = 1536 }
+system_prompt = """You are Oracle-Pro, the gate-cleared 14B Zelda ROM hacking specialist for 65816 ASM, Oracle of Secrets, vanilla ALTTP disassembly, and structured tool use.
+
+Prefer canonical tool surfaces when available.
+Do not invent symbols, addresses, or tool names.
+Keep vanilla ALTTP and Oracle-specific conventions separate.
+When the task is primarily trace or debug work, gather evidence before proposing a fix."""
+
+[[models]]
+name = "oracle-mythic"
+provider = "studio"
+model_id = "gguf/zelda/switchhook-27b-v1-q4km.gguf"
+tool_profile = "oracle-pro"
+lmstudio_load = { context_length = 8192, parallel = 1, gpu = "0.80", ttl = 900 }
+allow_auto_load = false
+hide_if_unavailable = true
+role = "manual-only 27B oracle-mythic lane for explicit larger-context runs"
+description = "27B Oracle-Mythic · q4km"
+tags = ["oracle", "tools", "asm", "local", "heavy", "oracle-mythic"]
+domain = "adaptive"
+mode = "adaptive"
+effort = "high"
+thinking_tier = "medium"
+aliases = [
+  "oracle-mythic-q4km",
   "oracle-main-27b-v1",
   "switchhook",
   "switchhook-plan",
   "switchhook-act",
 ]
 options = { temperature = 0.15, max_tokens = 1280 }
-system_prompt = """You are Oracle-Pro, the manual-only heavy Zelda ROM hacking specialist for 65816 ASM, Oracle of Secrets, vanilla ALTTP disassembly, and structured tool use.
+system_prompt = """You are Oracle-Mythic, the manual-only heavy Zelda ROM hacking specialist for 65816 ASM, Oracle of Secrets, vanilla ALTTP disassembly, and structured tool use.
 
 Prefer canonical tool surfaces when available.
 Do not invent symbols, addresses, or tool names.
@@ -225,14 +238,22 @@ When the task is primarily trace or debug work, gather evidence before proposing
 [[models]]
 name = "oracle-fast"
 provider = "studio"
-model_id = "oracle-fast"
+model_id = "gguf/zelda/qwen3-oracle-8b-v1-corrective2-q4km.gguf"
+tool_profile = "oracle-fast"
 role = "fast local model for routine trace/debug loops"
-description = "8-9B fast Oracle · live alias"
+description = "8B corrective Oracle · q4km"
 tags = ["oracle", "tools", "asm", "local", "oracle-fast"]
 domain = "adaptive"
 mode = "adaptive"
 effort = "low"
-aliases = ["oracle-main-fast"]
+aliases = [
+  "oracle-main-fast",
+  "oracle-q4km",
+  "oracle-main",
+  "oracle-main-plan",
+  "oracle-main-act",
+  "oracle-tools",
+]
 hide_if_unavailable = true
 options = { temperature = 0.2, max_tokens = 1024 }
 system_prompt = """You are Oracle-Fast, the lower-latency routing option for routine Zelda questions.
@@ -383,6 +404,26 @@ name = "author"
 keywords = ["implement", "patch", "write", "add hook", "refactor", "edit", "change code"]
 system_prompt = """Mode profile: author.
 Produce concrete patches or edits after constraints are clear, and verify expected behavior."""
+
+[[llamacpp_nodes]]
+name = "local"
+api_base = "http://127.0.0.1:8080/v1"
+model = "oracle-fast"
+description = "Local llama.cpp endpoint pinned to the fast Oracle lane."
+
+[[llamacpp_nodes]]
+name = "oracle-pro-vast"
+api_base = "http://127.0.0.1:18080/v1"
+model = "oracle-pro"
+description = "SSH-tunneled Vast oracle-pro endpoint for the remote 14B GGUF."
+lean_prompt = true
+
+[[studio_nodes]]
+name = "oracle-pro-home"
+api_base = "http://127.0.0.1:2234/v1"
+model = "oracle-pro"
+description = "SSH-tunneled LM Studio on medical-mechanica serving oracle-pro."
+hostd_url = "http://127.0.0.1:8766"
 
 [[routers]]
 name = "oracle"

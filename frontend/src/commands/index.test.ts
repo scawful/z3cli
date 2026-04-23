@@ -118,6 +118,40 @@ test("dispatchCommand opens the help panel for /help", async () => {
   assert.equal(opened, 1);
 });
 
+test("dispatchCommand renders oracle tips text", async () => {
+  const messages: string[] = [];
+
+  await dispatchCommand("/oracle-tips", [], {
+    config: null,
+    settings: {} as any,
+    addSystemMessage: (content: string) => {
+      messages.push(content);
+    },
+    replaceMessages: () => {},
+    replaceSubagents: () => {},
+    updateConfig: () => {},
+    sendCommand: async (cmd: string, args?: string[]) => {
+      assert.equal(cmd, "/oracle-tips");
+      assert.deepEqual(args, []);
+      return {
+        title: "Oracle Prompt Tips",
+        text: "symptom + anchor + intent",
+      };
+    },
+    sendMessage: async () => {},
+    setSetting: () => {},
+    resetSettings: () => {},
+    openSettings: () => {},
+    openHelp: () => {},
+    openSessionPicker: () => {},
+    exit: () => {},
+  });
+
+  assert.equal(messages.length, 1);
+  assert.match(messages[0] ?? "", /Oracle Prompt Tips/);
+  assert.match(messages[0] ?? "", /symptom \+ anchor \+ intent/);
+});
+
 test("dispatchCommand opens the model manager for /model-manager", async () => {
   let opened = 0;
 

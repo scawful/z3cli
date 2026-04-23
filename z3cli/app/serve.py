@@ -52,11 +52,11 @@ from z3cli.core.config import (
     API_BASE, MCP_CONFIG_PATH, REGISTRY_PATH, ModelConfig, Z3UI_MODEL_ORDER,
     direct_model_selection_error,
     is_z3ui_model, is_z3ui_model_entry,
-    load_registry, list_zelda_models, rollout_warnings,
+    load_llamacpp_nodes, load_registry, load_studio_nodes, list_zelda_models, rollout_warnings,
 )
 from z3cli.core.engine import (
     ChatEngine, CompactionEvent, DoneEvent, ErrorEvent, TextEvent, ThinkingEvent,
-    ToolCallEvent, ToolResultEvent,
+    ToolCallEvent, ToolResultEvent, summarize_tool_result_for_history,
 )
 from z3cli.core.compaction import (
     CompactionPolicy, ConversationCompactor, ProviderSummarizer,
@@ -72,19 +72,23 @@ from z3cli.protocol.lmstudio import ensure_server, total_loaded_model_bytes
 from z3cli.app.runtime import (
     DEFAULT_ACTIVE_MODEL, DEFAULT_BROADCAST_MODELS, DEFAULT_LLAMACPP_MODEL, DEFAULT_ROM,
     DEFAULT_WORKSPACE, LSP_CONTEXT_MODES, ORCHESTRATOR_MODE, SPECIALIST_NAMES, VALID_BACKENDS, VALID_MODES,
+    ORACLE_FAMILY_MODELS,
     add_attachment_context_packs,
     add_construct_context_packs,
-    build_harness_prompt, build_local_identity_prompt, build_oracle_coder_prompt, build_orchestrator_prompt, build_tool_bias_prompt, build_tool_use_prompt, current_model_name,
+    build_harness_prompt, build_local_identity_prompt, build_oracle_answer_after_grounding_prompt, build_oracle_coder_prompt, build_oracle_natural_chat_prompt, build_oracle_prefetch_forced_reply, build_oracle_prefetch_session_records, build_oracle_register_grounding_prompt, build_orchestrator_prompt, build_oracle_hidden_routing_prompt, build_tool_bias_prompt, build_tool_use_prompt, build_unavailable_tool_forced_reply, collect_oracle_context_packs, current_model_name,
     blocked_model_reason,
     choose_startup_model,
-    default_orchestrator_model, engine_key, enrich_prompt_with_attachments, enrich_prompt_with_construct_refs,
+    default_orchestrator_model, engine_key, enrich_prompt_with_attachments, enrich_prompt_with_construct_refs, enrich_prompt_with_oracle_context,
     ensure_model_available, ensure_targets_available,
     load_enriched_focus_file, lsp_context_status_label, merge_system_prompts, mode_usage_text, normalize_lsp_context_mode, normalize_mode,
+    oracle_prompting_tips_text,
     resolve_existing_model_name, resolve_message_attachments, resolve_message_construct_refs, resolve_oracle_profile_system_prompts,
     resolve_targets, resolve_targets_with_reason,
 )
 from z3cli.app.shared_runtime import (
     active_model_name,
+    available_use_targets,
+    apply_use_target,
     compact_session_history,
     clear_focus_context as _clear_focus_context,
     ensure_shell,
@@ -93,15 +97,19 @@ from z3cli.app.shared_runtime import (
     model_catalog_infos,
     permission_rule_key as _permission_rule_key,
     persist_state as _persist_state,
+    primary_model_infos,
     refresh_focus_context as _refresh_focus_context,
     loaded_model_runtime_infos,
+    maybe_reset_engine_for_topic_shift,
     resolve_focus_context as _resolve_focus_context,
     resolve_request_model_name,
     restore_runtime_state as _restore_runtime_state,
+    select_studio_node,
+    select_llamacpp_node,
     set_backend,
     set_focus_context as _set_focus_context,
     state_permission_rules,
-    visible_model_infos,
+    use_lean_llamacpp_prompt,
     z3ui_model_infos,
 )
 from z3cli.app.shell_session import PersistentShellSession
@@ -143,7 +151,12 @@ _REASONING_PREFIX_RE = re.compile(
 
 
 def _allowed_z3ui_model_names(state: "ServeState") -> list[str]:
-    return [str(model["name"]) for model in z3ui_model_infos(state)]
+    return [
+        str(model["name"])
+        for model in z3ui_model_infos(state)
+        if bool(model.get("selectable", True))
+        and not blocked_model_reason(state.models.get(str(model["name"])))
+    ]
 
 
 def _z3ui_model_policy_error(state: "ServeState", model_name: str) -> str:
@@ -618,8 +631,12 @@ class ServeState:
         self.api_base = API_BASE
         self.backend_name = "studio"
         self.studio_api_base = API_BASE
+        self.studio_nodes: dict[str, Any] = {}
+        self.studio_node = ""
         self.llamacpp_api_base = DEFAULT_LLAMACPP_API_BASE
         self.llamacpp_model = DEFAULT_LLAMACPP_MODEL
+        self.llamacpp_nodes: dict[str, Any] = {}
+        self.llamacpp_node = ""
         self.registry_path = REGISTRY_PATH
         self.mcp_path = MCP_CONFIG_PATH
         self.models, self.routers = {}, {}
@@ -1276,7 +1293,13 @@ async def _build_subagent_system_context(
     prompt: str = "",
 ) -> str:
     focus_context = await _resolve_focus_context(state, model.name, query=prompt)
-    return build_harness_prompt(state.workspace, state.rom_path, focus_context)
+    lean_prompt = use_lean_llamacpp_prompt(state)
+    return build_harness_prompt(
+        state.workspace,
+        state.rom_path,
+        focus_context,
+        include_project_context=not lean_prompt,
+    )
 
 
 async def _enrich_prompt_with_workspace_context(
@@ -1368,11 +1391,13 @@ def parse_serve_args(args: list[str]) -> argparse.Namespace:
         dest="studio_api_base",
         default=os.environ.get("LMSTUDIO_BASE_URL", API_BASE),
     )
+    parser.add_argument("--studio-node", default=os.environ.get("Z3CLI_STUDIO_NODE", ""))
     parser.add_argument(
         "--llamacpp-api-base",
         default=os.environ.get("LLAMACPP_BASE_URL", DEFAULT_LLAMACPP_API_BASE),
     )
     parser.add_argument("--llamacpp-model", default=DEFAULT_LLAMACPP_MODEL)
+    parser.add_argument("--llamacpp-node", default=os.environ.get("Z3CLI_LLAMACPP_NODE", ""))
     parser.add_argument("--workspace", default=str(DEFAULT_WORKSPACE))
     parser.add_argument("--rom", default=str(DEFAULT_ROM))
     parser.add_argument("--model", default=DEFAULT_ACTIVE_MODEL)
@@ -1408,8 +1433,10 @@ async def init_state(args: list[str], *, defer_tool_bridge: bool = False) -> Ser
     if mode in VALID_MODES:
         state.mode = mode
     state.studio_api_base = parsed.studio_api_base.rstrip("/")
+    state.studio_node = ""
     state.llamacpp_api_base = parsed.llamacpp_api_base.rstrip("/")
     state.llamacpp_model = parsed.llamacpp_model
+    state.llamacpp_node = ""
     state.workspace = Path(parsed.workspace).expanduser().resolve()
     state.rom_path = None if not parsed.rom else Path(parsed.rom).expanduser().resolve()
     state.auto_start_server = parsed.auto_start_server
@@ -1422,6 +1449,8 @@ async def init_state(args: list[str], *, defer_tool_bridge: bool = False) -> Ser
     state.last_active_at = datetime.now(timezone.utc).isoformat()
 
     state.models, state.routers = load_registry(state.registry_path)
+    state.studio_nodes = load_studio_nodes(state.registry_path)
+    state.llamacpp_nodes = load_llamacpp_nodes(state.registry_path)
     state.active_model, startup_warning = choose_startup_model(
         state.active_model,
         state.models,
@@ -1434,6 +1463,14 @@ async def init_state(args: list[str], *, defer_tool_bridge: bool = False) -> Ser
     if z3ui_model_warning:
         state.startup_warnings.append(z3ui_model_warning)
     state.last_active_model = state.active_model
+    if parsed.studio_node:
+        node, error = select_studio_node(state, parsed.studio_node)
+        if node is None and error:
+            state.startup_warnings.append(error)
+    if parsed.llamacpp_node:
+        node, error = select_llamacpp_node(state, parsed.llamacpp_node)
+        if node is None and error:
+            state.startup_warnings.append(error)
     set_backend(state, state.backend_name)
     if state.backend_name == "studio" and state.auto_start_server:
         ensure_server(state.host, state.port)
@@ -1453,7 +1490,11 @@ async def init_state(args: list[str], *, defer_tool_bridge: bool = False) -> Ser
         rom_path=str(state.rom_path) if state.rom_path else "",
         tools_enabled=state.tools_enabled,
         broadcast_models=state.broadcast_models,
+        studio_api_base=state.studio_api_base,
+        studio_node=state.studio_node,
         llamacpp_model=state.llamacpp_model,
+        llamacpp_api_base=state.llamacpp_api_base,
+        llamacpp_node=state.llamacpp_node,
         tools_write=state.tools_write,
         verify_hooks=state.verify_hooks,
         focus_path=str(state.focus_path) if state.focus_path else "",
@@ -1525,6 +1566,7 @@ def _ready_model_payload(state: ServeState, model: dict[str, object]) -> ReadyMo
         "model_id": str(model["model_id"]),
         "role": str(model["role"]),
         "loaded": bool(model["loaded"]),
+        "selectable": bool(model.get("selectable", True)),
         "tools_enabled": bool(model["tools_enabled"]),
         "context_budget": cfg.context_budget if cfg is not None else 0,
     }
@@ -1596,7 +1638,7 @@ def build_ready_params(state: ServeState) -> ReadyParams:
         if int(item.get("estimated_total_bytes", 0) or 0) > 0:
             runtime_item["estimated_total_bytes"] = int(item["estimated_total_bytes"])
         loaded_runtime_payload.append(runtime_item)
-    models_info = [_ready_model_payload(state, model) for model in z3ui_model_infos(state)]
+    models_info = [_ready_model_payload(state, model) for model in primary_model_infos(state)]
     model_catalog = [_ready_model_payload(state, model) for model in model_catalog_infos(state)]
 
     warnings = list(state.startup_warnings)
@@ -1610,6 +1652,11 @@ def build_ready_params(state: ServeState) -> ReadyParams:
         "backend": state.backend_name,
         "active_model": active_model_name(state),
         "studio_model": state.active_model,
+        "studio_api_base": state.studio_api_base,
+        "studio_node": state.studio_node,
+        "llamacpp_api_base": state.llamacpp_api_base,
+        "llamacpp_model": state.llamacpp_model,
+        "llamacpp_node": state.llamacpp_node,
         "mode": state.mode,
         "workspace": str(state.workspace),
         "rom_path": str(state.rom_path) if state.rom_path else "",
@@ -1775,8 +1822,17 @@ async def handle_chat(
     multi_target = len(targets) > 1
     for target in targets:
         state.model_request_counts[target.name] = state.model_request_counts.get(target.name, 0) + 1
-    target_turns: list[tuple[ModelConfig, str, str]] = []
+    target_turns: list[tuple[ModelConfig, str, str, list[dict[str, Any]], str]] = []
     for target in targets:
+        target_prefetch_bridge = None
+        if state.tools_enabled and target.tools_enabled:
+            target_prefetch_bridge = wrap_bridge_for_model(
+                state.bridge,
+                target.tool_profile,
+                read_only=not state.tools_write,
+                deferred_tools=target.deferred_tools,
+                core_tools=target.core_tools,
+            )
         target_construct_refs = await add_construct_context_packs(
             construct_refs,
             bridge=state.bridge,
@@ -1789,12 +1845,25 @@ async def handle_chat(
             lsp_context_mode=state.lsp_context_mode,
             prompt_query=message,
         )
+        lean_prompt = use_lean_llamacpp_prompt(state)
+        oracle_context = await collect_oracle_context_packs(
+            message,
+            bridge=target_prefetch_bridge,
+            model=target,
+            max_chars=1200 if lean_prompt else 2400,
+            max_calls=2 if lean_prompt else 4,
+        )
         target_engine_message = enrich_prompt_with_attachments(
             enrich_prompt_with_construct_refs(message, target_construct_refs),
             target_attachments,
         )
+        target_engine_message = enrich_prompt_with_oracle_context(target_engine_message, oracle_context)
         target_focus_context = await _resolve_focus_context(state, target.name, query=message)
-        target_turns.append((target, target_engine_message, target_focus_context))
+        forced_reply = (
+            build_oracle_prefetch_forced_reply(message, oracle_context)
+            or build_unavailable_tool_forced_reply(message, target_prefetch_bridge)
+        )
+        target_turns.append((target, target_engine_message, target_focus_context, oracle_context, forced_reply))
     prompt_tokens = 0
     completion_tokens = 0
     cache_creation_tokens = 0
@@ -1805,7 +1874,7 @@ async def handle_chat(
 
     # Record user message to session
     is_first_message = state.session.message_count == 0
-    for target, target_engine_message, _target_focus_context in target_turns:
+    for target, target_engine_message, _target_focus_context, oracle_context, _forced_reply in target_turns:
         state.session.append_engine_msg(target.name, {
             "role": "user",
             "content": target_engine_message,
@@ -1815,6 +1884,32 @@ async def handle_chat(
             "turn_id": turn_id,
             "request_id": request_id,
         })
+        for record in build_oracle_prefetch_session_records(message, oracle_context):
+            state.session.append_engine_msg(target.name, {
+                "role": "assistant",
+                "content": None,
+                "turn_id": turn_id,
+                "request_id": request_id,
+                "tool_calls": [{
+                    "name": record["tool_name"],
+                    "arguments": record["arguments_json"],
+                    "server": record["server"],
+                    "tool_call_id": record["tool_call_id"],
+                    "tool_group": record["tool_group"],
+                    "request_id": request_id,
+                }],
+            })
+            state.session.append_engine_msg(target.name, {
+                "role": "tool",
+                "name": record["tool_name"],
+                "server": record["server"],
+                "content": record["content"],
+                "turn_id": turn_id,
+                "tool_call_id": record["tool_call_id"],
+                "tool_group": record["tool_group"],
+                "request_id": request_id,
+            })
+            state.tool_call_count += 1
     if is_first_message:
         state.session.rename_from_first_message(message)
     _persist_state(state, model_name=active_model)
@@ -1828,7 +1923,7 @@ async def handle_chat(
         construct_refs=construct_ref_meta,
     )
 
-    for target_index, (target, engine_message, focus_context) in enumerate(target_turns, start=1):
+    for target_index, (target, engine_message, focus_context, _oracle_context, forced_reply) in enumerate(target_turns, start=1):
         loop = asyncio.get_running_loop()
         tool_started_at: dict[str, float] = {}
         tool_groups_by_call_id: dict[str, str] = {}
@@ -1837,8 +1932,32 @@ async def handle_chat(
         if span_id:
             state.span_count += 1
             state.last_span_id = span_id
+        if forced_reply:
+            if multi_target:
+                _notify("text", text_params(f"\n\n### {target.name}\n\n", request_id=request_id, span_id=span_id))
+            _notify("text", text_params(forced_reply, request_id=request_id, span_id=span_id))
+            state.session.append_engine_msg(target.name, {
+                "role": "assistant",
+                "content": forced_reply,
+                "turn_id": turn_id,
+                "request_id": request_id,
+                "span_id": span_id,
+            })
+            _emit_message(
+                state,
+                role="assistant",
+                content=forced_reply,
+                turn_id=turn_id,
+                request_id=request_id,
+                span_id=span_id,
+                model=target.name,
+            )
+            state.message_count += 1
+            _persist_state(state, model_name=target.name)
+            continue
         request_name = resolve_request_model_name(state, target)
         engine = state.get_engine(target.name)
+        maybe_reset_engine_for_topic_shift(engine, message)
         state.bind_request_engine(request_id, engine)
         retry_count_start = int(getattr(engine, "provider_retry_count", 0))
         retry_backoff_start = int(getattr(engine, "provider_retry_backoff_ms", 0))
@@ -1848,11 +1967,25 @@ async def handle_chat(
         engine.bridge = effective_bridge
         tools_available = bool(effective_bridge and state.tools_enabled and target.tools_enabled)
         use_native_tools = bool(tools_available and target.native_tools)
+        max_tool_result = 4000 if target.tool_profile and target.tool_profile != "*" else 0
+        answer_after_grounding_system = (
+            build_oracle_answer_after_grounding_prompt(message)
+            if target.name in ORACLE_FAMILY_MODELS
+            else ""
+        )
         # Compose the target's system prompt. In orchestrator mode, prepend
         # the planner-specific instructions with a catalog of specialists.
         system_parts = [
-            build_harness_prompt(state.workspace, state.rom_path, focus_context),
+            build_harness_prompt(
+                state.workspace,
+                state.rom_path,
+                focus_context,
+                include_project_context=not use_lean_llamacpp_prompt(state),
+            ),
             build_local_identity_prompt(target),
+            build_oracle_natural_chat_prompt(message) if target.name in ORACLE_FAMILY_MODELS else "",
+            build_oracle_hidden_routing_prompt(message),
+            build_oracle_register_grounding_prompt(message),
             build_tool_use_prompt(
                 tools_available,
                 target.tool_profile,
@@ -1894,8 +2027,10 @@ async def handle_chat(
                 max_tokens=target.max_tokens,
                 use_tools=use_native_tools,
                 thinking=use_thinking,
-                max_tool_result=4000 if target.tool_profile and target.tool_profile != "*" else 0,
+                max_tool_result=max_tool_result,
                 prompt_cache=target.prompt_cache,
+                answer_after_first_grounding=bool(answer_after_grounding_system),
+                answer_after_grounding_system=answer_after_grounding_system,
             ):
                 if state.is_request_cancelled(request_id):
                     end_status = "cancelled"
@@ -2032,7 +2167,11 @@ async def handle_chat(
                         "role": "tool",
                         "name": event.name,
                         "server": event.server,
-                        "content": event.result,
+                        "content": summarize_tool_result_for_history(
+                            event.name,
+                            event.result,
+                            max_chars=max_tool_result,
+                        ),
                         "turn_id": turn_id,
                         "tool_call_id": call_id,
                         "tool_group": tool_group,
@@ -2329,6 +2468,10 @@ async def handle_command(state: ServeState, req_id: int, params: dict) -> None:
         _respond(req_id, result=build_ready_params(state))
         return
 
+    if cmd == "/oracle-tips":
+        _respond(req_id, result={"title": "Oracle Prompt Tips", "text": oracle_prompting_tips_text()})
+        return
+
     if cmd == "/backend":
         if not args:
             _respond(req_id, result={"backend": state.backend_name, "model": active_model_name(state)})
@@ -2354,6 +2497,129 @@ async def handle_command(state: ServeState, req_id: int, params: dict) -> None:
             "active": state.backend_name,
             "available": ["studio", "llamacpp"],
             "studio_api_base": state.studio_api_base,
+            "studio_node": state.studio_node,
+            "llamacpp_api_base": state.llamacpp_api_base,
+            "llamacpp_model": state.llamacpp_model,
+            "llamacpp_node": state.llamacpp_node,
+        })
+        return
+
+    if cmd == "/use":
+        if not args:
+            _respond(req_id, result={
+                "active": {
+                    "backend": state.backend_name,
+                    "model": active_model_name(state),
+                    "studio_node": state.studio_node,
+                    "llamacpp_node": state.llamacpp_node,
+                },
+                "entries": available_use_targets(state),
+            })
+            return
+        old_backend = state.backend_name
+        old_model = state.active_model
+        result, error = apply_use_target(state, str(args[0]))
+        if result is None:
+            _respond(req_id, error=error or "Unknown use target")
+            return
+        if state.backend_name == "studio":
+            ensure_model_available(state.models.get(state.active_model))
+            await _refresh_focus_context(state)
+        if old_backend != state.backend_name:
+            state.backend_restart_count += 1
+            state.session.append_backend_switch(old_backend, state.backend_name)
+        if old_model != state.active_model:
+            state.session.append_model_switch(old_model, state.active_model, reason="user command")
+        _persist_state(
+            state,
+            {
+                "studio_node": state.studio_node,
+                "studio_api_base": state.studio_api_base,
+                "llamacpp_node": state.llamacpp_node,
+                "llamacpp_api_base": state.llamacpp_api_base,
+                "llamacpp_model": state.llamacpp_model,
+            },
+            model_name=state.active_model,
+        )
+        _notify("ready", build_ready_params(state))
+        _respond(req_id, result=result)
+        return
+
+    if cmd == "/studio-nodes":
+        entries = [
+            {
+                "name": name,
+                "api_base": node.api_base,
+                "description": node.description,
+                "active": name == state.studio_node,
+            }
+            for name, node in sorted(state.studio_nodes.items())
+        ]
+        _respond(req_id, result={"active": state.studio_node, "entries": entries})
+        return
+
+    if cmd == "/studio-node":
+        if not args:
+            _respond(req_id, result={
+                "active": state.studio_node,
+                "studio_api_base": state.studio_api_base,
+            })
+            return
+        node, error = select_studio_node(state, str(args[0]))
+        if node is None:
+            _respond(req_id, error=error or "Unknown studio node")
+            return
+        _persist_state(
+            state,
+            {
+                "studio_node": state.studio_node,
+                "studio_api_base": state.studio_api_base,
+            },
+        )
+        _notify("ready", build_ready_params(state))
+        _respond(req_id, result={
+            "active": state.studio_node,
+            "studio_api_base": state.studio_api_base,
+        })
+        return
+
+    if cmd == "/llamacpp-nodes":
+        entries = [
+            {
+                "name": name,
+                "api_base": node.api_base,
+                "model": node.model,
+                "description": node.description,
+                "active": name == state.llamacpp_node,
+            }
+            for name, node in sorted(state.llamacpp_nodes.items())
+        ]
+        _respond(req_id, result={"active": state.llamacpp_node, "entries": entries})
+        return
+
+    if cmd == "/llamacpp-node":
+        if not args:
+            _respond(req_id, result={
+                "active": state.llamacpp_node,
+                "llamacpp_api_base": state.llamacpp_api_base,
+                "llamacpp_model": state.llamacpp_model,
+            })
+            return
+        node, error = select_llamacpp_node(state, str(args[0]))
+        if node is None:
+            _respond(req_id, error=error or "Unknown llama.cpp node")
+            return
+        _persist_state(
+            state,
+            {
+                "llamacpp_node": state.llamacpp_node,
+                "llamacpp_api_base": state.llamacpp_api_base,
+                "llamacpp_model": state.llamacpp_model,
+            },
+        )
+        _notify("ready", build_ready_params(state))
+        _respond(req_id, result={
+            "active": state.llamacpp_node,
             "llamacpp_api_base": state.llamacpp_api_base,
             "llamacpp_model": state.llamacpp_model,
         })

@@ -10,10 +10,11 @@ developer model variants that are useful in day-to-day z3cli work.
 ## What is exposed in this repo
 
 - Canonical models:
-  - `oracle` — `8B corrective Oracle · q4km`
-  - `oracle-fast` — `8-9B fast Oracle · live alias`
+  - `oracle-fast` — `8B corrective Oracle · q4km`
+  - `oracle` — reserved mainline slot hidden until installed
+  - `oracle-pro` — `14B Oracle-Pro · q4km` current local pro lane
 - Heavy model:
-  - `oracle-pro` — `27B switchhook Oracle · q4km`
+  - `oracle-mythic` — `27B switchhook Oracle · q4km` manual-only
 - Direct local developer variants:
   - `qwen3-oracle-8b` / `oracle-q8` — `8B corrective Oracle · q8_0`
   - `nayru` / `nayru-q8` — `9B Qwen3.5 explainer · q8_0`
@@ -22,6 +23,8 @@ developer model variants that are useful in day-to-day z3cli work.
   - `majora` / `majora-q4km` — `9B Qwen3.5 architecture · q4km`
   - `hylia` / `hylia-q8` — `9B Qwen3.5 lore/history · q8_0`
   - `hylia-q4km` — `9B Qwen3.5 lore/history · q4km`
+- Internal callable worker:
+  - `oracle-coder` — internal-only code authoring worker, not a normal picker target
 - Legacy compatibility aliases still resolve quietly, but the real working names are the ones above.
 
 ## Public capabilities snapshot
@@ -45,11 +48,17 @@ developer model variants that are useful in day-to-day z3cli work.
 
 ## Public one-minute summary
 
-- `oracle` is the canonical entry point for sustained Zelda work.
-- `oracle-fast` is the intentionally narrower/faster quick model.
-- `oracle-pro` is the explicit heavy-model opt-in and is not the default local path.
+- `oracle-fast` is the real pinned local Oracle model today.
+- `oracle` is the reserved mainline slot and stays hidden until LM Studio can actually load it.
+- `oracle-pro` is the current local pro lane.
+- `oracle-mythic` is the explicit heavy-model opt-in and is not part of the simple primary picker.
 - The local Qwen3.5 specialist bench is intentionally visible in z3cli:
   `nayru`, `farore`, `farore-q4km`, `majora`, `hylia`, and `hylia-q4km`.
+- `qwen3-oracle-8b` stays available as an alternate catalog entry, not part of the simple main Oracle surface.
+- `oracle-coder` stays internal and is meant to be invoked by `oracle`, not selected as a public-facing working model.
+- Operationally, `medical-mechanica` WSL2 + RTX `5090` is the primary local
+  Oracle/scawfulbot host, Mac is the control plane, and Vast is the fallback
+  when the shared desktop cannot spare the GPU.
 - The concrete definitions are local and developer-oriented rather than hidden.
 
 ## Where to publish full detail

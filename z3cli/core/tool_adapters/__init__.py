@@ -25,6 +25,7 @@ from z3cli.core.tool_adapters.farore import FaroreAdapter
 from z3cli.core.tool_adapters.veran import VeranAdapter
 from z3cli.core.tool_adapters.majora import MajoraAdapter
 from z3cli.core.tool_adapters.hylia import HyliaAdapter
+from z3cli.core.tool_adapters.oracle import OracleAdapter
 
 
 ADAPTER_REGISTRY: dict[str, type[ToolAdapter]] = {
@@ -34,6 +35,9 @@ ADAPTER_REGISTRY: dict[str, type[ToolAdapter]] = {
     "veran": VeranAdapter,
     "majora": MajoraAdapter,
     "hylia": HyliaAdapter,
+    "oracle": OracleAdapter,
+    "oracle-fast": OracleAdapter,
+    "oracle-pro": OracleAdapter,
 }
 
 

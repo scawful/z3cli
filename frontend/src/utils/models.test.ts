@@ -36,7 +36,8 @@ test("estimateContextWindow falls back to larger windows for plan and act models
 
 test("estimateContextWindow handles oracle and oracle-fast aliases", () => {
   assert.equal(estimateContextWindow("oracle"), 32768);
-  assert.equal(estimateContextWindow("oracle-pro"), 32768);
+  assert.equal(estimateContextWindow("oracle-pro"), 16384);
+  assert.equal(estimateContextWindow("oracle-mythic"), 8192);
   assert.equal(estimateContextWindow("oracle-fast"), 16384);
   assert.equal(estimateContextWindow("oracle-main-fast"), 16384);
 });
@@ -73,7 +74,8 @@ test("fast model heuristics flag oracle-fast models", () => {
 
 test("modelPickerDescription appends fast and heavy labels", () => {
   assert.equal(modelOptInLabel("oracle-fast"), "fast");
-  assert.equal(modelOptInLabel("oracle-pro"), "manual heavy");
+  assert.equal(modelOptInLabel("oracle-pro"), "");
+  assert.equal(modelOptInLabel("oracle-mythic"), "manual heavy");
   assert.equal(modelPickerDescription({
     name: "oracle-fast",
     modelId: "oracle-main-fast",
@@ -82,10 +84,16 @@ test("modelPickerDescription appends fast and heavy labels", () => {
   }), "8-9B fast model · live alias · fast");
   assert.equal(modelPickerDescription({
     name: "oracle-pro",
+    modelId: "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf",
+    role: "hybrid planner",
+    description: "14B Oracle-Pro · q4km",
+  }), "14B Oracle-Pro · q4km");
+  assert.equal(modelPickerDescription({
+    name: "oracle-mythic",
     modelId: "gguf/zelda/switchhook-27b-v1-q4km.gguf",
     role: "hybrid planner",
-    description: "27B switchhook Oracle · q4km",
-  }), "27B switchhook Oracle · q4km · manual heavy");
+    description: "27B Oracle-Mythic · q4km",
+  }), "27B Oracle-Mythic · q4km · manual heavy");
   assert.equal(modelPickerDescription({
     name: "nayru",
     modelId: "nayru-model",

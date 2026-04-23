@@ -542,6 +542,7 @@ export function useBackend(pythonPath: string, args: string[] = []): UseBackendR
                     role: m.role,
                     description: typeof m.description === "string" ? m.description : undefined,
                     loaded: m.loaded,
+                    selectable: typeof m.selectable === "boolean" ? m.selectable : undefined,
                     toolsEnabled: m.tools_enabled,
                     provider: typeof m.provider === "string" ? m.provider : undefined,
                     contextBudget:
@@ -579,6 +580,7 @@ export function useBackend(pythonPath: string, args: string[] = []): UseBackendR
                     role: m.role,
                     description: typeof m.description === "string" ? m.description : undefined,
                     loaded: m.loaded,
+                    selectable: typeof m.selectable === "boolean" ? m.selectable : undefined,
                     toolsEnabled: m.tools_enabled,
                     provider: typeof m.provider === "string" ? m.provider : undefined,
                     contextBudget:

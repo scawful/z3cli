@@ -5,10 +5,17 @@ from pathlib import Path
 from z3cli.app.runtime import (
     add_attachment_context_packs,
     add_construct_context_packs,
+    build_oracle_prefetch_forced_reply,
+    build_oracle_prefetch_session_records,
+    build_oracle_answer_after_grounding_prompt,
+    build_unavailable_tool_forced_reply,
     build_focus_context_content,
+    collect_oracle_context_packs,
     enrich_prompt_with_construct_refs,
     enrich_prompt_with_attachments,
+    enrich_prompt_with_oracle_context,
     extract_lsp_symbol_queries,
+    plan_oracle_context_prefetch,
     resolve_lsp_context_settings,
     resolve_message_attachments,
     resolve_message_construct_refs,
@@ -121,6 +128,57 @@ class FakeRomBridge:
 
     async def close(self) -> None:
         return None
+
+
+class FakeOracleBridge:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    def get_openai_tools(self) -> list[dict]:
+        return [
+            {"type": "function", "function": {"name": "label_lookup"}},
+            {"type": "function", "function": {"name": "register_doc"}},
+            {"type": "function", "function": {"name": "disasm_at"}},
+            {"type": "function", "function": {"name": "grep_disasm"}},
+        ]
+
+    async def call_tool(self, name: str, arguments: dict) -> str:
+        self.calls.append((name, dict(arguments)))
+        if name == "register_doc":
+            return "### MDMAEN ($420B)\nDMA enable register"
+        if name == "label_lookup":
+            return "Underworld_LoadSongBankIfNeeded at $0088EC"
+        if name == "disasm_at":
+            return "$0088EC: JSR Underworld_LoadSongBankIfNeeded"
+        if name == "grep_disasm":
+            return "xref: Underworld_LoadSongBankIfNeeded"
+        return ""
+
+    def get_tool_server(self, tool_name: str) -> str:
+        return "oracle"
+
+    @property
+    def tool_count(self) -> int:
+        return 4
+
+    @property
+    def server_names(self) -> list[str]:
+        return ["oracle"]
+
+    @property
+    def server_tool_counts(self) -> dict[str, int]:
+        return {"oracle": 4}
+
+    async def close(self) -> None:
+        return None
+
+
+class FakeUnknownRegisterBridge(FakeOracleBridge):
+    async def call_tool(self, name: str, arguments: dict) -> str:
+        self.calls.append((name, dict(arguments)))
+        if name == "register_doc":
+            return f"Unknown register: {arguments.get('query')}"
+        return await super().call_tool(name, arguments)
 
 
 def write_minimal_yaze_object_header(
@@ -357,8 +415,132 @@ class RuntimeAttachmentTests(unittest.TestCase):
 
         self.assertEqual(queries, ["Link_Main", "SprState"])
 
+    def test_plan_oracle_context_prefetch_includes_register_label_and_disasm_hints(self) -> None:
+        calls = plan_oracle_context_prefetch(
+            "Why does $420B behave differently near Underworld_LoadSongBankIfNeeded at $0088EC? Please inspect the hook contract."
+        )
+
+        names = [item.tool_name for item in calls]
+        self.assertIn("register_doc", names)
+        self.assertIn("label_lookup", names)
+        self.assertIn("disasm_at", names)
+        self.assertTrue(any(item.arguments.get("query") == "$420B" for item in calls if item.tool_name == "register_doc"))
+        self.assertTrue(any(item.arguments.get("query") == "Underworld_LoadSongBankIfNeeded" for item in calls if item.tool_name == "label_lookup"))
+
+    def test_enrich_prompt_with_oracle_context_appends_prefetch_section(self) -> None:
+        prompt = "Why does $420B not start DMA?"
+        enriched = enrich_prompt_with_oracle_context(prompt, [
+            {
+                "label": "register_doc($420B)",
+                "content": "### MDMAEN ($420B)\nDMA enable register",
+            }
+        ])
+
+        self.assertIn("Oracle preloaded context:", enriched)
+        self.assertIn("register_doc($420B)", enriched)
+        self.assertIn("DMA enable register", enriched)
+
 
 class RuntimeAttachmentAsyncTests(unittest.IsolatedAsyncioTestCase):
+    async def test_collect_oracle_context_packs_uses_bridge_for_oracle_family(self) -> None:
+        bridge = FakeOracleBridge()
+        model = type("M", (), {"name": "oracle-pro"})()
+
+        contexts = await collect_oracle_context_packs(
+            "Compare $420B and Underworld_LoadSongBankIfNeeded at $0088EC.",
+            bridge=bridge,
+            model=model,
+        )
+
+        self.assertGreaterEqual(len(contexts), 2)
+        labels = [str(item["label"]) for item in contexts]
+        self.assertIn("register_doc($420B)", labels)
+        self.assertTrue(any(label.startswith("label_lookup(") for label in labels))
+
+    async def test_collect_oracle_context_packs_keeps_unknown_register_results(self) -> None:
+        bridge = FakeUnknownRegisterBridge()
+        model = type("M", (), {"name": "oracle-pro"})()
+
+        contexts = await collect_oracle_context_packs(
+            "What does $4310 do?",
+            bridge=bridge,
+            model=model,
+        )
+
+        self.assertEqual(len(contexts), 1)
+        self.assertEqual(contexts[0]["tool_name"], "register_doc")
+        self.assertIn("Unknown register", contexts[0]["content"])
+
+    def test_build_oracle_prefetch_session_records_keeps_register_doc_history(self) -> None:
+        records = build_oracle_prefetch_session_records(
+            "Explain what $420B and $420C do.",
+            [
+                {
+                    "tool_name": "register_doc",
+                    "arguments": {"query": "$420B"},
+                    "server": "oracle",
+                    "label": "register_doc($420B)",
+                    "content": "### MDMAEN ($420B)\nDMA enable register",
+                },
+                {
+                    "tool_name": "register_doc",
+                    "arguments": {"query": "$420C"},
+                    "server": "oracle",
+                    "label": "register_doc($420C)",
+                    "content": "### HDMAEN ($420C)\nHDMA enable register",
+                },
+                {
+                    "tool_name": "label_lookup",
+                    "arguments": {"query": "MDMAEN"},
+                    "server": "oracle",
+                    "label": "label_lookup(MDMAEN)",
+                    "content": "not used here",
+                },
+            ],
+        )
+
+        self.assertEqual(len(records), 2)
+        self.assertEqual(records[0]["tool_name"], "register_doc")
+        self.assertEqual(records[0]["arguments_json"], '{"query": "$420B"}')
+        self.assertEqual(records[1]["arguments_json"], '{"query": "$420C"}')
+
+    def test_build_oracle_prefetch_forced_reply_for_unknown_register(self) -> None:
+        reply = build_oracle_prefetch_forced_reply(
+            "What does $4310 do?",
+            [{
+                "tool_name": "register_doc",
+                "arguments": {"query": "$4310"},
+                "server": "oracle",
+                "label": "register_doc($4310)",
+                "content": "Unknown register: $4310",
+            }],
+        )
+
+        self.assertIn("couldn't find", reply.lower())
+        self.assertNotIn("$4310", reply)
+
+    def test_build_unavailable_tool_forced_reply_for_filesystem_prompt(self) -> None:
+        reply = build_unavailable_tool_forced_reply("Try filesystem tools", FakeOracleBridge())
+
+        self.assertIn("don't have general filesystem browsing tools", reply)
+
+    def test_build_oracle_answer_after_grounding_prompt_for_simple_trace(self) -> None:
+        prompt = build_oracle_answer_after_grounding_prompt("Let's take a look at the Minecart sprite.")
+
+        self.assertIn("answer from the current evidence", prompt)
+
+    def test_build_oracle_answer_after_grounding_prompt_skips_debug_turns(self) -> None:
+        prompt = build_oracle_answer_after_grounding_prompt("Debug this minecart crash regression.")
+
+        self.assertEqual(prompt, "")
+
+    def test_build_oracle_answer_after_grounding_prompt_skips_broad_repo_discovery(self) -> None:
+        prompt = build_oracle_answer_after_grounding_prompt(
+            "What are some pending tasks in this repo? Explore the docs and codebase."
+        )
+
+        self.assertEqual(prompt, "")
+
     async def test_add_attachment_context_packs_adds_z3lsp_summary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             file_path = Path(tmp) / "main.asm"

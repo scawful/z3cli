@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,10 +8,10 @@ from unittest.mock import AsyncMock, patch
 
 from rich.console import Console
 
-from z3cli.app.repl import AppState, _post_tool_hook, handle_command, send_prompt, stream_response
+from z3cli.app.repl import AppState, _post_tool_hook, build_state, handle_command, send_prompt, stream_response
 from z3cli.app.shell_session import PersistentShellSession
 from z3cli.app.write_review import prepare_write_context
-from z3cli.core.config import ModelConfig, RouterConfig
+from z3cli.core.config import LlamaCppNodeConfig, ModelConfig, RouterConfig, StudioNodeConfig
 from z3cli.core.engine import CompactionEvent, DoneEvent
 
 
@@ -30,6 +31,7 @@ def _state() -> AppState:
         "oracle-main-act": _model("oracle-main-act", role="act"),
         "farore": _model("farore", tool_profile="farore"),
         "oracle": _model("oracle", role="planner"),
+        "oracle-pro": _model("oracle-pro", role="pro"),
     }
     return AppState(
         console=Console(record=True, width=120),
@@ -58,6 +60,137 @@ def _state() -> AppState:
 
 
 class ReplCommandTests(unittest.IsolatedAsyncioTestCase):
+    async def test_build_state_applies_studio_node_model_on_startup(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry = root / "chat_registry.toml"
+            mcp = root / "mcp.json"
+            workspace = root / "workspace"
+            workspace.mkdir()
+            registry.write_text(
+                """
+[[models]]
+name = "oracle"
+provider = "studio"
+model_id = "qwen3-oracle-14b-v1"
+
+[[models]]
+name = "oracle-pro"
+provider = "studio"
+model_id = "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf"
+
+[[studio_nodes]]
+                name = "oracle-pro-home"
+                api_base = "http://127.0.0.1:2234/v1"
+                model = "oracle-pro"
+                description = "Windows tunnel"
+                hostd_url = "http://127.0.0.1:8766"
+""".strip(),
+                encoding="utf-8",
+            )
+            mcp.write_text("{}", encoding="utf-8")
+            args = SimpleNamespace(
+                registry=str(registry),
+                mcp_config=str(mcp),
+                backend="studio",
+                host="127.0.0.1",
+                port=1234,
+                studio_api_base="http://127.0.0.1:1234/v1",
+                studio_node="oracle-pro-home",
+                llamacpp_api_base="http://127.0.0.1:8080/v1",
+                llamacpp_model="oracle-fast",
+                llamacpp_node="",
+                workspace=str(workspace),
+                rom="",
+                model="oracle",
+                model_explicit=False,
+                mode="manual",
+                broadcast_models="",
+                temperature=0.2,
+                max_tokens=256,
+                tools=False,
+                lsp_context="auto",
+                auto_load=True,
+                auto_start_server=False,
+                list_models=False,
+                list_loaded=False,
+                status=False,
+                route_only=False,
+                prompt="",
+            )
+
+            state = await build_state(args)
+
+        self.assertEqual(state.studio_node, "oracle-pro-home")
+        self.assertEqual(state.backend_name, "studio")
+        self.assertEqual(state.studio_api_base, "http://127.0.0.1:2234/v1")
+        self.assertEqual(state.active_model, "oracle-pro")
+
+    async def test_studio_node_command_switches_named_endpoint(self) -> None:
+        state = _state()
+        state.studio_nodes = {
+            "oracle-pro-home": StudioNodeConfig(
+                name="oracle-pro-home",
+                api_base="http://127.0.0.1:2234/v1",
+                model="oracle-pro",
+                description="Windows tunnel",
+                hostd_url="http://127.0.0.1:8766",
+            ),
+        }
+
+        with patch.dict("os.environ", {}, clear=False):
+            handled = await handle_command(state, "/studio-node oracle-pro-home")
+
+            self.assertTrue(handled)
+            self.assertEqual(state.studio_node, "oracle-pro-home")
+            self.assertEqual(state.studio_api_base, "http://127.0.0.1:2234/v1")
+            self.assertEqual(state.backend_name, "studio")
+            self.assertEqual(state.active_model, "oracle-pro")
+            self.assertEqual(os.environ.get("Z3CLI_LMSTUDIO_HOSTD_URL"), "http://127.0.0.1:8766")
+            self.assertIn("studio node set to oracle-pro-home", state.console.export_text())
+
+    async def test_use_command_switches_to_home_alias(self) -> None:
+        state = _state()
+        state.studio_nodes = {
+            "oracle-pro-home": StudioNodeConfig(
+                name="oracle-pro-home",
+                api_base="http://127.0.0.1:2234/v1",
+                model="oracle-pro",
+                description="Windows tunnel",
+                hostd_url="http://127.0.0.1:8766",
+            ),
+        }
+
+        with patch.dict("os.environ", {}, clear=False):
+            handled = await handle_command(state, "/use home")
+
+            self.assertTrue(handled)
+            self.assertEqual(state.backend_name, "studio")
+            self.assertEqual(state.studio_node, "oracle-pro-home")
+            self.assertEqual(state.active_model, "oracle-pro")
+            self.assertEqual(os.environ.get("Z3CLI_LMSTUDIO_HOSTD_URL"), "http://127.0.0.1:8766")
+            self.assertIn("Using studio (oracle-pro-home) as oracle-pro", state.console.export_text())
+
+    async def test_llamacpp_node_command_switches_named_endpoint(self) -> None:
+        state = _state()
+        state.llamacpp_nodes = {
+            "oracle-pro-vast": LlamaCppNodeConfig(
+                name="oracle-pro-vast",
+                api_base="http://127.0.0.1:18080/v1",
+                model="oracle-pro",
+                description="SSH tunnel",
+            ),
+        }
+
+        handled = await handle_command(state, "/llamacpp-node oracle-pro-vast")
+
+        self.assertTrue(handled)
+        self.assertEqual(state.llamacpp_node, "oracle-pro-vast")
+        self.assertEqual(state.llamacpp_api_base, "http://127.0.0.1:18080/v1")
+        self.assertEqual(state.llamacpp_model, "oracle-pro")
+        self.assertEqual(state.backend_name, "llamacpp")
+        self.assertIn("llama.cpp node set to oracle-pro-vast", state.console.export_text())
+
     async def test_lsp_context_command_updates_mode(self) -> None:
         state = _state()
 
@@ -220,6 +353,77 @@ class ReplCommandTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(fake_engine.chat_kwargs)
         assert fake_engine.chat_kwargs is not None
         self.assertFalse(fake_engine.chat_kwargs["use_tools"])
+
+    async def test_stream_response_injects_oracle_coder_prompt_for_oracle_fast(self) -> None:
+        state = _state()
+        state.models["oracle-fast"] = ModelConfig(
+            name="oracle-fast",
+            model_id="oracle-fast",
+            role="fast local model",
+            tools_enabled=True,
+        )
+        state.models["oracle-coder"] = ModelConfig(
+            name="oracle-coder",
+            model_id="qwen25-oracle-coder-7b-v1",
+            role="internal coding worker",
+            tags=["oracle"],
+            visibility="hidden",
+            spawn_only=True,
+            spawnable_by=["oracle", "oracle-fast"],
+            tools_enabled=True,
+        )
+        target = state.models["oracle-fast"]
+
+        class FakeEngine:
+            def __init__(self) -> None:
+                self.bridge = None
+                self.chat_kwargs: dict | None = None
+
+            async def chat(self, **kwargs):  # type: ignore[no-untyped-def]
+                self.chat_kwargs = dict(kwargs)
+                yield DoneEvent()
+
+        fake_engine = FakeEngine()
+
+        with patch("z3cli.app.repl._resolve_request_model_name", return_value=target.model_id), patch(
+            "z3cli.app.repl.get_engine",
+            return_value=fake_engine,
+        ):
+            await stream_response(state, target, "repair this asm hook", target_count=1)
+
+        self.assertIsNotNone(fake_engine.chat_kwargs)
+        assert fake_engine.chat_kwargs is not None
+        self.assertIn(
+            "Delegate the code-writing pass to `spawn_subagent` with model `oracle-coder`",
+            fake_engine.chat_kwargs["system"],
+        )
+        self.assertIn("Quality-first policy", fake_engine.chat_kwargs["system"])
+
+    async def test_stream_response_injects_oracle_natural_chat_prompt_for_oracle_pro(self) -> None:
+        state = _state()
+        target = state.models["oracle-pro"]
+
+        class FakeEngine:
+            def __init__(self) -> None:
+                self.bridge = None
+                self.chat_kwargs: dict | None = None
+
+            async def chat(self, **kwargs):  # type: ignore[no-untyped-def]
+                self.chat_kwargs = dict(kwargs)
+                yield DoneEvent()
+
+        fake_engine = FakeEngine()
+
+        with patch("z3cli.app.repl._resolve_request_model_name", return_value=target.model_id), patch(
+            "z3cli.app.repl.get_engine",
+            return_value=fake_engine,
+        ):
+            await stream_response(state, target, "minecart is weird", target_count=1)
+
+        self.assertIsNotNone(fake_engine.chat_kwargs)
+        assert fake_engine.chat_kwargs is not None
+        self.assertIn("The user may speak casually, tersely, or by implication.", fake_engine.chat_kwargs["system"])
+        self.assertIn("exactly one short clarifying question", fake_engine.chat_kwargs["system"])
 
     async def test_post_tool_hook_appends_asm_verification_results(self) -> None:
         class FakeBridge:
@@ -406,6 +610,17 @@ class ReplCommandTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("/unload [name|all]", output)
         self.assertIn("oracle-pro", output)
         self.assertIn("manual-heavy model", output)
+
+    async def test_oracle_tips_command_prints_local_oracle_cheat_sheet(self) -> None:
+        state = _state()
+
+        await handle_command(state, "/oracle-tips")
+
+        output = state.console.export_text().lower()
+        self.assertIn("oracle prompt tips", output)
+        self.assertIn("symptom + anchor + intent", output)
+        self.assertIn("one symptom", output)
+        self.assertIn("what should we look at first", output)
 
     async def test_unload_command_uses_backend_identifier_resolution(self) -> None:
         state = _state()

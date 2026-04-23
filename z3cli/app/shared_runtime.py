@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+import os
+import re
 from typing import Any
 
 from z3cli.app.backends import LMStudioBackend, LlamaCppBackend
@@ -21,7 +23,10 @@ from z3cli.app.runtime import (
     VALID_MODES,
 )
 from z3cli.core.config import (
+    LlamaCppNodeConfig,
+    StudioNodeConfig,
     UI_HIDDEN_ZELDA_MODEL_TAGS,
+    direct_model_selection_error,
     is_zelda_model,
     is_z3ui_model_entry,
     list_visible_zelda_models,
@@ -37,6 +42,57 @@ from z3cli.protocol.lmstudio import (
     loaded_model_lookup_keys,
     loaded_models,
     normalize_loaded_model_entry,
+)
+
+_LOCAL_MODEL_EXTENSIONS = (
+    ".gguf",
+    ".bin",
+    ".safetensors",
+    ".ggml",
+)
+_LOCAL_QUANT_SUFFIX_RE = re.compile(
+    r"(?:[-_](?:q\d[a-z0-9_]*|iq\d[a-z0-9_]*|bf16|fp16|fp32|f16|f32|mlx))+$",
+    re.IGNORECASE,
+)
+_PRIMARY_MODEL_NAMES = ("oracle", "oracle-fast", "oracle-pro")
+_USE_TARGET_ALIASES = {
+    "home": "oracle-pro-home",
+    "vast": "oracle-pro-vast",
+}
+_TOPIC_SHIFT_STOPWORDS = {
+    "about",
+    "current",
+    "explore",
+    "files",
+    "find",
+    "help",
+    "info",
+    "information",
+    "into",
+    "look",
+    "need",
+    "oracle",
+    "project",
+    "secrets",
+    "some",
+    "state",
+    "take",
+    "that",
+    "them",
+    "this",
+    "tools",
+    "try",
+    "what",
+    "work",
+}
+_TOPIC_SHIFT_FOLLOWUPS = (
+    "what are you talking about",
+    "what's the current state",
+    "whats the current state",
+    "current state",
+    "can you elaborate",
+    "why",
+    "what about",
 )
 
 
@@ -55,6 +111,232 @@ def state_lsp_context_mode(state: Any) -> str:
 
 def active_model_name(state: Any) -> str:
     return current_model_name(state.active_model, state.backend_name, state.llamacpp_model)
+
+
+def get_llamacpp_nodes(state: Any) -> dict[str, LlamaCppNodeConfig]:
+    raw_nodes = getattr(state, "llamacpp_nodes", {})
+    return dict(raw_nodes) if isinstance(raw_nodes, dict) else {}
+
+
+def get_studio_nodes(state: Any) -> dict[str, StudioNodeConfig]:
+    raw_nodes = getattr(state, "studio_nodes", {})
+    return dict(raw_nodes) if isinstance(raw_nodes, dict) else {}
+
+
+def current_studio_node(state: Any) -> StudioNodeConfig | None:
+    node_name = str(getattr(state, "studio_node", "") or "").strip().lower()
+    if not node_name:
+        return None
+    return get_studio_nodes(state).get(node_name)
+
+
+def current_llamacpp_node(state: Any) -> LlamaCppNodeConfig | None:
+    node_name = str(getattr(state, "llamacpp_node", "") or "").strip().lower()
+    if not node_name:
+        return None
+    return get_llamacpp_nodes(state).get(node_name)
+
+
+def use_lean_llamacpp_prompt(state: Any) -> bool:
+    if getattr(state, "backend_name", "") != "llamacpp":
+        return False
+    node = current_llamacpp_node(state)
+    return bool(node and node.lean_prompt)
+
+
+def _extract_topic_terms(text: str) -> set[str]:
+    terms = {
+        token
+        for token in re.findall(r"[A-Za-z][A-Za-z0-9_/-]{3,}", str(text or "").lower())
+        if token not in _TOPIC_SHIFT_STOPWORDS
+    }
+    return terms
+
+
+def maybe_reset_engine_for_topic_shift(engine: Any, prompt: str) -> bool:
+    recent_prompts = list(getattr(engine, "_z3cli_recent_prompts", []) or [])
+    normalized_prompt = str(prompt or "").strip()
+    reset = False
+    if recent_prompts:
+        lowered = normalized_prompt.lower()
+        current_terms = _extract_topic_terms(normalized_prompt)
+        recent_terms: set[str] = set()
+        for item in recent_prompts[-3:]:
+            recent_terms.update(_extract_topic_terms(str(item)))
+        if (
+            len(getattr(engine, "messages", [])) >= 6
+            and len(current_terms) >= 2
+            and recent_terms
+            and not (current_terms & recent_terms)
+            and not any(phrase in lowered for phrase in _TOPIC_SHIFT_FOLLOWUPS)
+        ):
+            engine.reset()
+            recent_prompts.clear()
+            reset = True
+    if normalized_prompt:
+        recent_prompts.append(normalized_prompt)
+        setattr(engine, "_z3cli_recent_prompts", recent_prompts[-4:])
+    return reset
+
+
+def apply_studio_node(state: Any, node: StudioNodeConfig) -> None:
+    state.studio_node = node.name
+    state.studio_api_base = node.api_base.rstrip("/")
+    state.backend_name = "studio"
+    state.api_base = state.studio_api_base
+    if getattr(node, "hostd_url", ""):
+        os.environ["Z3CLI_LMSTUDIO_HOSTD_URL"] = str(node.hostd_url).rstrip("/")
+    else:
+        os.environ.pop("Z3CLI_LMSTUDIO_HOSTD_URL", None)
+    if getattr(node, "model", ""):
+        try:
+            resolved, _alias = resolve_existing_model_name(node.model, getattr(state, "models", {}))
+        except RuntimeError:
+            pass
+        else:
+            state.active_model = resolved
+
+
+def select_studio_node(state: Any, node_name: str) -> tuple[StudioNodeConfig | None, str | None]:
+    normalized = str(node_name or "").strip().lower()
+    if not normalized:
+        return None, "studio node name is required"
+    nodes = get_studio_nodes(state)
+    node = nodes.get(normalized)
+    if node is None:
+        return None, f"Unknown studio node: {node_name}"
+    apply_studio_node(state, node)
+    return node, None
+
+
+def apply_llamacpp_node(state: Any, node: LlamaCppNodeConfig) -> None:
+    state.llamacpp_node = node.name
+    state.llamacpp_api_base = node.api_base.rstrip("/")
+    state.llamacpp_model = node.model
+    state.backend_name = "llamacpp"
+    state.api_base = state.llamacpp_api_base
+
+
+def select_llamacpp_node(state: Any, node_name: str) -> tuple[LlamaCppNodeConfig | None, str | None]:
+    normalized = str(node_name or "").strip().lower()
+    if not normalized:
+        return None, "llama.cpp node name is required"
+    nodes = get_llamacpp_nodes(state)
+    node = nodes.get(normalized)
+    if node is None:
+        return None, f"Unknown llama.cpp node: {node_name}"
+    apply_llamacpp_node(state, node)
+    return node, None
+
+
+def available_use_targets(state: Any) -> list[dict[str, str]]:
+    entries: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    def add(name: str, *, kind: str, backend: str, model: str = "", description: str = "") -> None:
+        normalized = str(name or "").strip().lower()
+        if not normalized or normalized in seen:
+            return
+        seen.add(normalized)
+        entries.append({
+            "name": normalized,
+            "kind": kind,
+            "backend": backend,
+            "model": str(model or ""),
+            "description": str(description or ""),
+        })
+
+    studio_nodes = get_studio_nodes(state)
+    llamacpp_nodes = get_llamacpp_nodes(state)
+
+    for alias, target in _USE_TARGET_ALIASES.items():
+        if target in studio_nodes:
+            node = studio_nodes[target]
+            add(alias, kind="alias", backend="studio", model=node.model, description=f"{target} · {node.description}".strip(" ·"))
+        elif target in llamacpp_nodes:
+            node = llamacpp_nodes[target]
+            add(alias, kind="alias", backend="llamacpp", model=node.model, description=f"{target} · {node.description}".strip(" ·"))
+
+    for name, node in sorted(studio_nodes.items()):
+        add(name, kind="studio-node", backend="studio", model=node.model, description=node.description)
+    for name, node in sorted(llamacpp_nodes.items()):
+        add(name, kind="llamacpp-node", backend="llamacpp", model=node.model, description=node.description)
+
+    for name in _PRIMARY_MODEL_NAMES:
+        if name in getattr(state, "models", {}):
+            add(name, kind="model", backend="studio", model=name, description="model")
+
+    return entries
+
+
+def apply_use_target(state: Any, target_name: str) -> tuple[dict[str, str] | None, str | None]:
+    requested = str(target_name or "").strip().lower()
+    if not requested:
+        return None, "use target is required"
+
+    normalized = _USE_TARGET_ALIASES.get(requested, requested)
+    studio_nodes = get_studio_nodes(state)
+    llamacpp_nodes = get_llamacpp_nodes(state)
+
+    if normalized in studio_nodes:
+        node, error = select_studio_node(state, normalized)
+        if node is None:
+            return None, error or f"Unknown use target: {target_name}"
+        return {
+            "target": requested,
+            "resolved": node.name,
+            "backend": "studio",
+            "model": getattr(state, "active_model", ""),
+            "studio_node": node.name,
+        }, None
+
+    if normalized in llamacpp_nodes:
+        node, error = select_llamacpp_node(state, normalized)
+        if node is None:
+            return None, error or f"Unknown use target: {target_name}"
+        return {
+            "target": requested,
+            "resolved": node.name,
+            "backend": "llamacpp",
+            "model": node.model,
+            "llamacpp_node": node.name,
+        }, None
+
+    try:
+        resolved_model, _alias = resolve_existing_model_name(normalized, getattr(state, "models", {}))
+    except RuntimeError:
+        return None, f"Unknown use target: {target_name}"
+
+    for name, node in sorted(studio_nodes.items()):
+        if str(getattr(node, "model", "") or "").strip().lower() == resolved_model:
+            select_studio_node(state, name)
+            return {
+                "target": requested,
+                "resolved": name,
+                "backend": "studio",
+                "model": getattr(state, "active_model", resolved_model),
+                "studio_node": name,
+            }, None
+
+    for name, node in sorted(llamacpp_nodes.items()):
+        if str(getattr(node, "model", "") or "").strip().lower() == resolved_model:
+            select_llamacpp_node(state, name)
+            return {
+                "target": requested,
+                "resolved": name,
+                "backend": "llamacpp",
+                "model": node.model,
+                "llamacpp_node": name,
+            }, None
+
+    set_backend(state, "studio")
+    state.active_model = resolved_model
+    return {
+        "target": requested,
+        "resolved": resolved_model,
+        "backend": "studio",
+        "model": resolved_model,
+    }, None
 
 
 def get_backend(state: Any) -> LMStudioBackend | LlamaCppBackend:
@@ -421,8 +703,32 @@ def restore_runtime_state(state: Any, meta: dict[str, Any]) -> list[str]:
         state.last_active_model = str(meta["last_active_model"])
     if "broadcast_models" in meta and isinstance(meta["broadcast_models"], list):
         state.broadcast_models = [str(value).strip() for value in meta["broadcast_models"] if str(value).strip()]
+    if meta.get("studio_api_base") and hasattr(state, "studio_api_base"):
+        state.studio_api_base = str(meta["studio_api_base"]).rstrip("/")
+    if "studio_node" in meta and hasattr(state, "studio_node"):
+        requested_studio_node = str(meta["studio_node"] or "").strip().lower()
+        if requested_studio_node:
+            node, error = select_studio_node(state, requested_studio_node)
+            if node is None and error:
+                warnings.append(error)
+        else:
+            state.studio_node = ""
+    if meta.get("llamacpp_api_base") and hasattr(state, "llamacpp_api_base"):
+        state.llamacpp_api_base = str(meta["llamacpp_api_base"]).rstrip("/")
     if meta.get("llamacpp_model"):
         state.llamacpp_model = str(meta["llamacpp_model"])
+    if "llamacpp_node" in meta and hasattr(state, "llamacpp_node"):
+        requested_node = str(meta["llamacpp_node"] or "").strip().lower()
+        if requested_node:
+            node, error = select_llamacpp_node(state, requested_node)
+            if node is None and error:
+                warnings.append(error)
+        else:
+            state.llamacpp_node = ""
+    if getattr(state, "backend_name", "") == "studio" and hasattr(state, "studio_api_base"):
+        state.api_base = state.studio_api_base
+    elif getattr(state, "backend_name", "") == "llamacpp" and hasattr(state, "llamacpp_api_base"):
+        state.api_base = state.llamacpp_api_base
     if "orchestrator_model" in meta and hasattr(state, "orchestrator_model"):
         requested_orchestrator = str(meta["orchestrator_model"] or "")
         if not requested_orchestrator:
@@ -594,12 +900,69 @@ def _model_has_runtime_presence(
         return True
     if not loaded_lookup and not available_lookup:
         return True
+    runtime_keys = _model_runtime_keys(model)
     return (
-        loaded_lookup.get(model.name) is not None
-        or loaded_lookup.get(model.model_id) is not None
-        or available_lookup.get(model.model_id) is not None
-        or available_lookup.get(model.name) is not None
+        _lookup_runtime_entry(runtime_keys, loaded_lookup) is not None
+        or _lookup_runtime_entry(runtime_keys, available_lookup) is not None
     )
+
+
+def _normalized_runtime_lookup_keys(value: str) -> set[str]:
+    raw = str(value or "").strip()
+    if not raw:
+        return set()
+    slash_normalized = raw.replace("\\", "/").strip("/")
+    candidates = {
+        raw.lower(),
+        slash_normalized.lower(),
+    }
+    basename = slash_normalized.rsplit("/", 1)[-1]
+    if basename:
+        candidates.add(basename.lower())
+        stem = basename
+        lowered_stem = stem.lower()
+        for extension in _LOCAL_MODEL_EXTENSIONS:
+            if lowered_stem.endswith(extension):
+                stem = stem[: -len(extension)]
+                lowered_stem = stem.lower()
+                candidates.add(lowered_stem)
+                break
+        trimmed = _LOCAL_QUANT_SUFFIX_RE.sub("", stem)
+        if trimmed:
+            candidates.add(trimmed.lower())
+    return {candidate for candidate in candidates if candidate}
+
+
+def _model_runtime_keys(model: Any) -> tuple[str, ...]:
+    aliases = getattr(model, "aliases", [])
+    alias_values = aliases if isinstance(aliases, list) else []
+    values = [
+        str(getattr(model, "name", "") or "").strip(),
+        str(getattr(model, "model_id", "") or "").strip(),
+        *(str(alias or "").strip() for alias in alias_values),
+    ]
+    deduped: list[str] = []
+    for value in values:
+        if value and value not in deduped:
+            deduped.append(value)
+    return tuple(deduped)
+
+
+def _lookup_runtime_entry(
+    runtime_keys: tuple[str, ...],
+    lookup: dict[str, dict[str, Any]],
+) -> dict[str, Any] | None:
+    if not runtime_keys or not lookup:
+        return None
+    normalized_targets: set[str] = set()
+    for value in runtime_keys:
+        normalized_targets.update(_normalized_runtime_lookup_keys(value))
+    if not normalized_targets:
+        return None
+    for key, entry in lookup.items():
+        if normalized_targets & _normalized_runtime_lookup_keys(key):
+            return entry
+    return None
 
 
 def _build_model_runtime_info(
@@ -607,8 +970,9 @@ def _build_model_runtime_info(
     loaded_lookup: dict[str, dict[str, Any]],
     available_lookup: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
-    runtime_info = loaded_lookup.get(model.name) or loaded_lookup.get(model.model_id)
-    available_info = available_lookup.get(model.model_id) or available_lookup.get(model.name)
+    runtime_keys = _model_runtime_keys(model)
+    runtime_info = _lookup_runtime_entry(runtime_keys, loaded_lookup)
+    available_info = _lookup_runtime_entry(runtime_keys, available_lookup)
     return {
         "name": model.name,
         "model_id": model.model_id,
@@ -618,6 +982,7 @@ def _build_model_runtime_info(
         "available": True if model.is_cloud else available_info is not None,
         "tools_enabled": model.tools_enabled,
         "provider": model.provider,
+        "selectable": direct_model_selection_error(model) is None,
         "loaded_identifier": runtime_info.get("identifier", "") if runtime_info else "",
         "size_bytes": runtime_info.get("size_bytes", 0) if runtime_info else 0,
         "status": runtime_info.get("status", "") if runtime_info else "",
@@ -648,20 +1013,62 @@ def loaded_model_runtime_infos(state: Any) -> list[dict[str, Any]]:
 
 def visible_model_infos(state: Any) -> list[dict[str, Any]]:
     _runtime_infos, loaded_lookup, available_lookup, inventory_ok = _studio_runtime_inventory(state)
-    visible = {
-        model.name: model
-        for model in list_visible_zelda_models(state.models).values()
-        if _model_has_runtime_presence(model, loaded_lookup, available_lookup, inventory_ok)
-    }
-    active_model = state.models.get(getattr(state, "active_model", ""))
-    if active_model is not None and _model_has_runtime_presence(active_model, loaded_lookup, available_lookup, inventory_ok):
-        visible[active_model.name] = active_model
+    visible: dict[str, Any] = {}
     for model in state.models.values():
-        if model.is_cloud and _model_has_runtime_presence(model, loaded_lookup, available_lookup, inventory_ok):
+        if model.is_cloud:
+            if not _model_has_runtime_presence(model, loaded_lookup, available_lookup, inventory_ok):
+                continue
             visible[model.name] = model
+            continue
+        if not is_zelda_model(model):
+            continue
+        if direct_model_selection_error(model) is not None:
+            continue
+        tags_lower = {tag.lower() for tag in model.tags}
+        if UI_HIDDEN_ZELDA_MODEL_TAGS & tags_lower:
+            continue
+        if not _model_has_runtime_presence(model, loaded_lookup, available_lookup, inventory_ok):
+            continue
+        visible[model.name] = model
 
     infos: list[dict[str, Any]] = []
-    for model in sorted(visible.values(), key=lambda item: item.name):
+    for model in sorted(
+        visible.values(),
+        key=lambda item: (
+            0 if item.is_cloud else 1,
+            z3ui_model_sort_key(item.name) if not item.is_cloud else (len(_PRIMARY_MODEL_NAMES), item.name),
+        ),
+    ):
+        infos.append(_build_model_runtime_info(model, loaded_lookup, available_lookup))
+    return infos
+
+
+def primary_model_infos(state: Any) -> list[dict[str, Any]]:
+    _runtime_infos, loaded_lookup, available_lookup, inventory_ok = _studio_runtime_inventory(state)
+    visible: dict[str, Any] = {}
+    for name in _PRIMARY_MODEL_NAMES:
+        model = state.models.get(name)
+        if model is None:
+            continue
+        if blocked_model_reason(model):
+            continue
+        if direct_model_selection_error(model) is not None:
+            continue
+        if not _model_has_runtime_presence(model, loaded_lookup, available_lookup, inventory_ok):
+            continue
+        visible[model.name] = model
+    active_model = state.models.get(getattr(state, "active_model", ""))
+    if (
+        active_model is not None
+        and is_zelda_model(active_model)
+        and not blocked_model_reason(active_model)
+        and direct_model_selection_error(active_model) is None
+        and _model_has_runtime_presence(active_model, loaded_lookup, available_lookup, inventory_ok)
+    ):
+        visible[active_model.name] = active_model
+
+    infos: list[dict[str, Any]] = []
+    for model in sorted(visible.values(), key=lambda item: (_PRIMARY_MODEL_NAMES.index(item.name) if item.name in _PRIMARY_MODEL_NAMES else len(_PRIMARY_MODEL_NAMES), item.name)):
         infos.append(_build_model_runtime_info(model, loaded_lookup, available_lookup))
     return infos
 
@@ -684,7 +1091,11 @@ def model_catalog_infos(state: Any) -> list[dict[str, Any]]:
         catalog[model.name] = model
 
     active_model = state.models.get(getattr(state, "active_model", ""))
-    if active_model is not None and _model_has_runtime_presence(active_model, loaded_lookup, available_lookup, inventory_ok):
+    if (
+        active_model is not None
+        and (active_model.is_cloud or is_zelda_model(active_model))
+        and _model_has_runtime_presence(active_model, loaded_lookup, available_lookup, inventory_ok)
+    ):
         catalog[active_model.name] = active_model
 
     infos: list[dict[str, Any]] = []
@@ -695,16 +1106,20 @@ def model_catalog_infos(state: Any) -> list[dict[str, Any]]:
 
 def z3ui_model_infos(state: Any) -> list[dict[str, Any]]:
     _runtime_infos, loaded_lookup, available_lookup, inventory_ok = _studio_runtime_inventory(state)
+    visible: dict[str, Any] = {}
+    for model in state.models.values():
+        if not is_z3ui_model_entry(model):
+            continue
+        if blocked_model_reason(model):
+            continue
+        if direct_model_selection_error(model) is not None:
+            continue
+        if not _model_has_runtime_presence(model, loaded_lookup, available_lookup, inventory_ok):
+            continue
+        visible[model.name] = model
+
     infos: list[dict[str, Any]] = []
-    for model in sorted(
-        (
-            model
-            for model in list_visible_zelda_models(state.models).values()
-            if is_z3ui_model_entry(model) and not blocked_model_reason(model)
-            and _model_has_runtime_presence(model, loaded_lookup, available_lookup, inventory_ok)
-        ),
-        key=lambda item: z3ui_model_sort_key(item.name),
-    ):
+    for model in sorted(visible.values(), key=lambda item: z3ui_model_sort_key(item.name)):
         infos.append(_build_model_runtime_info(model, loaded_lookup, available_lookup))
     return infos
 

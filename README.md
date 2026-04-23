@@ -60,14 +60,23 @@ python3 -m z3cli --backend llamacpp --llamacpp-model oracle-fast
 z3ui --no-auto-start-server --no-auto-load --model oracle
 ```
 
-`z3cli` and `z3ui` prefer `oracle` as the public default. While that alias still
-points at the smaller corrective Qwen3 local model, it can stay loaded as the
-daily default. The local specialist bench is intentionally more explicit now:
+`z3cli` and `z3ui` now keep the main Oracle contract intentionally small:
 
-- `oracle` -> `8B corrective Oracle · q4km`
+- `oracle-fast` -> `8B corrective Oracle · q4km` pinned daily local model
+- `oracle` -> reserved mainline slot hidden until installed
+- `oracle-pro` -> `14B Oracle-Pro · q4km` current local pro lane
+- `oracle-mythic` -> `27B switchhook Oracle · q4km` manual heavy model
+
+Inside the normal chat flow, Oracle-family models now do hidden per-turn task
+routing and light context prefetch automatically. In practice that means the
+existing `Shift+Tab` chat mode can infer a rough Oracle task shape
+(`trace`/`debug`/`author`, plus domain) and opportunistically preload compact
+evidence such as register docs, symbol lookups, and one nearby disassembly
+slice when the prompt strongly implies them.
+
+Everything else stays available in the catalog / alternate tabs:
+
 - `qwen3-oracle-8b` or `oracle-q8` -> `8B corrective Oracle · q8_0`
-- `oracle-fast` -> `8-9B fast Oracle · live alias`
-- `oracle-pro` -> `27B switchhook Oracle · q4km` manual heavy model
 - `nayru` or `nayru-q8` -> `9B Qwen3.5 explainer · q8_0`
 - `farore` or `farore-q8` -> `9B Qwen3.5 debug/FIM · q8_0`
 - `farore-q4km` -> `9B Qwen3.5 debug/FIM · q4km`
@@ -75,8 +84,120 @@ daily default. The local specialist bench is intentionally more explicit now:
 - `hylia` or `hylia-q8` -> `9B Qwen3.5 lore/history · q8_0`
 - `hylia-q4km` -> `9B Qwen3.5 lore/history · q4km`
 
+CLI `/models` shows that wider visible specialist bench again, while the main
+picker in `z3ui` stays focused on the primary Oracle contract. Use the model
+manager tabs in `z3ui` when you want the wider bench or base-Qwen catalog.
+
+Host placement policy:
+
+- primary local host is `medical-mechanica` on Windows + WSL2 with the RTX
+  `5090`
+- Mac is the control plane and fallback local machine
+- local-first applies to `oracle-fast`, `oracle-coder`, specialist `9B`, evals,
+  merges, and most corrective work
+- `14B` is also local-first now, with Vast fallback when the shared desktop is
+  busy, unstable, or needed for work/gaming
+- `scawfulbot` and Oracle-family inference may share that box, so repeated or
+  conflict-heavy workloads can be paused, throttled, or offloaded
+
 Use `/orchestrator <model|auto>` in `z3ui` when you want to pin or clear the
 cloud planner.
+
+## Windows 5090 Serving
+
+When `medical-mechanica` is the active LM Studio host, treat the API path and
+the control path separately.
+
+Preferred control path: `afs-hostd`
+
+1. Open local tunnels to the Windows LM Studio API and host daemon:
+
+```bash
+bash ../lab/afs-scawful/scripts/tunnel_windows_hostd.sh --background
+bash scripts/tunnel_windows_lmstudio.sh --background
+```
+
+2. Point `z3cli` at the tunneled API and host daemon:
+
+```bash
+export AFS_HOSTD_URL="http://127.0.0.1:8766"
+export LMSTUDIO_BASE_URL="http://127.0.0.1:2234/v1"
+```
+
+Fallback only, when `afs-hostd` is not running:
+
+```bash
+export Z3CLI_LMSTUDIO_REMOTE_HOST="medical-mechanica"
+export Z3CLI_LMSTUDIO_REMOTE_ENDPOINT="http://127.0.0.1:1234/v1"
+export Z3CLI_LMSTUDIO_REMOTE_LMS_PATH="C:\\Users\\scawful\\.lmstudio\\bin\\lms.exe"
+```
+
+With `AFS_HOSTD_URL` set, the studio backend keeps using the local API base you
+provide for inference, but `/backend-status`, `/loaded`, `/load`, `/unload`,
+and inventory checks go through the Windows host API instead of assuming a
+local Mac LM Studio CLI. The older `Z3CLI_LMSTUDIO_REMOTE_HOST` path still
+works as a fallback, but it is no longer the preferred control plane.
+
+For temporary remote `oracle-pro` testing while away from the home box, use the
+dedicated Vast helper from the training repo:
+
+```bash
+bash ../training/scripts/serve_oracle_pro_vast.sh start --vast-host <host> --vast-port <port>
+```
+
+Then open the printed SSH tunnel and point `z3cli` / `z3ui` at the tunneled
+`llama.cpp` endpoint:
+
+```bash
+export LLAMACPP_BASE_URL="http://127.0.0.1:18080/v1"
+python3 -m z3cli --backend llamacpp --llamacpp-model oracle-pro
+z3ui --backend llamacpp --llamacpp-model oracle-pro --llamacpp-api-base "$LLAMACPP_BASE_URL"
+```
+
+Named `llama.cpp` nodes now live in `config/chat_registry.toml`, so you can
+keep one local endpoint plus one or more tunneled remote endpoints and switch
+them without re-exporting env vars every time:
+
+```bash
+/llamacpp-nodes
+/llamacpp-node oracle-pro-vast
+/backend llamacpp
+```
+
+Shortcut:
+
+```text
+/use vast
+```
+
+Named LM Studio nodes now work the same way for the Windows home box:
+
+```bash
+/studio-nodes
+/studio-node oracle-pro-home
+/backend studio
+```
+
+Shortcut:
+
+```text
+/use home
+/use oracle-pro
+```
+
+`/use home` now carries both the tunneled LM Studio API base and the tunneled
+`afs-hostd` control URL, so Oracle auto-load works even if you did not export
+`AFS_HOSTD_URL` before launching `z3cli`.
+
+The same host daemon now also exposes WSL runtime status for the Windows `5090`
+box. The training-side control script uses the same tunnel:
+
+```bash
+export AFS_HOSTD_URL="http://127.0.0.1:8766"
+python3 ../training/scripts/windows_zelda_ctl.py wsl-status
+python3 ../training/scripts/windows_zelda_ctl.py wsl-envs
+python3 ../training/scripts/windows_zelda_ctl.py status --task qwen35-oracle-fast-v2 --config configs/zelda/qwen35_oracle_fast_v2.toml
+```
 
 ## One-Shot Usage
 
@@ -110,6 +231,7 @@ python3 -m z3cli --mode broadcast --broadcast-models farore,majora,nayru
 - `/help`
 - `/status`
 - `/backend [name]`
+- `/use [target]`
 - `/backends`
 - `/backend-status`
 - `/models`
@@ -169,17 +291,24 @@ python3 -m z3cli --mode broadcast --broadcast-models farore,majora,nayru
 - For fragile local LM Studio setups, `--no-auto-start-server --no-auto-load`
   keeps `z3cli` passive so it talks only to the server you started manually in
   the already-open LM Studio app.
-- `oracle` is the canonical entry and currently points at the smaller
-  `8B corrective Oracle · q4km` model for daily local work.
+- `oracle-fast` is the canonical daily local Oracle entry and points at the
+  smaller `8B corrective Oracle · q4km` model.
 - `oracle-q8` and the direct `qwen3-oracle-8b` entry expose the same corrective
   Oracle model as `8B corrective Oracle · q8_0`.
-- `oracle-fast` remains the lightweight `8-9B fast Oracle · live alias`.
-- `oracle-pro` is the manual-only `27B switchhook Oracle · q4km` model and should
-  stay an explicit opt-in, not the default local path.
+- `oracle` is the reserved mainline slot and stays hidden until a matching local
+  install exists.
+- `oracle-pro` is the current `14B Oracle-Pro · q4km` local pro lane.
+- `oracle-mythic` is the manual-only `27B switchhook Oracle · q4km` model and
+  should stay an explicit opt-in, not the default local path.
+- `qwen3-oracle-14b` is a reserved local catalog slot for the current 14B
+  Oracle mainline training target. It stays hidden until a matching LM Studio
+  install exists.
+- `oracle-coder` remains internal and spawn-only; it is meant to be delegated
+  to by `oracle`, not selected as a normal top-level working model.
 - `farore`, `hylia`, `majora`, and `nayru` now point at the live local Qwen3.5
   9B exports, with q4km sidecars exposed where you have them.
-- Legacy `oracle-main*`, `switchhook*`, and `oracle-tools` names still resolve
-  quietly for compatibility, but the real working names are the ones above.
+- Legacy `oracle-main*` and `oracle-tools` names still resolve quietly for
+  compatibility; `switchhook*` now resolve through `oracle-mythic`.
 - The local rollout manifest now acts mostly as a lightweight inventory note.
   It is intentionally permissive for local experimentation instead of acting as
   a hard promotion gate.

@@ -347,6 +347,17 @@ const COMMANDS: Record<string, Handler> = {
 
   "/help": async (_, ctx) => ctx.openHelp(),
 
+  "/oracle-tips": (args, ctx) =>
+    runCmd("/oracle-tips", args, ctx, (result) => {
+      const r = result as { title?: string; text?: string } | null;
+      if (r?.text) {
+        const title = r.title ? `### ${r.title}\n\n` : "";
+        ctx.addSystemMessage(`${title}${r.text}`);
+      } else {
+        ctx.addSystemMessage("```json\n" + JSON.stringify(result, null, 2) + "\n```");
+      }
+    }),
+
   "/model-manager": async (_, ctx) => ctx.openModelManager?.(),
 
   "/models": async (_, ctx) => {
@@ -453,6 +464,27 @@ const COMMANDS: Record<string, Handler> = {
         ctx.addSystemMessage(
           `Backend set to **${r.backend}**${r.active_model ? ` (${r.active_model})` : ""}`,
         );
+      }
+    }),
+
+  "/use": (args, ctx) =>
+    runCmd("/use", args, ctx, (result) => {
+      const r = result as {
+        backend?: string;
+        model?: string;
+        resolved?: string;
+        studio_node?: string;
+        llamacpp_node?: string;
+      } | null;
+      if (r?.backend) {
+        ctx.updateConfig({
+          backend: r.backend,
+          activeModel: r.model ?? ctx.config?.activeModel,
+        });
+        const label = r.resolved || args[0] || r.model || r.backend;
+        ctx.addSystemMessage(`Using **${label}** via **${r.backend}**${r.model ? ` (${r.model})` : ""}`);
+      } else {
+        ctx.addSystemMessage("```json\n" + JSON.stringify(result, null, 2) + "\n```");
       }
     }),
 

@@ -99,6 +99,7 @@ class _ChatState:
     total_cache_read: int = 0
     cancelled: bool = False
     done: bool = False
+    last_tool_round_grounded: bool = False
 
 
 @dataclass
@@ -196,6 +197,7 @@ _SHORTHAND_TOOL_CALL_RE = re.compile(
     re.DOTALL,
 )
 _PROVIDER_STATUS_RE = re.compile(r"\b(?:API|Anthropic API)\s+(\d{3})\b")
+_GROUNDING_TOOL_NAMES = {"register_doc", "label_lookup", "grep_disasm", "disasm_at", "rom_read"}
 
 
 def _strip_think_blocks(text: str) -> str:
@@ -261,6 +263,99 @@ def _truncate_tool_result(result: str, max_chars: int) -> str:
         + f"\n\n... [truncated {len(result) - max_chars} chars, {total_lines} total lines] ...\n\n"
         + result[-keep:]
     )
+
+
+def summarize_tool_result_for_history(
+    tool_name: str,
+    result: str,
+    max_chars: int = 0,
+) -> str:
+    """Return a compact tool result suitable for rolling history/session logs."""
+    text = str(result or "").strip()
+    if not text:
+        return text
+
+    lowered = text.lower()
+    if tool_name == "list_subagents":
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            payload = None
+        if isinstance(payload, dict):
+            specialists = payload.get("specialists")
+            if isinstance(specialists, list):
+                names = [
+                    str(item.get("name", "")).strip()
+                    for item in specialists
+                    if isinstance(item, dict) and str(item.get("name", "")).strip()
+                ]
+                if names:
+                    return f"Available specialists ({len(names)}): {', '.join(names)}"
+
+    if text.startswith("Workspace symbols ("):
+        lines = [line.rstrip() for line in text.splitlines() if line.strip()]
+        header = lines[0]
+        matches = [line for line in lines[1:] if line.lstrip().startswith("- ")]
+        if matches:
+            keep = matches[:3]
+            more = len(matches) - len(keep)
+            summary = "\n".join([header, *keep])
+            if more > 0:
+                summary += f"\n... (+{more} more matches)"
+            return _truncate_tool_result(summary, max_chars) if max_chars > 0 else summary
+
+    if lowered.startswith("error:") or lowered.startswith("no matching "):
+        return text.splitlines()[0]
+
+    if (text.startswith("{") or text.startswith("[") or text.startswith("## ")) and len(text) > 800:
+        lines = text.splitlines()
+        preview = "\n".join(lines[:8]).strip()
+        preview += f"\n... [history summary: {len(lines)} lines total]"
+        return _truncate_tool_result(preview, max_chars) if max_chars > 0 else preview
+
+    return _truncate_tool_result(text, max_chars) if max_chars > 0 else text
+
+
+def _tool_result_is_grounding_success(tool_name: str, result: str) -> bool:
+    """Return True when a tool result is direct grounding evidence.
+
+    This is intentionally conservative: only obviously-successful lookup/read
+    results should trigger "answer now" follow-up behavior.
+    """
+    normalized_name = str(tool_name or "").strip().lower()
+    if normalized_name not in _GROUNDING_TOOL_NAMES:
+        return False
+
+    text = str(result or "").strip()
+    if not text:
+        return False
+
+    lowered = text.lower()
+    if lowered.startswith("error:"):
+        return False
+    if lowered.startswith("no matching "):
+        return False
+    if lowered.startswith("unknown register"):
+        return False
+    if "[tool execution error]" in lowered:
+        return False
+    if "timed out" in lowered:
+        return False
+    if "error calling " in lowered:
+        return False
+    if "could not get disassembly" in lowered:
+        return False
+    if "error reading memory" in lowered:
+        return False
+    return True
+
+
+def _merge_system_prompt(base: str, extra: str) -> str:
+    base_text = str(base or "").strip()
+    extra_text = str(extra or "").strip()
+    if base_text and extra_text:
+        return f"{base_text}\n\n{extra_text}"
+    return base_text or extra_text
 
 
 def _is_retryable_provider_error(error: ProviderError) -> bool:
@@ -465,6 +560,8 @@ class ChatEngine:
         strip_thinking: bool = True,
         max_tool_result: int = 0,
         prompt_cache: bool = True,
+        answer_after_first_grounding: bool = False,
+        answer_after_grounding_system: str = "",
     ) -> AsyncGenerator[ChatEvent, None]:
         """Send a user message and yield events as the response streams.
 
@@ -481,8 +578,10 @@ class ChatEngine:
         characters are truncated before being stored in conversation
         history (the full result is still yielded in the event stream).
         """
-        if system:
-            self.set_system(system)
+        base_system = system
+        round_system = base_system
+        if round_system:
+            self.set_system(round_system)
 
         self._cancel_event.clear()
 
@@ -497,12 +596,14 @@ class ChatEngine:
         use_xml_thinking = thinking and self._provider.name not in ("anthropic",)
 
         for round_idx in range(max_rounds + 1):
+            if round_system:
+                self.set_system(round_system)
             output = _RoundOutput()
             async for evt in self._stream_round(
                 state=state,
                 output=output,
                 model_id=model_id,
-                system=system,
+                system=round_system,
                 temperature=temperature,
                 max_tokens=max_tokens,
                 use_tools=use_tools,
@@ -552,6 +653,10 @@ class ChatEngine:
             if state.cancelled:
                 yield self._build_done_event(state)
                 return
+
+            if answer_after_first_grounding and state.last_tool_round_grounded:
+                use_tools = False
+                round_system = _merge_system_prompt(base_system, answer_after_grounding_system)
 
             # Loop continues — model will see tool results in the next round.
 
@@ -828,6 +933,8 @@ class ChatEngine:
             yield ErrorEvent("Tool execution aborted: no tool bridge connected")
             return
 
+        state.last_tool_round_grounded = False
+
         for i, tc in enumerate(tool_calls):
             if self._cancel_event.is_set():
                 state.cancelled = True
@@ -929,11 +1036,14 @@ class ChatEngine:
                     pass
 
             yield ToolResultEvent(tc["name"], post_result, server, tc_id)
+            if _tool_result_is_grounding_success(tc["name"], post_result):
+                state.last_tool_round_grounded = True
 
             # Truncate large results in history to save context window.
-            history_result = (
-                _truncate_tool_result(post_result, max_tool_result)
-                if max_tool_result > 0 else post_result
+            history_result = summarize_tool_result_for_history(
+                tc["name"],
+                post_result,
+                max_chars=max_tool_result,
             )
             self.messages.append({
                 "role": "tool",
