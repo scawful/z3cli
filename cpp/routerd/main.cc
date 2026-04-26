@@ -13,6 +13,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 #include <unistd.h>
@@ -280,20 +281,169 @@ struct InventorySidecar {
 
 struct RouterState {
   std::string active_route;
+  bool route_list_cache_complete = false;
+  std::vector<std::string> route_list_order;
 };
 
-json HandleRouteList(InventorySidecar& inventory) {
-  // Return a thin wrapper matching the existing Python shape (active + entries + routes).
-  // For the C++ slice we just proxy canonical route entries from inventory/query.
-  const json result = inventory.Request("inventory/query", json::object());
-  std::vector<json> snapshots;
-  if (result.contains("snapshots") && result["snapshots"].is_array()) {
-    for (const auto& item : result["snapshots"]) {
-      if (item.is_object()) snapshots.push_back(item);
+struct CachedSnapshot {
+  json snapshot;
+  std::chrono::steady_clock::time_point observed;
+  int ttl_ms = 0;
+  int generation = 0;
+};
+
+bool SnapshotIsFresh(const CachedSnapshot& entry) {
+  if (entry.ttl_ms <= 0) return true;
+  const auto age = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::steady_clock::now() - entry.observed);
+  return age.count() <= entry.ttl_ms;
+}
+
+std::string BackendNameFromEnum(const std::string& backend_enum) {
+  if (backend_enum == "SERVING_BACKEND_STUDIO") return "studio";
+  if (backend_enum == "SERVING_BACKEND_LLAMACPP") return "llamacpp";
+  if (backend_enum == "SERVING_BACKEND_OPENAI") return "openai";
+  if (backend_enum == "SERVING_BACKEND_SSH_OPENAI") return "ssh_openai";
+  if (backend_enum == "SERVING_BACKEND_VLLM") return "vllm";
+  return "";
+}
+
+json EntryFromSnapshot(const json& snapshot) {
+  const std::string name = snapshot.value("source", "");
+  const json endpoint = snapshot.value("endpoint", json::object());
+  const std::string backend = BackendNameFromEnum(endpoint.value("backend", ""));
+
+  std::string model_name;
+  const json avail = snapshot.value("availableModels", json::array());
+  if (avail.is_array() && !avail.empty() && avail[0].is_object()) {
+    const json ref = avail[0].value("ref", json::object());
+    model_name = ref.value("name", "");
+  }
+
+  const std::string resolved = endpoint.value("nodeName", "");
+  const std::string description = resolved;
+
+  return json{
+      {"name", name},
+      {"kind", "route"},
+      {"backend", backend},
+      {"model", model_name},
+      {"description", description},
+      {"resolved", resolved},
+      {"aliases", json::array()},
+  };
+}
+
+json RouteFromSnapshot(const json& snapshot) {
+  const std::string name = snapshot.value("source", "");
+  const json endpoint = snapshot.value("endpoint", json::object());
+  const std::string backend_enum = endpoint.value("backend", "");
+  const std::string backend = BackendNameFromEnum(backend_enum);
+
+  json model_ref = json::object();
+  std::string display_name;
+  std::string role;
+  bool tools_enabled = false;
+  int max_tokens = 0;
+
+  const json avail = snapshot.value("availableModels", json::array());
+  if (avail.is_array() && !avail.empty() && avail[0].is_object()) {
+    model_ref = avail[0].value("ref", json::object());
+    display_name = avail[0].value("displayName", "");
+    role = avail[0].value("role", "");
+    tools_enabled = avail[0].value("toolsEnabled", false);
+    max_tokens = avail[0].value("maxTokens", 0);
+  }
+  if (!model_ref.is_object()) model_ref = json::object();
+
+  json route{
+      {"name", name},
+      {"displayName", display_name.empty() ? name : display_name},
+      {"model", model_ref},
+      {"backend", backend_enum.empty() ? "SERVING_BACKEND_UNSPECIFIED" : backend_enum},
+      {"inferenceEndpoint", endpoint},
+      {"controlEndpoint", json::object()},
+      {"aliases", json::array()},
+      {"autoLoad", backend == "studio"},
+      {"preferred", name == "oracle-pro-5090"},
+      {"health", snapshot.value("health", "HEALTH_STATE_UNKNOWN")},
+      {"detail", snapshot.value("detail", "")},
+      {"generation", snapshot.value("generation", 0)},
+      {"toolsEnabled", tools_enabled},
+      {"role", role},
+      {"maxTokens", max_tokens},
+  };
+  return route;
+}
+
+json HandleRouteList(InventorySidecar& inventory,
+                     RouterState& state,
+                     std::unordered_map<std::string, CachedSnapshot>& cache) {
+  // Use cache when all known entries are still fresh; otherwise refresh via inventory/query.
+  bool cache_ok = state.route_list_cache_complete && !state.route_list_order.empty();
+  if (cache_ok) {
+    for (const auto& name : state.route_list_order) {
+      const auto found = cache.find(name);
+      if (found == cache.end()) {
+        cache_ok = false;
+        break;
+      }
+      const auto& entry = found->second;
+      if (!SnapshotIsFresh(entry)) {
+        cache_ok = false;
+        break;
+      }
     }
   }
+
+  std::vector<json> snapshots;
+  if (cache_ok) {
+    snapshots.reserve(state.route_list_order.size());
+    for (const auto& name : state.route_list_order) {
+      snapshots.push_back(cache.at(name).snapshot);
+    }
+  } else {
+    const json result = inventory.Request("inventory/query", json::object());
+    state.route_list_order.clear();
+    state.route_list_cache_complete = true;
+    if (result.contains("snapshots") && result["snapshots"].is_array()) {
+      for (const auto& item : result["snapshots"]) {
+        if (!item.is_object()) continue;
+        const std::string source = item.value("source", "");
+        CachedSnapshot entry;
+        entry.snapshot = item;
+        entry.observed = std::chrono::steady_clock::now();
+        entry.ttl_ms = item.value("ttlMs", 0);
+        entry.generation = item.value("generation", 0);
+        if (!source.empty()) {
+          cache[source] = std::move(entry);
+          state.route_list_order.push_back(source);
+        }
+        snapshots.push_back(item);
+      }
+    }
+  }
+
+  std::vector<json> entries;
+  std::vector<json> routes;
+  entries.reserve(snapshots.size());
+  routes.reserve(snapshots.size());
+  for (const auto& snap : snapshots) {
+    entries.push_back(EntryFromSnapshot(snap));
+    routes.push_back(RouteFromSnapshot(snap));
+  }
+
+  json active;
+  active["backend"] = "";  // routerd does not probe current backend identity yet
+  active["model"] = "";
+  active["studio_node"] = "";
+  active["llamacpp_node"] = "";
+
   json payload;
-  payload["snapshots"] = snapshots;
+  payload["active"] = active;
+  payload["entries"] = entries;
+  payload["active_route"] = state.active_route;
+  payload["routes"] = routes;
   return payload;
 }
 
@@ -327,6 +477,7 @@ int main(int argc, char** argv) {
   RouterState state;
   state.active_route = "";
   InventorySidecar inventory;
+  std::unordered_map<std::string, CachedSnapshot> snapshot_cache;
 
   std::string line;
   while (std::getline(std::cin, line)) {
@@ -346,7 +497,7 @@ int main(int argc, char** argv) {
 
     try {
       if (method == "route/list") {
-        WriteLine(JsonRpcResult(id, HandleRouteList(inventory)));
+        WriteLine(JsonRpcResult(id, HandleRouteList(inventory, state, snapshot_cache)));
         continue;
       }
       if (method == "route/status") {
@@ -366,6 +517,12 @@ int main(int argc, char** argv) {
         if (!route.empty()) {
           json snapshot = inventory.Request("inventory/refresh", json{{"route", route}});
           const std::string health = snapshot.value("health", "HEALTH_STATE_UNKNOWN");
+          CachedSnapshot entry;
+          entry.snapshot = snapshot;
+          entry.observed = std::chrono::steady_clock::now();
+          entry.ttl_ms = snapshot.value("ttlMs", 0);
+          entry.generation = snapshot.value("generation", 0);
+          snapshot_cache[route] = std::move(entry);
           WriteLine(UiEvent("UI_EVENT_KIND_INVENTORY_UPDATED", request_id, route, "Inventory updated", health,
                             snapshot));
         }
