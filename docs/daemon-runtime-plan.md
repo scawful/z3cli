@@ -284,6 +284,25 @@ build directory above.
 fields. These are derived from `services.router.route.contract.route_from_entry` so out-of-process routers can
 reuse the exact proto-JSON route shape without re-loading `chat_registry.toml`.
 
+**Forward compatibility:** treat inventory snapshots and route payloads as semi-open JSON. Unknown fields may
+appear as contracts evolve; clients should ignore keys they do not understand.
+
+### `session/sync` (router ↔ inventory)
+
+Parent processes (or the native router daemon) can push the same `active` block as `app.serve._route_list_payload`
+so default `inventory/snapshot` / `inventory/refresh` (no route filter) resolve the **same** active route as the
+serve loop.
+
+JSON-RPC method: `session/sync`
+
+Params (all optional except as noted):
+
+- `active`: object with `backend`, `model`, `studio_node`, `llamacpp_node` (same strings as the serve loop UI)
+- `activeRoute` or `active_route`: canonical route name (e.g. `oracle-pro-5090`)
+
+The native router (`z3cli-routerd`) implements `session/sync`, merges `active` on top of `Z3CLI_*` env defaults,
+updates its cached `active_route`, and forwards the same request to the inventory sidecar.
+
 ## Inventory Transport Toggle (serve loop)
 
 The serve loop can route inventory calls through the out-of-process inventory sidecar by setting:

@@ -92,6 +92,19 @@ export interface InventoryQueryRequestParams {
   forceRefresh?: boolean;
 }
 
+export interface SessionActiveParams {
+  backend?: string;
+  model?: string;
+  studio_node?: string;
+  llamacpp_node?: string;
+}
+
+export interface SessionSyncRequestParams {
+  active?: SessionActiveParams;
+  activeRoute?: string;
+  active_route?: string;
+}
+
 export interface InventoryResolveRequestParams {
   alias?: string;
   model?: string;
@@ -469,6 +482,11 @@ export type InventoryRefreshRequest = JsonRpcRequest & {
 export type InventoryResolveRequest = JsonRpcRequest & {
   method: "inventory/resolve";
   params: InventoryResolveRequestParams;
+};
+
+export type SessionSyncRequest = JsonRpcRequest & {
+  method: "session/sync";
+  params: SessionSyncRequestParams;
 };
 
 // Notification wrappers

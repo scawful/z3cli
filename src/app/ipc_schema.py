@@ -100,6 +100,19 @@ class InventoryQueryRequestParams(TypedDict):
     forceRefresh: NotRequired[bool]
 
 
+class SessionActiveParams(TypedDict):
+    backend: NotRequired[str]
+    model: NotRequired[str]
+    studio_node: NotRequired[str]
+    llamacpp_node: NotRequired[str]
+
+
+class SessionSyncRequestParams(TypedDict):
+    active: NotRequired[SessionActiveParams]
+    activeRoute: NotRequired[str]
+    active_route: NotRequired[str]
+
+
 class InventoryResolveRequestParams(TypedDict):
     alias: NotRequired[str]
     model: NotRequired[str]
@@ -757,6 +770,7 @@ REQUEST_METHOD_TYPES: dict[str, tuple[str, type[TypedDict] | None]] = {
     "inventory/snapshot": ("InventorySnapshotRequest", InventoryQueryRequestParams),
     "inventory/refresh": ("InventoryRefreshRequest", InventoryQueryRequestParams),
     "inventory/resolve": ("InventoryResolveRequest", InventoryResolveRequestParams),
+    "session/sync": ("SessionSyncRequest", SessionSyncRequestParams),
 }
 
 
@@ -799,6 +813,8 @@ _TS_TYPE_ORDER: list[type[TypedDict] | object] = [
     RouteStatusRequestParams,
     RouteProbeRequestParams,
     InventoryQueryRequestParams,
+    SessionActiveParams,
+    SessionSyncRequestParams,
     InventoryResolveRequestParams,
     InventoryResolveResponseParams,
     CompleteResponseParams,

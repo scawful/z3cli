@@ -92,6 +92,19 @@ export interface InventoryQueryRequestParams {
   forceRefresh?: boolean;
 }
 
+export interface SessionActiveParams {
+  backend?: string;
+  model?: string;
+  studio_node?: string;
+  llamacpp_node?: string;
+}
+
+export interface SessionSyncRequestParams {
+  active?: SessionActiveParams;
+  activeRoute?: string;
+  active_route?: string;
+}
+
 export interface InventoryResolveRequestParams {
   alias?: string;
   model?: string;
@@ -317,6 +330,18 @@ export interface ReadyParams {
   last_request_total_ms?: number;
 }
 
+export interface UiEventParams {
+  kind: string;
+  requestId?: string;
+  routeName?: string;
+  message?: string;
+  health?: string;
+  observedAt?: string;
+  route?: Record<string, object>;
+  routeStatus?: Record<string, object>;
+  inventory?: Record<string, object>;
+}
+
 export interface ToolPermissionRequestParams {
   name: string;
   server: string;
@@ -459,6 +484,11 @@ export type InventoryResolveRequest = JsonRpcRequest & {
   params: InventoryResolveRequestParams;
 };
 
+export type SessionSyncRequest = JsonRpcRequest & {
+  method: "session/sync";
+  params: SessionSyncRequestParams;
+};
+
 // Notification wrappers
 
 export interface TextNotification extends JsonRpcNotification {
@@ -551,6 +581,11 @@ export interface SubagentErrorNotification extends JsonRpcNotification {
   params: SubagentErrorParams;
 }
 
+export interface UiEventNotification extends JsonRpcNotification {
+  method: "ui/event";
+  params: UiEventParams;
+}
+
 export type BackendEvent =
   TextNotification
   | ToolCallNotification
@@ -570,4 +605,5 @@ export type BackendEvent =
   | SubagentToolResultNotification
   | SubagentDoneNotification
   | SubagentErrorNotification
+  | UiEventNotification
 ;

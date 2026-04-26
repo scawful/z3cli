@@ -248,6 +248,8 @@ struct RouterState {
   std::string active_route;
   bool route_list_cache_complete = false;
   std::vector<std::string> route_list_order;
+  bool has_session_active = false;
+  json session_active = json::object();
 };
 
 struct CachedSnapshot {
@@ -292,6 +294,40 @@ json ActiveBlockFromEnv() {
               {"model", ""},
               {"studio_node", GetEnvString("Z3CLI_STUDIO_NODE")},
               {"llamacpp_node", GetEnvString("Z3CLI_LLAMACPP_NODE")}};
+}
+
+json MergeActiveOverlay(json base, const json& overlay) {
+  if (!overlay.is_object()) return base;
+  for (auto& el : overlay.items()) {
+    base[el.key()] = el.value();
+  }
+  return base;
+}
+
+json ActiveBlockForList(const RouterState& state) {
+  if (state.has_session_active && state.session_active.is_object() && !state.session_active.empty()) {
+    return state.session_active;
+  }
+  return ActiveBlockFromEnv();
+}
+
+json HandleSessionSync(InventorySidecar& inventory, RouterState& state, const json& params) {
+  json overlay = json::object();
+  if (params.contains("active") && params["active"].is_object()) {
+    overlay = params["active"];
+  }
+  json merged = MergeActiveOverlay(ActiveBlockFromEnv(), overlay);
+  state.session_active = std::move(merged);
+  state.has_session_active = true;
+
+  if (params.contains("activeRoute") && params["activeRoute"].is_string()) {
+    state.active_route = params["activeRoute"].get<std::string>();
+  } else if (params.contains("active_route") && params["active_route"].is_string()) {
+    state.active_route = params["active_route"].get<std::string>();
+  }
+
+  inventory.Request("session/sync", params);
+  return json{{"ok", true}};
 }
 
 std::string ActiveRouteNameFromEntries(const std::vector<json>& entries,
@@ -488,7 +524,7 @@ json HandleRouteList(InventorySidecar& inventory,
   }
 
   json payload;
-  payload["active"] = ActiveBlockFromEnv();
+  payload["active"] = ActiveBlockForList(state);
   payload["entries"] = entries;
   std::string active_route = state.active_route;
   if (active_route.empty()) {
@@ -551,6 +587,10 @@ int main(int argc, char** argv) {
     const json params = req.contains("params") && req["params"].is_object() ? req["params"] : json::object();
 
     try {
+      if (method == "session/sync") {
+        WriteLine(JsonRpcResult(id, HandleSessionSync(inventory, state, params)));
+        continue;
+      }
       if (method == "route/list") {
         WriteLine(JsonRpcResult(id, HandleRouteList(inventory, state, snapshot_cache)));
         continue;

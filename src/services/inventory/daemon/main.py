@@ -25,6 +25,7 @@ from core.config import (
     load_studio_nodes,
 )
 from services.inventory.contract import inventory_query_response
+from services.inventory.daemon.session_sync import apply_session_sync
 from services.inventory.runtime import InventoryRuntime
 from app.shared_runtime import available_route_targets
 from services.router.route.contract import active_route_name
@@ -94,6 +95,14 @@ def _bool_param(params: dict[str, object], *names: str) -> bool:
     return False
 
 
+async def _handle_session_sync(state: Any, req_id: object, method: str, params: dict[str, object]) -> bool:
+    if method != "session/sync":
+        return False
+    apply_session_sync(state, params)
+    _response(req_id, result={"ok": True})
+    return True
+
+
 async def _handle_inventory(
     runtime: InventoryRuntime,
     state: Any,
@@ -161,7 +170,9 @@ async def _run(runtime: InventoryRuntime, state: Any) -> int:
             params = req.get("params")
             params_dict = params if isinstance(params, dict) else {}
             try:
-                handled = await _handle_inventory(runtime, state, req_id, method, params_dict)
+                handled = await _handle_session_sync(state, req_id, method, params_dict)
+                if not handled:
+                    handled = await _handle_inventory(runtime, state, req_id, method, params_dict)
             except Exception as exc:
                 _response(req_id, error=str(exc))
                 handled = True
@@ -177,15 +188,15 @@ def _load_state(registry_path: str) -> SimpleNamespace:
     studio_nodes = load_studio_nodes(registry)
     llamacpp_nodes = load_llamacpp_nodes(registry)
     return SimpleNamespace(
-        backend_name="studio",
+        backend_name=str(os.environ.get("Z3CLI_BACKEND", "studio") or "studio").strip().lower(),
         models=models,
         studio_nodes=studio_nodes,
         llamacpp_nodes=llamacpp_nodes,
         studio_api_base="",
         llamacpp_api_base="",
         active_model="",
-        studio_node="",
-        llamacpp_node="",
+        studio_node=str(os.environ.get("Z3CLI_STUDIO_NODE", "") or ""),
+        llamacpp_node=str(os.environ.get("Z3CLI_LLAMACPP_NODE", "") or ""),
     )
 
 

@@ -22,6 +22,10 @@ The goal is to keep the router **cached-state only**: it acknowledges route chan
   - Route selection acknowledges before inventory probing/refresh completes.
   - Sidecar mode has parity coverage and a failure/fallback test.
 
+- **Session handoff for “active” context**
+  - Inventory sidecar and native router accept `session/sync` so `active` + default inventory targets match the
+    Python serve loop without guessing from env alone.
+
 ## Router Constraints (non-negotiable)
 
 - **No probes in router**: the router daemon must not call LM Studio / llama.cpp, SSH, file scanners, LSP, or tool surfaces.
