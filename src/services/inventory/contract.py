@@ -76,11 +76,17 @@ def inventory_snapshot(
 ) -> dict[str, Any]:
     backend = str(route_entry.get("backend") or getattr(state, "backend_name", ""))
     route = route_from_entry(state, route_entry)
+    health = health_state(connected)
+    detail_text = str(detail or "")
+    route["health"] = health
+    route["detail"] = detail_text or str(route.get("detail") or "")
     return {
         "source": str(route_entry.get("name") or "active"),
         "endpoint": route.get("inferenceEndpoint") or endpoint(backend=backend),
-        "health": health_state(connected),
-        "detail": str(detail or ""),
+        "health": health,
+        "detail": detail_text,
+        "route": route,
+        "routeEntry": dict(route_entry),
         "availableModels": [configured_model_from_route(state, route_entry)],
         "loadedModels": [
             loaded_model_from_runtime(state, item, backend=backend)

@@ -26,6 +26,10 @@ Current implementation status and recent work: [`docs/cli-current-state.md`](doc
 
 Service-first daemon/runtime plan: [`docs/daemon-runtime-plan.md`](docs/daemon-runtime-plan.md)
 
+Experimental native router daemon (stdio JSON-RPC): build with
+`cmake -S src/services/router/daemon_native -B src/services/router/daemon_native/build && cmake --build ...`
+(see the daemon/runtime plan for details).
+
 Current Zelda model training handoff: [`docs/HANDOFF_ZELDA_MODEL_WORK_20260425.md`](docs/HANDOFF_ZELDA_MODEL_WORK_20260425.md)
 
 Shared agent harness contract: [`~/src/docs/guides/ai-coder/AGENT_HARNESS_CONTRACT.md`](../../docs/guides/ai-coder/AGENT_HARNESS_CONTRACT.md)

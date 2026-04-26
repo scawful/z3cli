@@ -263,6 +263,27 @@ The inventory-first slice has landed in the current tree:
    - First C++ slice should implement JSON-RPC over stdio + `/route list|select|status` + `ui/event` emission,
      and must not probe any backends directly.
 
+### Native router daemon (experimental)
+
+Source lives under `src/services/router/daemon_native/` and builds `z3cli-routerd`.
+
+```bash
+cmake -S src/services/router/daemon_native -B src/services/router/daemon_native/build
+cmake --build src/services/router/daemon_native/build -j8
+```
+
+The binary speaks NDJSON JSON-RPC on stdio, reuses the Python inventory sidecar for snapshots, and targets
+the same `route/list` envelope as `app.serve._route_list_payload` (`active`, `entries`, `active_route`, `routes`).
+
+Clangd picks up `compile_commands.json` via `src/services/router/daemon_native/.clangd` after configuring the
+build directory above.
+
+### Inventory snapshot carry fields
+
+`InventorySnapshot` JSON now includes optional `route` and `routeEntry` objects alongside the existing probe
+fields. These are derived from `services.router.route.contract.route_from_entry` so out-of-process routers can
+reuse the exact proto-JSON route shape without re-loading `chat_registry.toml`.
+
 ## Inventory Transport Toggle (serve loop)
 
 The serve loop can route inventory calls through the out-of-process inventory sidecar by setting:

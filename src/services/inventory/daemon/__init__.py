@@ -1,1 +1,0 @@
-"""Inventory daemon entrypoint package."""
