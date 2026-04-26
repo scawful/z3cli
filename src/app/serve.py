@@ -122,7 +122,7 @@ from services.router.route.contract import (
     route_probe_response,
     select_route_response,
 )
-from app.inventory_client import InventoryClient
+from app.inventory_client import InventoryClient, close_inventory_sidecar
 from services.inventory.cache import InventoryCache
 from services.inventory.contract import inventory_query_response, inventory_snapshot, timestamp_now
 from app.shell_session import PersistentShellSession
@@ -152,6 +152,7 @@ DEFAULT_REQUEST_TELEMETRY_STDERR = str(
     os.environ.get("Z3CLI_REQUEST_TELEMETRY_STDERR", "1"),
 ).strip().lower() not in {"0", "false", "off", "no"}
 DEFAULT_INVENTORY_TTL_MS = int(os.environ.get("Z3CLI_INVENTORY_TTL_MS", "5000"))
+DEFAULT_INVENTORY_TRANSPORT = str(os.environ.get("Z3CLI_INVENTORY_TRANSPORT", "auto") or "auto").strip()
 _COLLISION_WARNING_RE = re.compile(
     r"^tool collision: tool name '([^']+)' collided between '([^']+)' \(kept\) and '([^']+)' "
     r"\(renamed to '([^']+)'\)$",
@@ -876,6 +877,9 @@ class ServeState:
         self.inventory_cache = InventoryCache(ttl_ms=DEFAULT_INVENTORY_TTL_MS)
         self.inventory_runtime = None
         self.inventory_ttl_ms = DEFAULT_INVENTORY_TTL_MS
+        # Inventory transport selection is consumed by InventoryClient.
+        # Default is "auto" so sidecar can be enabled without hard failures.
+        self.inventory_transport = DEFAULT_INVENTORY_TRANSPORT
         self.inventory_get_backend = get_backend
 
     @property
@@ -4284,6 +4288,7 @@ async def serve_main(extra_args: list[str]) -> None:
             pass
 
     # Cleanup
+    await close_inventory_sidecar(state)
     state.session.close()
     for engine in state.engines.values():
         await engine.close()

@@ -1,0 +1,19 @@
+"""Import shim for `app.*` (implementation lives under `src/app`)."""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+from pkgutil import extend_path
+
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_SRC_ROOT = _REPO_ROOT / "src"
+
+if _SRC_ROOT.is_dir():
+    src_str = str(_SRC_ROOT)
+    if src_str in sys.path:
+        sys.path.remove(src_str)
+    sys.path.insert(0, src_str)
+
+__path__ = extend_path(__path__, __name__)  # type: ignore[name-defined]

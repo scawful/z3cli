@@ -234,23 +234,39 @@ The inventory-first slice has landed in the current tree:
   - `src/app/inventory_client.py`
 - Route selection emits async convergence notifications:
   - JSON-RPC notification method: `ui/event` (proto-shaped, based on `proto/ui_events.proto`)
+- Inventory sidecar transport is implemented (optional, with fallback):
+  - `src/app/inventory_client.py` supports a `sidecar` mode that spawns the inventory daemon
+    and speaks NDJSON JSON-RPC over stdio.
+  - If the sidecar fails to start or errors mid-request, the client falls back to in-process
+    inventory reads so route selection and inventory reads keep working.
+- Inventory query semantics are now stable across serve loop and sidecar:
+  - `inventory/query` with no route filter returns *all canonical routes* (non-advanced).
+  - `inventory/snapshot` / `inventory/refresh` with no route filter targets the *active route*.
+- Inventory refresh lifecycle events are implemented:
+  - `UI_EVENT_KIND_INVENTORY_REFRESHING` is emitted before refresh work begins.
+  - `UI_EVENT_KIND_INVENTORY_UPDATED` is emitted on completion with the snapshot payload attached.
+- Sidecar + event sequencing tests exist:
+  - `tests/test_inventory_sidecar_integration.py`
 
 ## Next Steps
 
-1. Wire the inventory sidecar as a real out-of-process backend for the serve loop.
-   - Extend `src/app/inventory_client.py` with a transport mode:
-     - spawn `python -m services.inventory.daemon.main` (or equivalent) and speak NDJSON JSON-RPC
-     - or connect via a Unix socket once introduced
-   - Keep in-process fallback for tests and bootstrap safety.
-
-2. Expand inventory polling beyond “active route” semantics.
-   - Poll all configured route entries on a cadence.
+1. Expand inventory polling beyond “active route” semantics.
+   - The inventory runtime should poll all configured route entries on a cadence.
    - Ensure `InventorySnapshot.generation` increments monotonically as new snapshots arrive.
 
-3. Make the `ui/event` stream operator-meaningful.
-   - Emit `UI_EVENT_KIND_INVENTORY_REFRESHING` before a refresh and
-     `UI_EVENT_KIND_INVENTORY_UPDATED` on completion.
-   - Optional: add `UI_EVENT_KIND_ROUTE_HEALTHY/DEGRADED/UNAVAILABLE` based on snapshot health.
+2. Tighten “router extraction gate” readiness criteria.
+   - Keep the router daemon “cached-state only” and dependent on inventory snapshots rather than probes.
+   - See `docs/router-extraction-gate.md` for the explicit checklist.
 
-4. Only after the above stabilizes: extract the C++ router daemon.
-   - Router must remain “cached-state only” and depend on inventory snapshots rather than probes.
+3. Start C++ router extraction *once the gate is green*.
+   - Choose the router binary name at extraction time.
+   - First C++ slice should implement JSON-RPC over stdio + `/route list|select|status` + `ui/event` emission,
+     and must not probe any backends directly.
+
+## Inventory Transport Toggle (serve loop)
+
+The serve loop can route inventory calls through the out-of-process inventory sidecar by setting:
+
+- `Z3CLI_INVENTORY_TRANSPORT=auto` (default): prefer sidecar, fall back to in-process on failure
+- `Z3CLI_INVENTORY_TRANSPORT=sidecar`: force sidecar (still falls back per-request for safety)
+- `Z3CLI_INVENTORY_TRANSPORT=inprocess`: disable sidecar and always use in-process inventory

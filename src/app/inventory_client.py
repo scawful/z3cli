@@ -48,15 +48,24 @@ class _InventorySidecarClient:
         if proc is None:
             return
         try:
+            if proc.stdin is not None:
+                proc.stdin.close()
+                try:
+                    await proc.stdin.wait_closed()
+                except Exception:
+                    pass
             if proc.returncode is None:
                 proc.terminate()
                 await asyncio.wait_for(proc.wait(), timeout=1.0)
+                return
         except Exception:
-            try:
-                if proc.returncode is None:
-                    proc.kill()
-            except Exception:
-                pass
+            pass
+        try:
+            if proc.returncode is None:
+                proc.kill()
+                await proc.wait()
+        except Exception:
+            pass
 
     async def _ensure_started(self) -> None:
         if self._proc is not None and self._proc.returncode is None and self._reader is not None:
@@ -83,10 +92,7 @@ class _InventorySidecarClient:
         if proc.stdin is None or proc.stdout is None:
             raise RuntimeError("inventory sidecar failed to attach stdio")
         self._proc = proc
-        self._reader = asyncio.StreamReader()
-        protocol = asyncio.StreamReaderProtocol(self._reader)
-        loop = asyncio.get_running_loop()
-        await loop.connect_read_pipe(lambda: protocol, proc.stdout)  # type: ignore[arg-type]
+        self._reader = proc.stdout
 
     async def request(self, method: str, params: dict[str, object] | None = None) -> object:
         async with self._lock:
@@ -207,7 +213,8 @@ class InventoryClient:
         requested = str(getattr(self._state, "inventory_transport", "") or os.environ.get(_SIDECAR_ENV, "")).strip()
         lowered = requested.lower()
         if lowered in _AUTO_VALUES:
-            return "inprocess"
+            # Prefer sidecar by default; fallback is handled per-request.
+            return "sidecar"
         if lowered in _INPROCESS_VALUES:
             return "inprocess"
         if lowered in _SIDECAR_ENABLED_VALUES:
@@ -263,3 +270,11 @@ class InventoryClient:
             return str(entry.get("name") or "") == str(active or "")
         except Exception:
             return False
+
+
+async def close_inventory_sidecar(state: Any) -> None:
+    client = getattr(state, "inventory_sidecar_client", None)
+    if not isinstance(client, _InventorySidecarClient):
+        return
+    setattr(state, "inventory_sidecar_client", None)
+    await client.close()

@@ -13,6 +13,7 @@ import argparse
 import asyncio
 import json
 import os
+from pathlib import Path
 import sys
 from types import SimpleNamespace
 from typing import Any
@@ -136,40 +137,45 @@ async def _handle_inventory(
 
 
 async def _run(runtime: InventoryRuntime, state: Any) -> int:
-    loop = asyncio.get_running_loop()
-    reader = asyncio.StreamReader()
-    protocol = asyncio.StreamReaderProtocol(reader)
-    await loop.connect_read_pipe(lambda: protocol, sys.stdin)
+    runtime.start(state, entries_provider=lambda: available_route_targets(state, include_advanced=True))
+    try:
+        loop = asyncio.get_running_loop()
+        reader = asyncio.StreamReader()
+        protocol = asyncio.StreamReaderProtocol(reader)
+        await loop.connect_read_pipe(lambda: protocol, sys.stdin)
 
-    while True:
-        line = await reader.readline()
-        if not line:
-            return 0
-        try:
-            req = json.loads(line.decode("utf-8"))
-        except Exception:
-            continue
-        if not isinstance(req, dict):
-            continue
-        if req.get("jsonrpc") != "2.0":
-            continue
-        req_id = req.get("id")
-        method = str(req.get("method") or "")
-        params = req.get("params")
-        params_dict = params if isinstance(params, dict) else {}
-        try:
-            handled = await _handle_inventory(runtime, state, req_id, method, params_dict)
-        except Exception as exc:
-            _response(req_id, error=str(exc))
-            handled = True
-        if not handled:
-            _response(req_id, error=f"Unknown method: {method}")
+        while True:
+            line = await reader.readline()
+            if not line:
+                return 0
+            try:
+                req = json.loads(line.decode("utf-8"))
+            except Exception:
+                continue
+            if not isinstance(req, dict):
+                continue
+            if req.get("jsonrpc") != "2.0":
+                continue
+            req_id = req.get("id")
+            method = str(req.get("method") or "")
+            params = req.get("params")
+            params_dict = params if isinstance(params, dict) else {}
+            try:
+                handled = await _handle_inventory(runtime, state, req_id, method, params_dict)
+            except Exception as exc:
+                _response(req_id, error=str(exc))
+                handled = True
+            if not handled:
+                _response(req_id, error=f"Unknown method: {method}")
+    finally:
+        await runtime.stop()
 
 
 def _load_state(registry_path: str) -> SimpleNamespace:
-    models = load_registry(registry_path)
-    studio_nodes = load_studio_nodes()
-    llamacpp_nodes = load_llamacpp_nodes()
+    registry = Path(str(registry_path)).expanduser().resolve()
+    models, _routers = load_registry(registry)
+    studio_nodes = load_studio_nodes(registry)
+    llamacpp_nodes = load_llamacpp_nodes(registry)
     return SimpleNamespace(
         backend_name="studio",
         models=models,
@@ -190,14 +196,7 @@ def main(argv: list[str] | None = None) -> int:
 
     state = _load_state(args.registry)
     runtime = InventoryRuntime.from_ttl_ms(ttl_ms=DEFAULT_INVENTORY_TTL_MS)
-    runtime.start(state, entries_provider=lambda: available_route_targets(state, include_advanced=True))
-    try:
-        return asyncio.run(_run(runtime, state))
-    finally:
-        try:
-            asyncio.run(runtime.stop())
-        except Exception:
-            pass
+    return asyncio.run(_run(runtime, state))
 
 
 if __name__ == "__main__":

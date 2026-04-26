@@ -1169,6 +1169,7 @@ role = "planner"
 
     async def test_inventory_query_rpc_refreshes_active_route_snapshot(self) -> None:
         state = ServeState()
+        state.inventory_transport = "inprocess"
         state.models = {
             "oracle-pro": ModelConfig(name="oracle-pro", model_id="oracle-pro", role="pro"),
         }
@@ -1211,6 +1212,7 @@ role = "planner"
 
     async def test_inventory_snapshot_rpc_uses_cache_without_backend_probe(self) -> None:
         state = ServeState()
+        state.inventory_transport = "inprocess"
         state.models = {
             "oracle-pro": ModelConfig(name="oracle-pro", model_id="oracle-pro", role="pro"),
         }
