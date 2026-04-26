@@ -19,4 +19,4 @@ Design and implementation artifacts for a **SwiftUI** client that speaks the sam
 
 - Swift package: [`../../ios/ZeldaRemoteCore`](../../ios/ZeldaRemoteCore)
 - App icon asset catalog: [`../../ios/ZeldaRemoteAppIcon`](../../ios/ZeldaRemoteAppIcon)
-- Bridge: [`../../z3cli/app/ws_bridge.py`](../../z3cli/app/ws_bridge.py)
+- Bridge: [`../../src/app/ws_bridge.py`](../../src/app/ws_bridge.py)

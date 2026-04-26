@@ -1,0 +1,38 @@
+{
+  "health": "HEALTH_STATE_UNKNOWN",
+  "kind": "UI_EVENT_KIND_ROUTE_SELECTED",
+  "message": "Route set to oracle-pro-5090",
+  "observedAt": "2026-01-01T00:00:00Z",
+  "requestId": "req-1",
+  "route": {
+    "aliases": [
+      "home"
+    ],
+    "autoLoad": true,
+    "backend": "SERVING_BACKEND_STUDIO",
+    "controlEndpoint": {
+      "backend": "SERVING_BACKEND_STUDIO",
+      "hostAlias": "127.0.0.1",
+      "nodeName": "oracle-pro-home",
+      "uri": "http://127.0.0.1:8766"
+    },
+    "detail": "Windows tunnel",
+    "displayName": "Windows tunnel",
+    "generation": 0,
+    "health": "HEALTH_STATE_UNKNOWN",
+    "inferenceEndpoint": {
+      "backend": "SERVING_BACKEND_STUDIO",
+      "hostAlias": "127.0.0.1",
+      "nodeName": "oracle-pro-home",
+      "uri": "http://127.0.0.1:2234/v1"
+    },
+    "model": {
+      "modelId": "qwen3-oracle-14b-v8-q4km",
+      "name": "oracle-pro",
+      "provider": "studio"
+    },
+    "name": "oracle-pro-5090",
+    "preferred": true
+  },
+  "routeName": "oracle-pro-5090"
+}

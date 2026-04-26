@@ -17,14 +17,14 @@ The goal is not "more tools." The goal is a stable workflow where a model can:
 
 `z3cli` already has the main primitives:
 
-- Unified bridge composition in `z3cli/app/tooling.py`
+- Unified bridge composition in `src/app/tooling.py`
 - `z3asm` assemble/lint and `z3disasm` bank export in
-  `z3cli/protocol/z3asm_bridge.py`
-- `z3ed` ROM and `mesen-*` emulator calls in `z3cli/protocol/z3ed_bridge.py`
-- specialist adapters in `z3cli/core/tool_adapters/`
-- post-write verification hooks in `z3cli/app/verify.py`
-- request and tool timing telemetry in `z3cli/app/serve.py` and
-  `z3cli/core/engine.py`
+  `src/protocol/z3asm_bridge.py`
+- `z3ed` ROM and `mesen-*` emulator calls in `src/protocol/z3ed_bridge.py`
+- specialist adapters in `src/core/tool_adapters/`
+- post-write verification hooks in `src/app/verify.py`
+- request and tool timing telemetry in `src/app/serve.py` and
+  `src/core/engine.py`
 
 The current weakness is orchestration:
 
@@ -73,12 +73,12 @@ The operator-facing workflow should look like this:
 
 | Phase | Deliverable | Key files |
 |-------|-------------|-----------|
-| 0 | Shared workflow contracts and result schema | `z3cli/core/asm_workflow.py` (new), `tests/test_asm_workflow_contracts.py` (new) |
-| 1 | MCP capability split for emulator and ROM controls | `z3cli/protocol/mcp_bridge.py`, `z3cli/app/tooling.py`, `tests/test_adapter_routing.py` |
-| 2 | Transactional ROM and emulator session wrapper | `z3cli/protocol/asm_test_bridge.py` (new), `z3cli/core/rom_project.py`, new tests |
+| 0 | Shared workflow contracts and result schema | `src/core/asm_workflow.py` (new), `tests/test_asm_workflow_contracts.py` (new) |
+| 1 | MCP capability split for emulator and ROM controls | `src/protocol/mcp_bridge.py`, `src/app/tooling.py`, `tests/test_adapter_routing.py` |
+| 2 | Transactional ROM and emulator session wrapper | `src/protocol/asm_test_bridge.py` (new), `src/core/rom_project.py`, new tests |
 | 3 | High-level workflow tools: patch, run, assert | `asm_test_bridge.py`, adapter files, `tests/test_asm_test_bridge.py` (new) |
-| 4 | ASM-aware verification hooks and REPL/serve affordances | `z3cli/app/verify.py`, `z3cli/app/repl.py`, `z3cli/app/serve.py`, `tests/test_verify_hooks.py` |
-| 5 | Specialist surface rewrite around workflow tasks | `z3cli/core/tool_adapters/{din,farore,nayru,veran,majora}.py`, routing tests |
+| 4 | ASM-aware verification hooks and REPL/serve affordances | `src/app/verify.py`, `src/app/repl.py`, `src/app/serve.py`, `tests/test_verify_hooks.py` |
+| 5 | Specialist surface rewrite around workflow tasks | `src/core/tool_adapters/{din,farore,nayru,veran,majora}.py`, routing tests |
 | 6 | Scenario presets and assertion packs | `config/` or `docs/` scenario manifests, workflow bridge, new tests |
 | 7 | Workflow telemetry, evals, and rollout gates | `serve.py`, `shared_runtime.py`, `engine.py`, telemetry tests and docs |
 
@@ -122,7 +122,7 @@ workflow results.
 
 ### File targets
 
-- New: `z3cli/core/asm_workflow.py`
+- New: `src/core/asm_workflow.py`
 - New: `tests/test_asm_workflow_contracts.py`
 
 ### Acceptance criteria
@@ -133,7 +133,7 @@ workflow results.
 
 ## Phase 1: Split MCP Capability Routing
 
-Right now `_build_capability_bridges()` in `z3cli/app/tooling.py` only promotes
+Right now `_build_capability_bridges()` in `src/app/tooling.py` only promotes
 `MCPBridge` into `reference`. That is too blunt because the default MCP set
 includes emulator and editor-like servers.
 
@@ -157,9 +157,9 @@ includes emulator and editor-like servers.
 
 ### File targets
 
-- `z3cli/protocol/mcp_bridge.py`
-- `z3cli/app/tooling.py`
-- Possibly `z3cli/core/tool_bridge.py` if lightweight filtering wrappers help
+- `src/protocol/mcp_bridge.py`
+- `src/app/tooling.py`
+- Possibly `src/core/tool_bridge.py` if lightweight filtering wrappers help
 
 ### Tests
 
@@ -198,9 +198,9 @@ not enough for iterative patch testing.
 
 ### File targets
 
-- New: `z3cli/protocol/asm_test_bridge.py`
-- `z3cli/core/rom_project.py`
-- `z3cli/app/tooling.py`
+- New: `src/protocol/asm_test_bridge.py`
+- `src/core/rom_project.py`
+- `src/app/tooling.py`
 
 ### Tests
 
@@ -241,9 +241,9 @@ Support a small stable assertion vocabulary:
 
 ### File targets
 
-- `z3cli/protocol/asm_test_bridge.py`
-- `z3cli/app/tooling.py`
-- `z3cli/core/tool_adapters/base.py` if richer structured dispatch helpers help
+- `src/protocol/asm_test_bridge.py`
+- `src/app/tooling.py`
+- `src/core/tool_adapters/base.py` if richer structured dispatch helpers help
 
 ### Tests
 
@@ -278,9 +278,9 @@ and frontend edits.
 
 ### File targets
 
-- `z3cli/app/verify.py`
-- `z3cli/app/repl.py`
-- `z3cli/app/serve.py`
+- `src/app/verify.py`
+- `src/app/repl.py`
+- `src/app/serve.py`
 
 ### Tests
 
@@ -320,11 +320,11 @@ specific part of the author-test loop.
 
 ### File targets
 
-- `z3cli/core/tool_adapters/din.py`
-- `z3cli/core/tool_adapters/farore.py`
-- `z3cli/core/tool_adapters/veran.py`
-- `z3cli/core/tool_adapters/nayru.py`
-- `z3cli/core/tool_adapters/majora.py`
+- `src/core/tool_adapters/din.py`
+- `src/core/tool_adapters/farore.py`
+- `src/core/tool_adapters/veran.py`
+- `src/core/tool_adapters/nayru.py`
+- `src/core/tool_adapters/majora.py`
 
 ### Tests
 
@@ -389,9 +389,9 @@ Request timing alone is not enough. We need author-loop telemetry.
 
 ### File targets
 
-- `z3cli/core/engine.py`
-- `z3cli/app/serve.py`
-- `z3cli/app/shared_runtime.py`
+- `src/core/engine.py`
+- `src/app/serve.py`
+- `src/app/shared_runtime.py`
 - docs for telemetry fields
 
 ### Acceptance criteria

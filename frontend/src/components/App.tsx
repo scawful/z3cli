@@ -31,19 +31,19 @@ import { ContextPanel } from "./ContextPanel.js";
 import { TranscriptScroll } from "./TranscriptScroll.js";
 import { ToolReviewDialog } from "./ToolReviewDialog.js";
 import { BackendErrorBanner } from "./BackendErrorBanner.js";
+import { KeyHintBar } from "./KeyHintBar.js";
 import { shouldShowBackendErrorBanner } from "../utils/backendHealth.js";
 import { symbols, getThemeColors } from "../theme/index.js";
 import type { AttachmentMeta, ConstructRef } from "../ipc/protocol.js";
 import type { CommandContext } from "../commands/index.js";
 import { useTerminalSize } from "../hooks/useTerminalWidth.js";
-import { useMouseScroll } from "../hooks/useMouseScroll.js";
 import { shouldSuppressWelcome } from "../utils/cliArgs.js";
 import {
   computeContextPanelLayout,
   computeTranscriptViewportHeight,
   groupMessages,
   isReasoningCollapseHotkey,
-  shouldShowKeyboardLegend,
+  shouldShowKeyHintBar,
 } from "../utils/transcript.js";
 import { estimateContextWindow } from "../utils/models.js";
 
@@ -95,11 +95,7 @@ export interface StreamingCancelHotkeyState {
   hasPendingReview: boolean;
 }
 
-export const KEYBOARD_LEGEND_ITEMS = [
-  { key: "[Ctrl+P]", label: "Palette" },
-  { key: "[Tab]", label: "Complete" },
-  { key: "[Shift+Tab]", label: "Mode" },
-] as const;
+export { KEYBOARD_LEGEND_ITEMS } from "./KeyHintBar.js";
 
 export function classifyPromptSubmission(
   text: string,
@@ -143,27 +139,6 @@ export function App({ pythonPath, backendArgs, batchCommands, onSummaryUpdate }:
   const transcriptScrollRef = useRef<ScrollViewRef | null>(null);
   const contextScrollRef = useRef<ScrollViewRef | null>(null);
 
-  // ---------------------------------------------------------------------------
-  // Helpers
-  // ---------------------------------------------------------------------------
-
-  function KeyboardLegend({ colors }: { colors: any }): React.ReactElement {
-    return (
-      <Box width="100%" paddingX={1} marginTop={0}>
-        <Box gap={1} flexWrap="wrap">
-          {KEYBOARD_LEGEND_ITEMS.map((item, index) => (
-            <React.Fragment key={item.key}>
-              {index > 0 ? <Text dimColor>{symbols.dot}</Text> : null}
-              <Text dimColor>
-                <Text color={colors.triforce}>{item.key}</Text> {item.label}
-              </Text>
-            </React.Fragment>
-          ))}
-        </Box>
-      </Box>
-    );
-  }
-
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [modelManagerOpen, setModelManagerOpen] = useState(false);
@@ -183,7 +158,6 @@ export function App({ pythonPath, backendArgs, batchCommands, onSummaryUpdate }:
     cycleThinkingDetail,
   } = useSettings();
   const { width: terminalWidth, rows: terminalRows } = useTerminalSize();
-  const showKeyboardLegend = shouldShowKeyboardLegend(terminalRows);
 
   const {
     config,
@@ -209,9 +183,20 @@ export function App({ pythonPath, backendArgs, batchCommands, onSummaryUpdate }:
     lastRequestStatus: config?.lastRequestStatus,
     dismissedErrorCount,
   });
+  const modalOpen =
+    settingsOpen
+    || helpOpen
+    || modelManagerOpen
+    || Boolean(pendingPermission)
+    || Boolean(pendingReview);
+  const keyHintBarVisible = shouldShowKeyHintBar({
+    rows: terminalRows,
+    width: terminalWidth,
+    modalOpen,
+  });
   const transcriptViewportHeight = computeTranscriptViewportHeight(
     terminalRows,
-    showKeyboardLegend,
+    keyHintBarVisible,
     backendErrorVisible,
   );
 
@@ -288,20 +273,6 @@ export function App({ pythonPath, backendArgs, batchCommands, onSummaryUpdate }:
         && !pendingReview,
     },
   );
-
-  // Mouse-wheel scrolls the transcript. Disabled while a modal is open so
-  // dialog input keeps default terminal behavior.
-  useMouseScroll(transcriptScrollRef, {
-    isActive:
-      !settingsOpen
-      && !helpOpen
-      && !modelManagerOpen
-      && !pendingPermission
-      && !pendingReview,
-    sidePanelScrollRef: computeContextPanelLayout(terminalWidth, settingsOpen).visible
-      ? contextScrollRef
-      : undefined,
-  });
 
   // Escape dismisses the backend error banner when it's the most prominent
   // surface. Only active when nothing else (streaming, modals) owns Escape.
@@ -574,7 +545,7 @@ export function App({ pythonPath, backendArgs, batchCommands, onSummaryUpdate }:
           focusFile={config.focusFile}
         />
 
-        {showKeyboardLegend ? <KeyboardLegend colors={themeColors} /> : null}
+        <KeyHintBar visible={keyHintBarVisible} />
       </Box>
     </SettingsContext.Provider>
   );

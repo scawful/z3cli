@@ -6,13 +6,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from z3cli.app.tooling import _build_capability_bridges
-from z3cli.core.rom_project import RomProject
-from z3cli.core.tool_bridge import CompositeBridge
-from z3cli.protocol.asm_test_bridge import AsmTestBridge
-from z3cli.protocol.mcp_bridge import MCPBridge
-from z3cli.protocol.workspace_context_bridge import WorkspaceContextBridge
-from z3cli.protocol.z3ed_bridge import Z3edBridge
+from app.tooling import _build_capability_bridges
+from core.rom_project import RomProject
+from core.tool_bridge import CompositeBridge
+from protocol.asm_test_bridge import AsmTestBridge
+from protocol.mcp_bridge import MCPBridge
+from protocol.workspace_context_bridge import WorkspaceContextBridge
+from protocol.z3ed_bridge import Z3edBridge
 
 
 class _StubMCPBridge(MCPBridge):

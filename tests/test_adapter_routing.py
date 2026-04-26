@@ -5,8 +5,8 @@ from __future__ import annotations
 import unittest
 from typing import Any
 
-from z3cli.core.tool_adapters import get_adapter
-from z3cli.core.tool_bridge import ReadOnlyBridge
+from core.tool_adapters import get_adapter
+from core.tool_bridge import ReadOnlyBridge
 
 
 class _TrackingBridge:

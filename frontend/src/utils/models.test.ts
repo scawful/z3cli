@@ -84,10 +84,10 @@ test("modelPickerDescription appends fast and heavy labels", () => {
   }), "8-9B fast model · live alias · fast");
   assert.equal(modelPickerDescription({
     name: "oracle-pro",
-    modelId: "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf",
+    modelId: "gguf/zelda/qwen3-oracle-14b-v8-q4km.gguf",
     role: "hybrid planner",
-    description: "14B Oracle-Pro · q4km",
-  }), "14B Oracle-Pro · q4km");
+    description: "14B Oracle-Pro v8 · q4km",
+  }), "14B Oracle-Pro v8 · q4km");
   assert.equal(modelPickerDescription({
     name: "oracle-mythic",
     modelId: "gguf/zelda/switchhook-27b-v1-q4km.gguf",

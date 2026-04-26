@@ -1,6 +1,8 @@
 /**
  * Persistent banner surfaced when the backend shows signs of failing requests.
  * Driven by `shouldShowBackendErrorBanner` in utils/backendHealth.ts.
+ *
+ * Border vocabulary: `bold` — transient/destructive surface.
  */
 
 import React from "react";
@@ -22,7 +24,7 @@ export function BackendErrorBanner({ config }: { config: AppConfig }): React.Rea
   return (
     <Box
       width="100%"
-      borderStyle="double"
+      borderStyle="bold"
       borderColor={colors.error}
       paddingX={1}
       marginBottom={1}

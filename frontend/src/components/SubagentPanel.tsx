@@ -4,6 +4,10 @@
  * Each entry renders in its own bordered row with a spinner (running),
  * checkmark (done), or X (error). Streaming text preview shows the last
  * few lines of the subagent's output.
+ *
+ * Border vocabulary: inner rows use `single` so nested children stay quiet;
+ * the panel header (in this file) uses no border — the outer page chrome
+ * already frames the area.
  */
 
 import React from "react";
@@ -127,7 +131,7 @@ function SubagentRow({
   return (
     <Box paddingLeft={level * 2} flexDirection="column">
       <Box
-        borderStyle="double"
+        borderStyle="single"
         borderColor={entry.status === "error" ? colors.error : colors.border}
         paddingX={1}
         flexDirection="column"

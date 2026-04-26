@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from z3cli.core.deferred_tools import DeferredToolBridge, TOOL_SEARCH_NAME
+from core.deferred_tools import DeferredToolBridge, TOOL_SEARCH_NAME
 
 
 class MockFullBridge:
@@ -201,8 +201,8 @@ class IntegrationWithEngineTests(unittest.IsolatedAsyncioTestCase):
     async def test_engine_sees_revealed_tools_across_rounds(self) -> None:
         # Verify that ChatEngine calls get_openai_tools() inside the loop
         # by asserting the bridge gets called more than once across rounds.
-        from z3cli.core.engine import ChatEngine
-        from z3cli.core.provider import (
+        from core.engine import ChatEngine
+        from core.provider import (
             CompletionChunk, CompletionRequest, ContentDelta, ToolCallDelta,
             UsageInfo,
         )

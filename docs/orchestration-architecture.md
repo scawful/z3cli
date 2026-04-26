@@ -12,13 +12,13 @@ plan and synthesize across them?
 
 | Phase | Deliverable | Key files |
 |-------|-------------|-----------|
-| 1 | Provider abstraction | `z3cli/core/provider.py` |
-| 2 | Subagent runner + bridge | `z3cli/core/subagent.py`, `subagent_bridge.py` |
-| 3 | Orchestrator mode | `z3cli/app/runtime.py` (`ORCHESTRATOR_MODE`) |
-| 4 | Context compaction | `z3cli/core/compaction.py` |
+| 1 | Provider abstraction | `src/core/provider.py` |
+| 2 | Subagent runner + bridge | `src/core/subagent.py`, `subagent_bridge.py` |
+| 3 | Orchestrator mode | `src/app/runtime.py` (`ORCHESTRATOR_MODE`) |
+| 4 | Context compaction | `src/core/compaction.py` |
 | 5 | Frontend rendering | `frontend/src/components/SubagentPanel.tsx`, `utils/subagentState.ts` |
 | 6 | Prompt caching | `AnthropicProvider._build_system`, `_convert_tools` |
-| 7 | Deferred tool loading | `z3cli/core/deferred_tools.py` |
+| 7 | Deferred tool loading | `src/core/deferred_tools.py` |
 | 8 | Nested subagents | `SubagentRunner` depth + cycle detection |
 | 9 | Cache hit rate badge | `frontend/src/utils/cacheMetrics.ts` |
 
@@ -41,7 +41,7 @@ separates wire format from the tool-calling loop.
 - `OpenAICloudProvider` — GPT-4o, o3, etc. (delegates to LocalProvider's SSE
   parser since the wire format is compatible)
 
-**Key data types** (in `z3cli/core/provider.py`):
+**Key data types** (in `src/core/provider.py`):
 - `CompletionRequest` — provider-agnostic request shape
 - `CompletionChunk` — streaming chunk with content / tool_calls / usage
 - `ContentDelta` — text/thinking/reasoning split
@@ -61,14 +61,14 @@ isolated contexts. Two paths were built:
 1. **User-driven** — `/subagent <model> <prompt>` command
 2. **Model-driven** — `spawn_subagent` tool on `SubagentBridge`
 
-**Runner** (`z3cli/core/subagent.py`):
+**Runner** (`src/core/subagent.py`):
 - `SubagentConfig` — name, model, task prompt, tool_profile, max_rounds
 - `SubagentResult` — text, thinking, tool_call count, tokens, error/cancelled
 - Lifecycle events: start, text, thinking, tool_call, tool_result, done, error
 - `spawn()` creates a fresh `ChatEngine` with its own history, returns result
 - `spawn_many()` for parallel execution
 
-**Bridge** (`z3cli/core/subagent_bridge.py`):
+**Bridge** (`src/core/subagent_bridge.py`):
 - Exposes `spawn_subagent(model, prompt, tool_profile?, max_rounds?)` and
   `list_subagents()` as OpenAI-style tools
 - Composed with the main tool bridge via `CompositeBridge` when
@@ -111,7 +111,7 @@ conversations exhaust them. Rather than manual `/reset`, compaction
 auto-summarizes older turns while preserving the system prompt and recent
 turns verbatim.
 
-**`ConversationCompactor`** (`z3cli/core/compaction.py`):
+**`ConversationCompactor`** (`src/core/compaction.py`):
 - `CompactionPolicy` — `context_budget`, `threshold_ratio` (0.75), `keep_recent_turns` (3)
 - `estimate_tokens()` / `estimate_messages_tokens()` — ~3.7 chars/token heuristic
   (biased up for tool JSON). No tokenizer dependency.
@@ -185,7 +185,7 @@ ship in every request. Phase 7 adds a `tool_search` meta-tool that reveals
 schemas on demand — the model discovers tools it needs without carrying the
 full catalog in every prompt.
 
-**`DeferredToolBridge`** (`z3cli/core/deferred_tools.py`):
+**`DeferredToolBridge`** (`src/core/deferred_tools.py`):
 - Wraps any `ToolBridge`, exposes only `tool_search` + configurable `core` set
 - Search scores name matches 3× description matches, returns top N with full
   schemas, adds them to `_revealed` set
@@ -402,24 +402,24 @@ Ideas worth considering, roughly ordered by perceived value-vs-effort.
 ### Python (backend)
 
 **New:**
-- `z3cli/core/provider.py` — Provider protocol + Local/Anthropic/OpenAI implementations
-- `z3cli/core/subagent.py` — runner, config, result, events
-- `z3cli/core/subagent_bridge.py` — spawn_subagent/list_subagents tools
-- `z3cli/core/compaction.py` — conversation summarizer
-- `z3cli/core/deferred_tools.py` — tool_search meta-tool bridge
+- `src/core/provider.py` — Provider protocol + Local/Anthropic/OpenAI implementations
+- `src/core/subagent.py` — runner, config, result, events
+- `src/core/subagent_bridge.py` — spawn_subagent/list_subagents tools
+- `src/core/compaction.py` — conversation summarizer
+- `src/core/deferred_tools.py` — tool_search meta-tool bridge
 
 **Modified:**
-- `z3cli/core/engine.py` — Provider-based streaming, compactor integration,
+- `src/core/engine.py` — Provider-based streaming, compactor integration,
   cache token accumulation, per-round tool fetch, CompactionEvent
-- `z3cli/core/config.py` — cloud fields, prompt_cache, context_budget,
+- `src/core/config.py` — cloud fields, prompt_cache, context_budget,
   deferred_tools, core_tools, helpers
-- `z3cli/app/runtime.py` — ORCHESTRATOR_MODE, build_orchestrator_prompt,
+- `src/app/runtime.py` — ORCHESTRATOR_MODE, build_orchestrator_prompt,
   default_orchestrator_model, resolve_targets extension
-- `z3cli/app/serve.py` — ServeState fields, engine factory, subagent runner,
+- `src/app/serve.py` — ServeState fields, engine factory, subagent runner,
   orchestrator catalog, cache stats, compaction wiring, /subagent,
   /subagent-tools, /orchestrator, /compact
-- `z3cli/app/tooling.py` — wrap_bridge_for_model extended layering
-- `z3cli/app/backends.py` — minor tweaks
+- `src/app/tooling.py` — wrap_bridge_for_model extended layering
+- `src/app/backends.py` — minor tweaks
 - `pyproject.toml` — `[cloud]` optional dependencies
 
 ### Tests (Python)

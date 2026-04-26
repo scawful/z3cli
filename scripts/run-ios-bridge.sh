@@ -15,6 +15,7 @@ fi
 : "${Z3CLI_BRIDGE_TOKEN:?Set Z3CLI_BRIDGE_TOKEN (or put it in .bridge.env)}"
 export Z3CLI_BRIDGE_HOST="${Z3CLI_BRIDGE_HOST:-0.0.0.0}"
 export Z3CLI_BRIDGE_PORT="${Z3CLI_BRIDGE_PORT:-8765}"
+export PYTHONPATH="$ROOT/src:$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
 TAIL_IP=""
 if command -v tailscale >/dev/null 2>&1; then

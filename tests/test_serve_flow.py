@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from z3cli.app.serve import (
+from app.serve import (
     ServeState,
     _await_startup_tool_bridge,
     _run_startup_tool_bridge_warmup,
@@ -16,22 +16,24 @@ from z3cli.app.serve import (
     build_ready_params,
     handle_chat,
     handle_command,
+    handle_inventory_rpc,
+    handle_route_rpc,
     init_state,
     run_budgeted_chat_request,
     serve_main,
 )
-from z3cli.core.config import LlamaCppNodeConfig, ModelConfig, StudioNodeConfig
-from z3cli.core.engine import CompactionEvent, DoneEvent, TextEvent, ThinkingEvent, ToolCallEvent, ToolResultEvent
-from z3cli.core.subagent import (
+from core.config import LlamaCppNodeConfig, ModelConfig, StudioNodeConfig
+from core.engine import CompactionEvent, DoneEvent, TextEvent, ThinkingEvent, ToolCallEvent, ToolResultEvent
+from core.subagent import (
     SubagentContext,
     SubagentResult,
     SubagentRunner,
     SubagentStartEvent,
     _current_subagent,
 )
-from z3cli.core.session import Session
-from z3cli.app.write_review import prepare_write_context
-from z3cli.protocol.z3lsp_bridge import Z3LspBridge
+from core.session import Session
+from app.write_review import prepare_write_context
+from protocol.z3lsp_bridge import Z3LspBridge
 
 
 class FakeServeLoop:
@@ -196,7 +198,7 @@ class FakeZ3LspBridge(Z3LspBridge):
 
 
 class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
-    def test_build_ready_params_limits_primary_picker_to_oracle_contract(self) -> None:
+    def test_build_ready_params_uses_configured_z3ui_bench(self) -> None:
         os.environ["ANTHROPIC_API_KEY"] = "test-key"
         try:
             state = ServeState()
@@ -211,7 +213,8 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
                     tools_enabled=True,
                     api_key_env="ANTHROPIC_API_KEY",
                 ),
-                "farore": ModelConfig(name="farore", model_id="farore", role="debugger", tool_profile="farore"),
+                "navi": ModelConfig(name="navi", model_id="navi", role="autocomplete/debug", tool_profile="farore"),
+                "farore": ModelConfig(name="farore", model_id="farore", role="legacy debugger", tool_profile="farore"),
                 "hylia": ModelConfig(name="hylia", model_id="hylia", role="historian", tool_profile="hylia"),
                 "majora": ModelConfig(name="majora", model_id="majora", role="context", tool_profile="majora"),
                 "nayru": ModelConfig(name="nayru", model_id="nayru", role="analysis", tool_profile="nayru"),
@@ -232,8 +235,8 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
                 ),
             }
 
-            with patch("z3cli.app.shared_runtime.available_models", return_value=[]), patch(
-                "z3cli.app.shared_runtime.loaded_models",
+            with patch("app.shared_runtime.available_models", return_value=[]), patch(
+                "app.shared_runtime.loaded_models",
                 return_value=[],
             ):
                 params = build_ready_params(state)
@@ -241,7 +244,7 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(
                 names,
-                ["oracle", "oracle-fast"],
+                ["oracle", "oracle-fast", "din", "navi", "nayru"],
             )
             self.assertNotIn("avatar-debugger", names)
             self.assertNotIn("claude-sonnet", names)
@@ -274,8 +277,8 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
             ),
         }
 
-        with patch("z3cli.app.shared_runtime.available_models", return_value=[]), patch(
-            "z3cli.app.shared_runtime.loaded_models",
+        with patch("app.shared_runtime.available_models", return_value=[]), patch(
+            "app.shared_runtime.loaded_models",
             return_value=[],
         ):
             params = build_ready_params(state)
@@ -300,8 +303,8 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
             ),
         }
 
-        with patch("z3cli.app.shared_runtime.available_models", return_value=[]), patch(
-            "z3cli.app.shared_runtime.loaded_models",
+        with patch("app.shared_runtime.available_models", return_value=[]), patch(
+            "app.shared_runtime.loaded_models",
             return_value=[],
         ):
             params = build_ready_params(state)
@@ -324,11 +327,11 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
             ),
         }
 
-        with patch("z3cli.app.shared_runtime.available_models", return_value=[
+        with patch("app.shared_runtime.available_models", return_value=[
             {"id": "oracle", "path": "oracle"},
             {"id": "oracle-fast", "path": "oracle-fast"},
             {"id": "oracle-pro", "path": "oracle-pro"},
-        ]), patch("z3cli.app.shared_runtime.loaded_models", return_value=[]):
+        ]), patch("app.shared_runtime.loaded_models", return_value=[]):
             params = build_ready_params(state)
 
         self.assertEqual([str(item["name"]) for item in params["models"]], ["oracle", "oracle-fast", "oracle-pro"])
@@ -342,8 +345,8 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
             "nayru": ModelConfig(name="nayru", model_id="nayru", role="analysis", tool_profile="nayru"),
         }
 
-        with patch("z3cli.app.shared_runtime.available_models", return_value=[]), patch(
-            "z3cli.app.shared_runtime.loaded_models",
+        with patch("app.shared_runtime.available_models", return_value=[]), patch(
+            "app.shared_runtime.loaded_models",
             return_value=[],
         ):
             params = build_ready_params(state)
@@ -365,13 +368,13 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
             ),
         }
 
-        with patch("z3cli.app.shared_runtime.available_models", return_value=[
+        with patch("app.shared_runtime.available_models", return_value=[
             {"id": "oracle", "path": "oracle"},
             {
                 "id": "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf",
                 "path": "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf",
             },
-        ]), patch("z3cli.app.shared_runtime.loaded_models", return_value=[]):
+        ]), patch("app.shared_runtime.loaded_models", return_value=[]):
             params = build_ready_params(state)
 
         self.assertEqual(
@@ -405,11 +408,11 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
             ),
         }
 
-        with patch("z3cli.app.shared_runtime.available_models", return_value=[
+        with patch("app.shared_runtime.available_models", return_value=[
             {"id": "oracle", "path": "oracle"},
             {"id": "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf", "path": "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf"},
             {"id": "qwen25-oracle-coder-7b-v1", "path": "qwen25-oracle-coder-7b-v1"},
-        ]), patch("z3cli.app.shared_runtime.loaded_models", return_value=[]):
+        ]), patch("app.shared_runtime.loaded_models", return_value=[]):
             params = build_ready_params(state)
         catalog = params.get("model_catalog", [])
 
@@ -436,15 +439,15 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
             ),
         }
 
-        with patch("z3cli.app.shared_runtime.available_models", return_value=[]), patch(
-            "z3cli.app.shared_runtime.loaded_models",
+        with patch("app.shared_runtime.available_models", return_value=[]), patch(
+            "app.shared_runtime.loaded_models",
             return_value=[],
         ):
             params = build_ready_params(state)
 
         self.assertEqual(
             [str(item["name"]) for item in params["models"]],
-            ["oracle"],
+            ["oracle", "qwen3-local-8b"],
         )
 
     def test_build_ready_params_includes_loaded_model_memory_details(self) -> None:
@@ -453,7 +456,7 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
             "nayru": ModelConfig(name="nayru", model_id="gguf/zelda/nayru-9b-q8_0.gguf", role="analysis"),
         }
 
-        with patch("z3cli.app.serve.primary_model_infos", return_value=[{
+        with patch("app.serve.primary_model_infos", return_value=[{
             "name": "nayru",
             "model_id": "gguf/zelda/nayru-9b-q8_0.gguf",
             "role": "analysis",
@@ -473,7 +476,7 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
             "queued": 0,
             "estimated_gpu_bytes": int(9.95 * 1024 ** 3),
             "estimated_total_bytes": int(9.95 * 1024 ** 3),
-        }]), patch("z3cli.app.serve.loaded_model_runtime_infos", return_value=[{
+        }]), patch("app.serve.loaded_model_runtime_infos", return_value=[{
             "identifier": "nayru",
             "model_key": "gguf/zelda/nayru-9b-q8_0.gguf",
             "display_name": "Nayru 9B",
@@ -547,8 +550,8 @@ role = "planner"
                 encoding="utf-8",
             )
 
-            with patch("z3cli.app.serve.ensure_server") as ensure, patch(
-                "z3cli.core.session.DEFAULT_SESSION_DIR",
+            with patch("app.serve.ensure_server") as ensure, patch(
+                "core.session.DEFAULT_SESSION_DIR",
                 root / "sessions",
             ):
                 state = await init_state([
@@ -570,8 +573,8 @@ role = "planner"
         state.startup_tool_bridge_warming = True
         notifications: list[tuple[str, dict | None]] = []
 
-        with patch("z3cli.app.serve.refresh_tool_bridge", new=AsyncMock()), patch(
-            "z3cli.app.serve._notify",
+        with patch("app.serve.refresh_tool_bridge", new=AsyncMock()), patch(
+            "app.serve._notify",
             side_effect=lambda method, params=None: notifications.append((method, params)),
         ):
             await _run_startup_tool_bridge_warmup(state)
@@ -606,8 +609,8 @@ role = "planner"
                 encoding="utf-8",
             )
 
-            with patch("z3cli.app.serve.ensure_server"), patch(
-                "z3cli.core.session.DEFAULT_SESSION_DIR",
+            with patch("app.serve.ensure_server"), patch(
+                "core.session.DEFAULT_SESSION_DIR",
                 root / "sessions",
             ):
                 state = await init_state([
@@ -640,11 +643,11 @@ role = "avatar alias"
                 encoding="utf-8",
             )
 
-            with patch("z3cli.app.shared_runtime.available_models", return_value=[]), patch(
-                "z3cli.app.shared_runtime.loaded_models",
+            with patch("app.shared_runtime.available_models", return_value=[]), patch(
+                "app.shared_runtime.loaded_models",
                 return_value=[],
-            ), patch("z3cli.app.serve.ensure_server"), patch(
-                "z3cli.core.session.DEFAULT_SESSION_DIR",
+            ), patch("app.serve.ensure_server"), patch(
+                "core.session.DEFAULT_SESSION_DIR",
                 root / "sessions",
             ):
                 state = await init_state([
@@ -680,11 +683,11 @@ rollout_block_reason = "nayru is still gated"
                 encoding="utf-8",
             )
 
-            with patch("z3cli.app.shared_runtime.available_models", return_value=[]), patch(
-                "z3cli.app.shared_runtime.loaded_models",
+            with patch("app.shared_runtime.available_models", return_value=[]), patch(
+                "app.shared_runtime.loaded_models",
                 return_value=[],
-            ), patch("z3cli.app.serve.ensure_server"), patch(
-                "z3cli.core.session.DEFAULT_SESSION_DIR",
+            ), patch("app.serve.ensure_server"), patch(
+                "core.session.DEFAULT_SESSION_DIR",
                 root / "sessions",
             ):
                 state = await init_state([
@@ -713,8 +716,8 @@ role = "planner"
                 encoding="utf-8",
             )
 
-            with patch("z3cli.app.serve.ensure_server"), patch(
-                "z3cli.core.session.DEFAULT_SESSION_DIR",
+            with patch("app.serve.ensure_server"), patch(
+                "core.session.DEFAULT_SESSION_DIR",
                 root / "sessions",
             ):
                 state = await init_state([
@@ -734,7 +737,7 @@ role = "planner"
         }
 
         responses: list[tuple[int, object, str | None]] = []
-        with patch("z3cli.app.serve._respond", side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error))):
+        with patch("app.serve._respond", side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error))):
             await handle_command(state, 101, {"cmd": "/model", "args": ["ghost"]})
 
         self.assertEqual(responses[-1], (101, None, "Unknown model: ghost"))
@@ -750,7 +753,7 @@ role = "planner"
         }
 
         responses: list[tuple[int, object, str | None]] = []
-        with patch("z3cli.app.serve._respond", side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error))):
+        with patch("app.serve._respond", side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error))):
             await handle_command(state, 102, {"cmd": "/model", "args": ["avatar"]})
 
         self.assertEqual(
@@ -774,10 +777,10 @@ role = "planner"
         }
 
         responses: list[tuple[int, object, str | None]] = []
-        with patch("z3cli.app.shared_runtime.available_models", return_value=[
+        with patch("app.shared_runtime.available_models", return_value=[
             {"id": "oracle", "path": "oracle"},
-        ]), patch("z3cli.app.shared_runtime.loaded_models", return_value=[]), patch(
-            "z3cli.app.serve._respond",
+        ]), patch("app.shared_runtime.loaded_models", return_value=[]), patch(
+            "app.serve._respond",
             side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
         ):
             await handle_command(state, 103, {"cmd": "/model", "args": ["oracle-coder-preview"]})
@@ -806,19 +809,19 @@ role = "planner"
         }
 
         responses: list[tuple[int, object, str | None]] = []
-        with patch("z3cli.app.shared_runtime.available_models", return_value=[
+        with patch("app.shared_runtime.available_models", return_value=[
             {"id": "gguf/zelda/qwen3-oracle-8b-v1-corrective2-q4km.gguf", "path": "gguf/zelda/qwen3-oracle-8b-v1-corrective2-q4km.gguf"},
             {"id": "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf", "path": "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf"},
-        ]), patch("z3cli.app.shared_runtime.loaded_models", return_value=[]), patch(
-            "z3cli.app.serve.ensure_model_available"
+        ]), patch("app.shared_runtime.loaded_models", return_value=[]), patch(
+            "app.serve.ensure_model_available"
         ), patch(
-            "z3cli.app.serve._refresh_focus_context"
+            "app.serve._refresh_focus_context"
         ), patch(
-            "z3cli.app.serve._persist_state"
+            "app.serve._persist_state"
         ), patch(
-            "z3cli.app.serve._notify"
+            "app.serve._notify"
         ), patch(
-            "z3cli.app.serve._respond",
+            "app.serve._respond",
             side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
         ):
             await handle_command(state, 104, {"cmd": "/model", "args": ["oracle-pro"]})
@@ -833,7 +836,7 @@ role = "planner"
             "nayru": ModelConfig(name="nayru", model_id="nayru", role="analysis"),
         }
         responses: list[tuple[int, object, str | None]] = []
-        with patch("z3cli.app.serve._respond", side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error))):
+        with patch("app.serve._respond", side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error))):
             await handle_command(state, 212, {"cmd": "/orchestrator", "args": ["oracle-main"]})
 
         self.assertEqual(state.orchestrator_model, "oracle")
@@ -859,7 +862,7 @@ role = "planner"
             "nayru": ModelConfig(name="nayru", model_id="nayru", role="analysis"),
         }
         responses: list[tuple[int, object, str | None]] = []
-        with patch("z3cli.app.serve._respond", side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error))):
+        with patch("app.serve._respond", side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error))):
             await handle_command(state, 213, {"cmd": "/orchestrator", "args": ["ghost"]})
 
         self.assertEqual(responses[-1], (213, None, "Unknown model: ghost"))
@@ -874,7 +877,7 @@ role = "planner"
         state.orchestrator_model = ""
         state.active_model = "nayru"
         responses: list[tuple[int, object, str | None]] = []
-        with patch("z3cli.app.serve._respond", side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error))):
+        with patch("app.serve._respond", side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error))):
             await handle_command(state, 214, {"cmd": "/orchestrator", "args": []})
 
         result = responses[-1][1]
@@ -918,8 +921,8 @@ role = "planner"
             )
 
             responses: list[tuple[int, object, str | None]] = []
-            with patch("z3cli.app.serve.find_session", return_value={"name": "saved", "path": str(saved_path)}), patch(
-                "z3cli.app.serve.load_session_bundle",
+            with patch("app.serve.find_session", return_value={"name": "saved", "path": str(saved_path)}), patch(
+                "app.serve.load_session_bundle",
                 return_value=SimpleNamespace(
                     meta={"active_model": "avatar"},
                     model_messages={},
@@ -927,8 +930,8 @@ role = "planner"
                     message_count=0,
                     subagents=[],
                 ),
-            ), patch("z3cli.app.serve.refresh_tool_bridge", new=AsyncMock()), patch(
-                "z3cli.app.serve._respond",
+            ), patch("app.serve.refresh_tool_bridge", new=AsyncMock()), patch(
+                "app.serve._respond",
                 side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
             ):
                 await handle_command(state, 215, {"cmd": "/resume", "args": ["saved"]})
@@ -951,10 +954,10 @@ role = "planner"
         responses: list[tuple[int, object, str | None]] = []
 
         with patch(
-            "z3cli.app.serve._respond",
+            "app.serve._respond",
             side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
         ), patch(
-            "z3cli.app.serve._notify",
+            "app.serve._notify",
         ):
             await handle_command(state, 216, {"cmd": "/llamacpp-node", "args": ["oracle-pro-vast"]})
 
@@ -980,10 +983,10 @@ role = "planner"
         responses: list[tuple[int, object, str | None]] = []
 
         with patch(
-            "z3cli.app.serve._respond",
+            "app.serve._respond",
             side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
         ), patch(
-            "z3cli.app.serve._notify",
+            "app.serve._notify",
         ):
             await handle_command(state, 217, {"cmd": "/studio-node", "args": ["oracle-pro-home"]})
 
@@ -1011,10 +1014,10 @@ role = "planner"
         responses: list[tuple[int, object, str | None]] = []
 
         with patch(
-            "z3cli.app.serve._respond",
+            "app.serve._respond",
             side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
         ), patch(
-            "z3cli.app.serve._notify",
+            "app.serve._notify",
         ):
             await handle_command(state, 218, {"cmd": "/use", "args": ["home"]})
 
@@ -1024,12 +1027,516 @@ role = "planner"
         self.assertEqual(responses[-1][2], None)
         self.assertEqual(responses[-1][1]["resolved"], "oracle-pro-home")
 
+    async def test_route_command_switches_to_canonical_5090_alias(self) -> None:
+        state = ServeState()
+        state.models = {
+            "oracle-pro": ModelConfig(name="oracle-pro", model_id="oracle-pro", role="pro"),
+        }
+        state.active_model = "oracle-pro"
+        state.studio_nodes = {
+            "oracle-pro-home": StudioNodeConfig(
+                name="oracle-pro-home",
+                api_base="http://127.0.0.1:2234/v1",
+                model="oracle-pro",
+                description="Windows tunnel",
+            ),
+        }
+        responses: list[tuple[int, object, str | None]] = []
+
+        with patch(
+            "app.serve._respond",
+            side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
+        ), patch(
+            "app.serve._notify",
+        ):
+            await handle_command(state, 222, {"cmd": "/route", "args": ["oracle-pro-5090"]})
+
+        self.assertEqual(state.backend_name, "studio")
+        self.assertEqual(state.studio_node, "oracle-pro-home")
+        self.assertEqual(state.active_model, "oracle-pro")
+        self.assertEqual(responses[-1][2], None)
+        self.assertEqual(responses[-1][1]["route"], "oracle-pro-5090")
+        self.assertEqual(responses[-1][1]["resolved"], "oracle-pro-home")
+        if state.focus_refresh_task is not None:
+            state.focus_refresh_task.cancel()
+            await asyncio.gather(state.focus_refresh_task, return_exceptions=True)
+
+    async def test_route_list_returns_route_targets(self) -> None:
+        state = ServeState()
+        state.models = {
+            "oracle-pro": ModelConfig(name="oracle-pro", model_id="oracle-pro", role="pro"),
+        }
+        state.active_model = "oracle-pro"
+        state.studio_nodes = {
+            "oracle-pro-home": StudioNodeConfig(
+                name="oracle-pro-home",
+                api_base="http://127.0.0.1:2234/v1",
+                model="oracle-pro",
+                description="Windows tunnel",
+            ),
+        }
+        responses: list[tuple[int, object, str | None]] = []
+
+        with patch(
+            "app.serve._respond",
+            side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
+        ):
+            await handle_command(state, 223, {"cmd": "/route", "args": ["list"]})
+
+        payload = responses[-1][1]
+        self.assertEqual(responses[-1][2], None)
+        self.assertEqual(payload["active"]["model"], "oracle-pro")
+        names = [entry["name"] for entry in payload["entries"]]
+        self.assertEqual(names, ["oracle-pro-5090"])
+        self.assertNotIn("oracle-pro-home", names)
+        self.assertEqual(payload["active_route"], "oracle-pro-5090")
+        self.assertEqual(payload["routes"][0]["name"], "oracle-pro-5090")
+        self.assertEqual(payload["routes"][0]["backend"], "SERVING_BACKEND_STUDIO")
+
+    async def test_route_list_rpc_returns_proto_json_routes(self) -> None:
+        state = ServeState()
+        state.models = {
+            "oracle-pro": ModelConfig(name="oracle-pro", model_id="oracle-pro", role="pro"),
+        }
+        state.active_model = "oracle-pro"
+        state.studio_nodes = {
+            "oracle-pro-home": StudioNodeConfig(
+                name="oracle-pro-home",
+                api_base="http://127.0.0.1:2234/v1",
+                model="oracle-pro",
+                description="Windows tunnel",
+                hostd_url="http://127.0.0.1:8766",
+            ),
+        }
+        responses: list[tuple[int, object, str | None]] = []
+
+        with patch(
+            "app.serve._respond",
+            side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
+        ):
+            handled = await handle_route_rpc(state, 229, "route/list", {"includeHidden": False})
+
+        self.assertTrue(handled)
+        self.assertEqual(responses[-1][2], None)
+        payload = responses[-1][1]
+        self.assertEqual(payload["activeRoute"], "oracle-pro-5090")
+        self.assertEqual(payload["routes"][0]["name"], "oracle-pro-5090")
+        self.assertEqual(payload["routes"][0]["inferenceEndpoint"]["uri"], "http://127.0.0.1:2234/v1")
+        self.assertEqual(payload["routes"][0]["controlEndpoint"]["uri"], "http://127.0.0.1:8766")
+
+    async def test_inventory_query_rpc_refreshes_active_route_snapshot(self) -> None:
+        state = ServeState()
+        state.models = {
+            "oracle-pro": ModelConfig(name="oracle-pro", model_id="oracle-pro", role="pro"),
+        }
+        state.active_model = "oracle-pro"
+        state.studio_node = "oracle-pro-home"
+        state.studio_nodes = {
+            "oracle-pro-home": StudioNodeConfig(
+                name="oracle-pro-home",
+                api_base="http://127.0.0.1:2234/v1",
+                model="oracle-pro",
+                description="Windows tunnel",
+            ),
+        }
+        backend = SimpleNamespace(
+            check_connection=AsyncMock(return_value=SimpleNamespace(connected=True, detail="port=1234")),
+            list_loaded_model_details=AsyncMock(return_value=[{
+                "identifier": "oracle-pro",
+                "model_key": "oracle-pro",
+                "display_name": "Oracle Pro",
+                "size_bytes": 123,
+            }]),
+        )
+        responses: list[tuple[int, object, str | None]] = []
+
+        with patch("app.serve.get_backend", return_value=backend), patch(
+            "app.serve._respond",
+            side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
+        ):
+            handled = await handle_inventory_rpc(state, 232, "inventory/query", {"forceRefresh": True})
+
+        self.assertTrue(handled)
+        self.assertEqual(responses[-1][2], None)
+        payload = responses[-1][1]
+        snapshot = payload["snapshots"][0]
+        self.assertEqual(snapshot["source"], "oracle-pro-5090")
+        self.assertEqual(snapshot["health"], "HEALTH_STATE_HEALTHY")
+        self.assertEqual(snapshot["loadedModels"][0]["runtimeId"], "oracle-pro")
+        self.assertEqual(snapshot["loadedModels"][0]["sizeBytes"], 123)
+        self.assertIsNotNone(state.inventory_cache.get("oracle-pro-5090"))
+
+    async def test_inventory_snapshot_rpc_uses_cache_without_backend_probe(self) -> None:
+        state = ServeState()
+        state.models = {
+            "oracle-pro": ModelConfig(name="oracle-pro", model_id="oracle-pro", role="pro"),
+        }
+        state.active_model = "oracle-pro"
+        state.studio_node = "oracle-pro-home"
+        state.studio_nodes = {
+            "oracle-pro-home": StudioNodeConfig(
+                name="oracle-pro-home",
+                api_base="http://127.0.0.1:2234/v1",
+                model="oracle-pro",
+                description="Windows tunnel",
+            ),
+        }
+        state.inventory_cache.put("oracle-pro-5090", {
+            "source": "oracle-pro-5090",
+            "health": "HEALTH_STATE_HEALTHY",
+            "loadedModels": [],
+            "ttlMs": 5000,
+        })
+        responses: list[tuple[int, object, str | None]] = []
+
+        with patch("app.serve.get_backend", side_effect=AssertionError("should not probe backend")), patch(
+            "app.serve._respond",
+            side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
+        ):
+            handled = await handle_inventory_rpc(state, 233, "inventory/snapshot", {})
+
+        self.assertTrue(handled)
+        self.assertEqual(responses[-1][2], None)
+        self.assertEqual(responses[-1][1]["source"], "oracle-pro-5090")
+
+    def test_build_ready_params_uses_cached_inventory_loaded_models(self) -> None:
+        state = ServeState()
+        state.models = {
+            "oracle-pro": ModelConfig(name="oracle-pro", model_id="oracle-pro", role="pro"),
+        }
+        state.active_model = "oracle-pro"
+        state.studio_node = "oracle-pro-home"
+        state.studio_nodes = {
+            "oracle-pro-home": StudioNodeConfig(
+                name="oracle-pro-home",
+                api_base="http://127.0.0.1:2234/v1",
+                model="oracle-pro",
+                description="Windows tunnel",
+            ),
+        }
+        state.inventory_cache.put("oracle-pro-5090", {
+            "source": "oracle-pro-5090",
+            "loadedModels": [{
+                "ref": {"name": "oracle-pro", "modelId": "oracle-pro", "provider": "studio"},
+                "runtimeId": "oracle-pro",
+                "displayName": "Oracle Pro",
+                "sizeBytes": 123,
+            }],
+            "ttlMs": 5000,
+        })
+
+        with patch("app.serve.loaded_model_runtime_infos", side_effect=AssertionError("cache miss")), patch(
+            "app.serve.primary_model_infos",
+            return_value=[],
+        ), patch("app.serve.model_catalog_infos", return_value=[]):
+            params = build_ready_params(state)
+
+        self.assertEqual(params["loaded_model_count"], 1)
+        self.assertEqual(params["loaded_model_memory_bytes"], 123)
+        self.assertEqual(params["loaded_models"][0]["identifier"], "oracle-pro")
+
+    async def test_models_routes_returns_route_targets(self) -> None:
+        state = ServeState()
+        state.models = {
+            "oracle-pro": ModelConfig(name="oracle-pro", model_id="oracle-pro", role="pro"),
+        }
+        state.active_model = "oracle-pro"
+        state.studio_nodes = {
+            "oracle-pro-home": StudioNodeConfig(
+                name="oracle-pro-home",
+                api_base="http://127.0.0.1:2234/v1",
+                model="oracle-pro",
+                description="Windows tunnel",
+            ),
+        }
+        responses: list[tuple[int, object, str | None]] = []
+
+        with patch(
+            "app.serve._respond",
+            side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
+        ):
+            await handle_command(state, 225, {"cmd": "/models", "args": ["routes"]})
+
+        payload = responses[-1][1]
+        self.assertEqual(responses[-1][2], None)
+        self.assertEqual(payload["active"]["model"], "oracle-pro")
+        self.assertIn("oracle-pro-5090", [entry["name"] for entry in payload["entries"]])
+
+    async def test_route_list_advanced_returns_raw_route_targets(self) -> None:
+        state = ServeState()
+        state.models = {
+            "oracle-pro": ModelConfig(name="oracle-pro", model_id="oracle-pro", role="pro"),
+        }
+        state.active_model = "oracle-pro"
+        state.studio_nodes = {
+            "oracle-pro-home": StudioNodeConfig(
+                name="oracle-pro-home",
+                api_base="http://127.0.0.1:2234/v1",
+                model="oracle-pro",
+                description="Windows tunnel",
+            ),
+        }
+        responses: list[tuple[int, object, str | None]] = []
+
+        with patch(
+            "app.serve._respond",
+            side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
+        ):
+            await handle_command(state, 227, {"cmd": "/route", "args": ["list", "advanced"]})
+
+        payload = responses[-1][1]
+        self.assertEqual(responses[-1][2], None)
+        names = [entry["name"] for entry in payload["entries"]]
+        self.assertIn("oracle-pro-5090", names)
+        self.assertIn("oracle-pro-home", names)
+
+    async def test_models_catalog_returns_model_payloads(self) -> None:
+        state = ServeState()
+        state.models = {
+            "oracle-pro": ModelConfig(name="oracle-pro", model_id="oracle-pro", role="pro"),
+        }
+        state.active_model = "oracle-pro"
+        responses: list[tuple[int, object, str | None]] = []
+
+        with patch(
+            "app.serve._respond",
+            side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
+        ):
+            await handle_command(state, 226, {"cmd": "/models", "args": ["catalog"]})
+
+        payload = responses[-1][1]
+        self.assertEqual(responses[-1][2], None)
+        self.assertTrue(payload["catalog"])
+        self.assertIn("oracle-pro", [entry["name"] for entry in payload["models"]])
+
+    async def test_use_command_responds_before_ready_refresh_builds(self) -> None:
+        state = ServeState()
+        state.models = {
+            "oracle-pro": ModelConfig(name="oracle-pro", model_id="oracle-pro", role="pro"),
+        }
+        state.active_model = "oracle-pro"
+        state.studio_nodes = {
+            "oracle-pro-home": StudioNodeConfig(
+                name="oracle-pro-home",
+                api_base="http://127.0.0.1:2234/v1",
+                model="oracle-pro",
+                description="Windows tunnel",
+            ),
+        }
+        order: list[str] = []
+        responses: list[tuple[int, object, str | None]] = []
+
+        def capture_response(req_id: int, result: object = None, error: str | None = None) -> None:
+            responses.append((req_id, result, error))
+            order.append("respond")
+
+        def capture_ready_build(_state: ServeState) -> dict[str, object]:
+            order.append("ready-build")
+            return {"models": [], "model_catalog": []}
+
+        with patch("app.serve.build_ready_params", side_effect=capture_ready_build), patch(
+            "app.serve._respond",
+            side_effect=capture_response,
+        ), patch("app.serve._notify"):
+            await handle_command(state, 221, {"cmd": "/use", "args": ["home"]})
+
+        self.assertEqual(responses[-1][2], None)
+        self.assertEqual(order, ["respond"])
+        if state.focus_refresh_task is not None:
+            state.focus_refresh_task.cancel()
+            await asyncio.gather(state.focus_refresh_task, return_exceptions=True)
+        if state.ready_refresh_task is not None:
+            state.ready_refresh_task.cancel()
+            await asyncio.gather(state.ready_refresh_task, return_exceptions=True)
+
+    async def test_route_select_rpc_responds_before_ready_refresh_builds(self) -> None:
+        state = ServeState()
+        state.models = {
+            "oracle-pro": ModelConfig(name="oracle-pro", model_id="oracle-pro", role="pro"),
+        }
+        state.active_model = "oracle-pro"
+        state.studio_nodes = {
+            "oracle-pro-home": StudioNodeConfig(
+                name="oracle-pro-home",
+                api_base="http://127.0.0.1:2234/v1",
+                model="oracle-pro",
+                description="Windows tunnel",
+            ),
+        }
+        order: list[str] = []
+        responses: list[tuple[int, object, str | None]] = []
+
+        def capture_response(req_id: int, result: object = None, error: str | None = None) -> None:
+            responses.append((req_id, result, error))
+            order.append("respond")
+
+        def capture_ready_build(_state: ServeState) -> dict[str, object]:
+            order.append("ready-build")
+            return {"models": [], "model_catalog": []}
+
+        with patch("app.serve.build_ready_params", side_effect=capture_ready_build), patch(
+            "app.serve._respond",
+            side_effect=capture_response,
+        ), patch("app.serve._notify"):
+            handled = await handle_route_rpc(state, 230, "route/select", {"route": "oracle-pro-5090"})
+
+        self.assertTrue(handled)
+        self.assertEqual(responses[-1][2], None)
+        self.assertEqual(order, ["respond"])
+        payload = responses[-1][1]
+        self.assertTrue(payload["accepted"])
+        self.assertEqual(payload["route"]["name"], "oracle-pro-5090")
+        self.assertEqual(payload["route"]["backend"], "SERVING_BACKEND_STUDIO")
+        if state.focus_refresh_task is not None:
+            state.focus_refresh_task.cancel()
+            await asyncio.gather(state.focus_refresh_task, return_exceptions=True)
+        if state.ready_refresh_task is not None:
+            state.ready_refresh_task.cancel()
+            await asyncio.gather(state.ready_refresh_task, return_exceptions=True)
+
+    async def test_smoke_command_switches_target_and_returns_probe_result(self) -> None:
+        state = ServeState()
+        state.models = {
+            "oracle-pro": ModelConfig(name="oracle-pro", model_id="oracle-pro", role="pro"),
+        }
+        state.active_model = "oracle-pro"
+        state.llamacpp_nodes = {
+            "oracle-pro-home-ssh": LlamaCppNodeConfig(
+                name="oracle-pro-home-ssh",
+                api_base="ssh://medical-mechanica/127.0.0.1:1234/v1",
+                model="gguf/zelda/qwen3-oracle-14b-v8-q4km.gguf",
+                description="SSH command proxy",
+                lean_prompt=True,
+            ),
+        }
+        responses: list[tuple[int, object, str | None]] = []
+
+        with patch(
+            "app.serve.smoke_current_route",
+            new=AsyncMock(return_value={
+                "ok": True,
+                "matched": True,
+                "backend": "llamacpp",
+                "node": "oracle-pro-home-ssh",
+                "api_base": "ssh://medical-mechanica/127.0.0.1:1234/v1",
+                "model": "gguf/zelda/qwen3-oracle-14b-v8-q4km.gguf",
+                "duration_ms": 42,
+                "text": "z3cli smoke ok",
+            }),
+        ), patch(
+            "app.serve._respond",
+            side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
+        ), patch(
+            "app.serve._notify",
+        ):
+            await handle_command(state, 220, {"cmd": "/smoke", "args": ["home-ssh"]})
+
+        self.assertEqual(state.backend_name, "llamacpp")
+        self.assertEqual(state.llamacpp_node, "oracle-pro-home-ssh")
+        self.assertEqual(responses[-1][2], None)
+        payload = responses[-1][1]
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["applied"]["resolved"], "oracle-pro-home-ssh")
+
+    async def test_route_smoke_uses_canonical_ssh_route(self) -> None:
+        state = ServeState()
+        state.models = {
+            "oracle-pro": ModelConfig(name="oracle-pro", model_id="oracle-pro", role="pro"),
+        }
+        state.active_model = "oracle-pro"
+        state.llamacpp_nodes = {
+            "oracle-pro-home-ssh": LlamaCppNodeConfig(
+                name="oracle-pro-home-ssh",
+                api_base="ssh://medical-mechanica/127.0.0.1:1234/v1",
+                model="gguf/zelda/qwen3-oracle-14b-v8-q4km.gguf",
+                description="SSH command proxy",
+                lean_prompt=True,
+            ),
+        }
+        responses: list[tuple[int, object, str | None]] = []
+
+        with patch(
+            "app.serve.smoke_current_route",
+            new=AsyncMock(return_value={
+                "ok": True,
+                "matched": True,
+                "backend": "llamacpp",
+                "node": "oracle-pro-home-ssh",
+                "api_base": "ssh://medical-mechanica/127.0.0.1:1234/v1",
+                "model": "gguf/zelda/qwen3-oracle-14b-v8-q4km.gguf",
+                "duration_ms": 42,
+                "text": "z3cli smoke ok",
+            }),
+        ), patch(
+            "app.serve._respond",
+            side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
+        ), patch(
+            "app.serve._notify",
+        ):
+            await handle_command(state, 224, {"cmd": "/route", "args": ["smoke", "oracle-pro-ssh"]})
+
+        self.assertEqual(state.backend_name, "llamacpp")
+        self.assertEqual(state.llamacpp_node, "oracle-pro-home-ssh")
+        self.assertEqual(responses[-1][2], None)
+        payload = responses[-1][1]
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["applied"]["route"], "oracle-pro-ssh")
+
+    async def test_route_probe_rpc_returns_proto_json_probe_response(self) -> None:
+        state = ServeState()
+        state.models = {
+            "oracle-pro": ModelConfig(name="oracle-pro", model_id="oracle-pro", role="pro"),
+        }
+        state.active_model = "oracle-pro"
+        state.llamacpp_nodes = {
+            "oracle-pro-home-ssh": LlamaCppNodeConfig(
+                name="oracle-pro-home-ssh",
+                api_base="ssh://medical-mechanica/127.0.0.1:1234/v1",
+                model="gguf/zelda/qwen3-oracle-14b-v8-q4km.gguf",
+                description="SSH command proxy",
+                lean_prompt=True,
+            ),
+        }
+        responses: list[tuple[int, object, str | None]] = []
+
+        with patch(
+            "app.serve.smoke_current_route",
+            new=AsyncMock(return_value={
+                "ok": True,
+                "matched": True,
+                "duration_ms": 42,
+                "text": "z3cli smoke ok",
+                "error": "",
+            }),
+        ), patch(
+            "app.serve._respond",
+            side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
+        ), patch(
+            "app.serve._notify",
+        ):
+            handled = await handle_route_rpc(state, 231, "route/probe", {"route": "oracle-pro-ssh", "timeoutMs": 1000})
+
+        self.assertTrue(handled)
+        self.assertEqual(responses[-1][2], None)
+        payload = responses[-1][1]
+        self.assertEqual(payload, {
+            "route": "oracle-pro-ssh",
+            "ok": True,
+            "matched": True,
+            "text": "z3cli smoke ok",
+            "durationMs": 42,
+            "error": "",
+        })
+        if state.ready_refresh_task is not None:
+            state.ready_refresh_task.cancel()
+            await asyncio.gather(state.ready_refresh_task, return_exceptions=True)
+
     async def test_oracle_tips_command_returns_cheat_sheet(self) -> None:
         state = ServeState()
         responses: list[tuple[int, object, str | None]] = []
 
         with patch(
-            "z3cli.app.serve._respond",
+            "app.serve._respond",
             side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
         ):
             await handle_command(state, 219, {"cmd": "/oracle-tips", "args": []})
@@ -1069,8 +1576,8 @@ role = "planner"
             )
 
             responses: list[tuple[int, object, str | None]] = []
-            with patch("z3cli.app.serve.find_session", return_value={"name": "saved", "path": str(saved_path)}), patch(
-                "z3cli.app.serve.load_session_bundle_without_thinking",
+            with patch("app.serve.find_session", return_value={"name": "saved", "path": str(saved_path)}), patch(
+                "app.serve.load_session_bundle_without_thinking",
                 return_value=SimpleNamespace(
                     meta={"active_model": "oracle"},
                     model_messages={},
@@ -1078,8 +1585,8 @@ role = "planner"
                     message_count=0,
                     subagents=[],
                 ),
-            ) as stripped_loader, patch("z3cli.app.serve.refresh_tool_bridge", new=AsyncMock()), patch(
-                "z3cli.app.serve._respond",
+            ) as stripped_loader, patch("app.serve.refresh_tool_bridge", new=AsyncMock()), patch(
+                "app.serve._respond",
                 side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
             ):
                 await handle_command(state, 216, {"cmd": "/resume", "args": ["saved", "--strip-thinking"]})
@@ -1093,10 +1600,10 @@ role = "planner"
         responses: list[tuple[int, object, str | None]] = []
 
         with patch(
-            "z3cli.app.serve.list_sessions",
+            "app.serve.list_sessions",
             return_value=[{"name": "saved", "active_model": "oracle", "mode": "manual", "messages": 4}],
         ), patch(
-            "z3cli.app.serve._respond",
+            "app.serve._respond",
             side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
         ):
             await handle_command(state, 217, {"cmd": "/resume", "args": []})
@@ -1154,10 +1661,10 @@ role = "planner"
             state.get_engine = lambda _name: TraceToolEngine()  # type: ignore[method-assign]
 
             responses: list[tuple[int, object, str | None]] = []
-            with patch("z3cli.app.serve._respond", side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error))), patch(
-                "z3cli.app.serve._notify",
+            with patch("app.serve._respond", side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error))), patch(
+                "app.serve._notify",
                 side_effect=lambda method, params=None: None,
-            ), patch("z3cli.app.serve.resolve_request_model_name", return_value="oracle"):
+            ), patch("app.serve.resolve_request_model_name", return_value="oracle"):
                 await handle_chat(state, 204, {"message": "hello", "model": "oracle-main"}, request_id="req-204")
 
             self.assertEqual(state.model_alias_resolutions, 1)
@@ -1187,8 +1694,8 @@ role = "context specialist"
                 encoding="utf-8",
             )
 
-            with patch("z3cli.app.serve.ensure_server"), patch(
-                "z3cli.core.session.DEFAULT_SESSION_DIR",
+            with patch("app.serve.ensure_server"), patch(
+                "core.session.DEFAULT_SESSION_DIR",
                 root / "sessions",
             ):
                 state = await init_state([
@@ -1206,7 +1713,7 @@ role = "context specialist"
         state = ServeState()
 
         with patch(
-            "z3cli.app.serve._notify",
+            "app.serve._notify",
             side_effect=lambda method, params=None: notifications.append((method, params)),
         ):
             await _forward_subagent_event(state, SubagentStartEvent(
@@ -1250,7 +1757,7 @@ role = "context specialist"
         state = ServeState()
         state.workspace = Path.cwd()
 
-        with patch("z3cli.app.serve._notify"):
+        with patch("app.serve._notify"):
             pending = asyncio.create_task(
                 state._tool_permission_hook(
                     "edit_file",
@@ -1286,7 +1793,7 @@ role = "context specialist"
             def capture(method: str, params: dict | None = None) -> None:
                 notifications.append((method, params))
 
-            with patch("z3cli.app.serve._notify", side_effect=capture):
+            with patch("app.serve._notify", side_effect=capture):
                 pending = asyncio.create_task(
                     state._tool_permission_hook(
                         "edit_file",
@@ -1355,7 +1862,7 @@ role = "context specialist"
             sub = SubagentContext(id="sub-3-nayru", name="nayru", model_name="nayru-1", depth=0)
             token = _current_subagent.set(sub)
             try:
-                with patch("z3cli.app.serve._notify", side_effect=capture):
+                with patch("app.serve._notify", side_effect=capture):
                     pending = asyncio.create_task(
                         state._tool_permission_hook(
                             "read_file",
@@ -1407,10 +1914,10 @@ role = "context specialist"
             notifications: list[tuple[str, dict | None]] = []
             responses: list[tuple[int, object, str | None]] = []
 
-            with patch("z3cli.app.serve._notify", side_effect=lambda method, params=None: notifications.append((method, params))), patch(
-                "z3cli.app.serve._respond",
+            with patch("app.serve._notify", side_effect=lambda method, params=None: notifications.append((method, params))), patch(
+                "app.serve._respond",
                 side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
-            ), patch("z3cli.app.serve.resolve_request_model_name", return_value="nayru"):
+            ), patch("app.serve.resolve_request_model_name", return_value="nayru"):
                 task = asyncio.create_task(handle_chat(state, 7, {"message": "hello"}))
                 await asyncio.wait_for(engine.started.wait(), timeout=1)
                 for _ in range(20):
@@ -1451,8 +1958,8 @@ role = "context specialist"
             state.get_engine = lambda _name: engine  # type: ignore[method-assign]
 
             notifications: list[tuple[str, dict | None]] = []
-            with patch("z3cli.app.serve._notify", side_effect=lambda method, params=None: notifications.append((method, params))), patch(
-                "z3cli.app.serve.resolve_request_model_name",
+            with patch("app.serve._notify", side_effect=lambda method, params=None: notifications.append((method, params))), patch(
+                "app.serve.resolve_request_model_name",
                 return_value="nayru",
             ):
                 await handle_chat(state, 11, {"message": "patch it"})
@@ -1510,8 +2017,8 @@ role = "context specialist"
             engine = FakeEngine()
             state.get_engine = lambda _name: engine  # type: ignore[method-assign]
 
-            with patch("z3cli.app.serve.resolve_request_model_name", return_value="qwen3-oracle-8b"), patch(
-                "z3cli.app.serve._notify",
+            with patch("app.serve.resolve_request_model_name", return_value="qwen3-oracle-8b"), patch(
+                "app.serve._notify",
                 side_effect=lambda method, params=None: None,
             ):
                 await handle_chat(state, 15, {"message": "inspect this file"}, request_id="req-15")
@@ -1519,6 +2026,66 @@ role = "context specialist"
             self.assertIsNotNone(engine.chat_kwargs)
             assert engine.chat_kwargs is not None
             self.assertFalse(engine.chat_kwargs["use_tools"])
+            self.assertTrue(engine.chat_kwargs["allow_manual_tool_calls"])
+            state.session.close()
+
+    async def test_handle_chat_disables_manual_xml_execution_when_tools_are_off(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            session_dir = workspace / "sessions"
+            state = ServeState()
+            state.workspace = workspace
+            state.bridge = BlockingToolBridge()
+            state.tools_enabled = False
+            state.subagent_tools_enabled = False
+            state.models = {
+                "qwen3-oracle-8b": ModelConfig(
+                    name="qwen3-oracle-8b",
+                    model_id="gguf/zelda/qwen3-oracle-8b-v1-corrective2-q8_0.gguf",
+                    role="shared oracle qwen3 model",
+                    tools_enabled=True,
+                    deferred_tools=True,
+                    native_tools=False,
+                )
+            }
+            state.active_model = "qwen3-oracle-8b"
+            state.session = Session(session_dir)
+            state.session.start(
+                active_model=state.active_model,
+                backend=state.backend_name,
+                mode=state.mode,
+                workspace=str(state.workspace),
+                rom_path="",
+                tools_enabled=state.tools_enabled,
+                broadcast_models=state.broadcast_models,
+            )
+
+            class FakeEngine:
+                def __init__(self) -> None:
+                    self.bridge = None
+                    self.chat_kwargs: dict | None = None
+
+                def cancel(self) -> None:
+                    return None
+
+                async def chat(self, **kwargs):  # type: ignore[no-untyped-def]
+                    self.chat_kwargs = dict(kwargs)
+                    yield DoneEvent()
+
+            engine = FakeEngine()
+            state.get_engine = lambda _name: engine  # type: ignore[method-assign]
+
+            with patch("app.serve.resolve_request_model_name", return_value="qwen3-oracle-8b"), patch(
+                "app.serve._notify",
+                side_effect=lambda method, params=None: None,
+            ):
+                await handle_chat(state, 18, {"message": "inspect this file"}, request_id="req-18")
+
+            self.assertIsNotNone(engine.chat_kwargs)
+            assert engine.chat_kwargs is not None
+            self.assertFalse(engine.chat_kwargs["use_tools"])
+            self.assertFalse(engine.chat_kwargs["allow_manual_tool_calls"])
+            self.assertNotIn("manual XML tool calls", engine.chat_kwargs["system"])
             state.session.close()
 
     async def test_handle_chat_exposes_oracle_coder_to_oracle_fast_and_injects_quality_prompt(self) -> None:
@@ -1572,8 +2139,8 @@ role = "context specialist"
             engine = FakeEngine()
             state.get_engine = lambda _name: engine  # type: ignore[method-assign]
 
-            with patch("z3cli.app.serve.resolve_request_model_name", return_value="oracle-fast"), patch(
-                "z3cli.app.serve._notify",
+            with patch("app.serve.resolve_request_model_name", return_value="oracle-fast"), patch(
+                "app.serve._notify",
                 side_effect=lambda method, params=None: None,
             ):
                 await handle_chat(state, 16, {"message": "repair this asm hook"}, request_id="req-16")
@@ -1613,8 +2180,8 @@ role = "context specialist"
             state.get_engine = lambda _name: engine  # type: ignore[method-assign]
 
             notifications: list[tuple[str, dict | None]] = []
-            with patch("z3cli.app.serve._notify", side_effect=lambda method, params=None: notifications.append((method, params))), patch(
-                "z3cli.app.serve.resolve_request_model_name",
+            with patch("app.serve._notify", side_effect=lambda method, params=None: notifications.append((method, params))), patch(
+                "app.serve.resolve_request_model_name",
                 return_value="farore",
             ):
                 await handle_chat(state, 17, {"message": "inspect room 0x45"}, request_id="req-17")
@@ -1724,24 +2291,24 @@ role = "context specialist"
                 ]
 
             with patch(
-                "z3cli.app.serve.resolve_targets_with_reason",
+                "app.serve.resolve_targets_with_reason",
                 return_value=([small, large], []),
             ), patch(
-                "z3cli.app.serve.ensure_targets_available",
+                "app.serve.ensure_targets_available",
             ), patch(
-                "z3cli.app.serve.resolve_request_model_name",
+                "app.serve.resolve_request_model_name",
                 side_effect=lambda _state, target: target.model_id,
             ), patch(
-                "z3cli.app.serve.add_attachment_context_packs",
+                "app.serve.add_attachment_context_packs",
                 new=AsyncMock(side_effect=fake_add_context),
             ), patch(
-                "z3cli.app.serve.add_construct_context_packs",
+                "app.serve.add_construct_context_packs",
                 new=AsyncMock(side_effect=fake_add_construct_context),
             ), patch(
-                "z3cli.app.serve._resolve_focus_context",
+                "app.serve._resolve_focus_context",
                 new=AsyncMock(side_effect=lambda _state, name, query="": f"# Focus: main.asm\n\nfocus:{name}"),
             ), patch(
-                "z3cli.app.serve._notify",
+                "app.serve._notify",
                 side_effect=lambda method, params=None: None,
             ):
                 await handle_chat(
@@ -1801,9 +2368,9 @@ role = "context specialist"
 
             responses: list[tuple[int, object, str | None]] = []
             with patch(
-                "z3cli.app.serve._respond",
+                "app.serve._respond",
                 side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
-            ), patch("z3cli.app.serve.resolve_request_model_name", return_value="nayru"):
+            ), patch("app.serve.resolve_request_model_name", return_value="nayru"):
                 first = asyncio.create_task(
                     run_budgeted_chat_request(state, {"message": "first"}, request_id="req_31", req_id=31)
                 )
@@ -1848,8 +2415,8 @@ role = "context specialist"
             state.get_engine = lambda _name: engine  # type: ignore[method-assign]
 
             notifications: list[tuple[str, dict | None]] = []
-            with patch("z3cli.app.serve._notify", side_effect=lambda method, params=None: notifications.append((method, params))), patch(
-                "z3cli.app.serve.resolve_request_model_name",
+            with patch("app.serve._notify", side_effect=lambda method, params=None: notifications.append((method, params))), patch(
+                "app.serve.resolve_request_model_name",
                 return_value="nayru",
             ):
                 first = asyncio.create_task(
@@ -1909,8 +2476,8 @@ role = "context specialist"
             await asyncio.sleep(0)
             return "success", 12
 
-        with patch("z3cli.app.serve.run_chat_request", side_effect=fake_run_chat), patch(
-            "z3cli.app.serve._emit_request_telemetry",
+        with patch("app.serve.run_chat_request", side_effect=fake_run_chat), patch(
+            "app.serve._emit_request_telemetry",
         ) as emit_telemetry:
             await run_budgeted_chat_request(
                 state,
@@ -1979,10 +2546,10 @@ role = "context specialist"
 
             notifications: list[tuple[str, dict | None]] = []
             responses: list[tuple[int, object, str | None]] = []
-            with patch("z3cli.app.serve._notify", side_effect=lambda method, params=None: notifications.append((method, params))), patch(
-                "z3cli.app.serve._respond",
+            with patch("app.serve._notify", side_effect=lambda method, params=None: notifications.append((method, params))), patch(
+                "app.serve._respond",
                 side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
-            ), patch("z3cli.app.serve.resolve_request_model_name", return_value="nayru"):
+            ), patch("app.serve.resolve_request_model_name", return_value="nayru"):
                 await handle_chat(state, 41, {"message": "trace this"}, request_id="req-41")
 
             tool_call = next(params for method, params in notifications if method == "tool_call")
@@ -2080,8 +2647,8 @@ role = "context specialist"
 
             notifications: list[tuple[str, dict | None]] = []
             responses: list[tuple[int, object, str | None]] = []
-            with patch("z3cli.app.serve._notify", side_effect=lambda method, params=None: notifications.append((method, params))), patch(
-                "z3cli.app.serve._respond",
+            with patch("app.serve._notify", side_effect=lambda method, params=None: notifications.append((method, params))), patch(
+                "app.serve._respond",
                 side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
             ):
                 hook_task = asyncio.create_task(
@@ -2142,8 +2709,8 @@ role = "context specialist"
             notifications: list[tuple[str, dict | None]] = []
             responses: list[tuple[int, object, str | None]] = []
 
-            with patch("z3cli.app.serve._notify", side_effect=lambda method, params=None: notifications.append((method, params))), patch(
-                "z3cli.app.serve._respond",
+            with patch("app.serve._notify", side_effect=lambda method, params=None: notifications.append((method, params))), patch(
+                "app.serve._respond",
                 side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
             ):
                 hook_task = asyncio.create_task(
@@ -2185,8 +2752,8 @@ role = "context specialist"
             )
 
             responses: list[tuple[int, object, str | None]] = []
-            with patch("z3cli.app.serve.export_training", return_value=1) as export_mock, patch(
-                "z3cli.app.serve._respond",
+            with patch("app.serve.export_training", return_value=1) as export_mock, patch(
+                "app.serve._respond",
                 side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
             ):
                 await handle_command(state, 19, {
@@ -2238,7 +2805,7 @@ role = "context specialist"
             responses: list[tuple[int, object, str | None]] = []
 
             with patch(
-                "z3cli.app.serve._respond",
+                "app.serve._respond",
                 side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
             ):
                 await handle_command(state, 21, {
@@ -2294,10 +2861,10 @@ role = "context specialist"
             responses: list[tuple[int, object, str | None]] = []
             resolve_focus = AsyncMock(return_value="# Focus: main.asm\n\nfocus:nayru")
             with patch(
-                "z3cli.app.serve._resolve_focus_context",
+                "app.serve._resolve_focus_context",
                 new=resolve_focus,
             ), patch(
-                "z3cli.app.serve._respond",
+                "app.serve._respond",
                 side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
             ):
                 await handle_command(state, 22, {
@@ -2321,13 +2888,15 @@ role = "context specialist"
         responses: list[tuple[int, object, str | None]] = []
         notifications: list[tuple[str, dict | None]] = []
         with patch(
-            "z3cli.app.serve._respond",
+            "app.serve._respond",
             side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
         ), patch(
-            "z3cli.app.serve._notify",
+            "app.serve._notify",
             side_effect=lambda method, params=None: notifications.append((method, params)),
         ):
             await handle_command(state, 31, {"cmd": "/lsp-context", "args": ["off"]})
+            if state.ready_refresh_task is not None:
+                await state.ready_refresh_task
 
         self.assertEqual(state.lsp_context_mode, "off")
         self.assertEqual(responses[-1][1]["mode"], "off")
@@ -2354,7 +2923,7 @@ role = "context specialist"
             target.write_text("lda #$02\n", encoding="utf-8")
 
             notifications: list[tuple[str, dict | None]] = []
-            with patch("z3cli.app.serve._notify", side_effect=lambda method, params=None: notifications.append((method, params))):
+            with patch("app.serve._notify", side_effect=lambda method, params=None: notifications.append((method, params))):
                 hook_task = asyncio.create_task(
                     state._post_tool_hook("edit_file", arguments, "tool wrote file", "afs", "call-2")
                 )
@@ -2399,8 +2968,8 @@ role = "context specialist"
             notifications: list[tuple[str, dict | None]] = []
             responses: list[tuple[int, object, str | None]] = []
 
-            with patch("z3cli.app.serve._notify", side_effect=lambda method, params=None: notifications.append((method, params))), patch(
-                "z3cli.app.serve._respond",
+            with patch("app.serve._notify", side_effect=lambda method, params=None: notifications.append((method, params))), patch(
+                "app.serve._respond",
                 side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
             ):
                 await handle_command(state, 17, {"cmd": "/compact", "args": []})
@@ -2448,17 +3017,17 @@ role = "context specialist"
             order.append("respond")
             responses.append((req_id, result, error))
 
-        with patch("z3cli.app.serve.init_state", side_effect=fake_init), patch(
-            "z3cli.app.serve.run_budgeted_chat_request",
+        with patch("app.serve.init_state", side_effect=fake_init), patch(
+            "app.serve.run_budgeted_chat_request",
             side_effect=fake_run_budgeted,
-        ), patch("z3cli.app.serve._notify"), patch(
-            "z3cli.app.serve._respond",
+        ), patch("app.serve._notify"), patch(
+            "app.serve._respond",
             side_effect=traced_respond,
-        ), patch("z3cli.app.serve.asyncio.StreamReader", return_value=reader), patch(
-            "z3cli.app.serve.asyncio.StreamReaderProtocol",
+        ), patch("app.serve.asyncio.StreamReader", return_value=reader), patch(
+            "app.serve.asyncio.StreamReaderProtocol",
             side_effect=lambda _reader: object(),
-        ), patch("z3cli.app.serve.asyncio.get_event_loop", return_value=loop), patch(
-            "z3cli.app.serve.asyncio.create_task",
+        ), patch("app.serve.asyncio.get_event_loop", return_value=loop), patch(
+            "app.serve.asyncio.create_task",
             side_effect=traced_create_task,
         ):
             await serve_main([])
@@ -2496,16 +3065,16 @@ role = "context specialist"
             while not running_state.is_request_cancelled(request_id):
                 await asyncio.sleep(0)
 
-        with patch("z3cli.app.serve.init_state", side_effect=fake_init), patch(
-            "z3cli.app.serve.run_budgeted_chat_request",
+        with patch("app.serve.init_state", side_effect=fake_init), patch(
+            "app.serve.run_budgeted_chat_request",
             side_effect=fake_run_budgeted,
-        ), patch("z3cli.app.serve._notify"), patch(
-            "z3cli.app.serve._respond",
+        ), patch("app.serve._notify"), patch(
+            "app.serve._respond",
             side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
-        ), patch("z3cli.app.serve.asyncio.StreamReader", return_value=reader), patch(
-            "z3cli.app.serve.asyncio.StreamReaderProtocol",
+        ), patch("app.serve.asyncio.StreamReader", return_value=reader), patch(
+            "app.serve.asyncio.StreamReaderProtocol",
             side_effect=lambda _reader: object(),
-        ), patch("z3cli.app.serve.asyncio.get_event_loop", return_value=loop), patch.object(
+        ), patch("app.serve.asyncio.get_event_loop", return_value=loop), patch.object(
             state,
             "mark_request_cancelled",
             wraps=state.mark_request_cancelled,
@@ -2549,15 +3118,15 @@ role = "context specialist"
             while not running_state.is_request_cancelled(request_id):
                 await asyncio.sleep(0)
 
-        with patch("z3cli.app.serve.init_state", side_effect=fake_init), patch(
-            "z3cli.app.serve.run_budgeted_chat_request",
+        with patch("app.serve.init_state", side_effect=fake_init), patch(
+            "app.serve.run_budgeted_chat_request",
             side_effect=fake_run_budgeted,
-        ), patch("z3cli.app.serve._notify"), patch(
-            "z3cli.app.serve._respond",
-        ), patch("z3cli.app.serve.asyncio.StreamReader", return_value=reader), patch(
-            "z3cli.app.serve.asyncio.StreamReaderProtocol",
+        ), patch("app.serve._notify"), patch(
+            "app.serve._respond",
+        ), patch("app.serve.asyncio.StreamReader", return_value=reader), patch(
+            "app.serve.asyncio.StreamReaderProtocol",
             side_effect=lambda _reader: object(),
-        ), patch("z3cli.app.serve.asyncio.get_event_loop", return_value=loop), patch.object(
+        ), patch("app.serve.asyncio.get_event_loop", return_value=loop), patch.object(
             state,
             "mark_request_cancelled",
             wraps=state.mark_request_cancelled,
@@ -2607,7 +3176,7 @@ role = "context specialist"
 
         responses: list[tuple[int, object, str | None]] = []
         with patch(
-            "z3cli.app.serve._respond",
+            "app.serve._respond",
             side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
         ):
             await handle_command(state, 23, {"cmd": "/stats", "args": []})

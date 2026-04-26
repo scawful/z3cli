@@ -12,6 +12,7 @@ import {
   isTranscriptMessageVisible,
   shouldShowContextPanel,
   shouldShowKeyboardLegend,
+  shouldShowKeyHintBar,
   CONTEXT_PANEL_COMPACT_COLUMNS,
   CONTEXT_PANEL_WIDE_COLUMNS,
   TRANSCRIPT_MIN_VIEWPORT_HEIGHT,
@@ -129,4 +130,13 @@ test("computeTranscriptViewportHeight accounts for backend error banner rows", (
   const normal = computeTranscriptViewportHeight(40, true, false);
   const withBanner = computeTranscriptViewportHeight(40, true, true);
   assert.equal(withBanner, normal - BACKEND_ERROR_BANNER_RESERVED_ROWS);
+});
+
+test("shouldShowKeyHintBar requires rows, width, and no open modal", () => {
+  const ok = { rows: 30, width: 120, modalOpen: false };
+  assert.equal(shouldShowKeyHintBar(ok), true);
+
+  assert.equal(shouldShowKeyHintBar({ ...ok, rows: 20 }), false);
+  assert.equal(shouldShowKeyHintBar({ ...ok, width: 79 }), false);
+  assert.equal(shouldShowKeyHintBar({ ...ok, modalOpen: true }), false);
 });

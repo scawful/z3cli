@@ -4,7 +4,7 @@ from typing import AsyncGenerator, Any, cast
 
 import httpx
 
-from z3cli.core.engine import (
+from core.engine import (
     ChatEngine,
     DoneEvent,
     ErrorEvent,
@@ -14,15 +14,15 @@ from z3cli.core.engine import (
     _extract_xml_tool_calls,
     summarize_tool_result_for_history,
 )
-from z3cli.app.runtime import (
+from app.runtime import (
     build_local_identity_prompt,
     build_oracle_answer_after_grounding_prompt,
     build_oracle_natural_chat_prompt,
     build_tool_bias_prompt,
     build_tool_use_prompt,
 )
-from z3cli.core.config import ModelConfig
-from z3cli.core.provider import CompletionChunk, CompletionRequest, ContentDelta, ProviderError, ToolCallDelta, UsageInfo
+from core.config import ModelConfig
+from core.provider import CompletionChunk, CompletionRequest, ContentDelta, ProviderError, ToolCallDelta, UsageInfo
 
 
 class MockProvider:
@@ -282,6 +282,32 @@ class ToolThenAnswerProvider:
             return
         yield CompletionChunk(content=ContentDelta(text="grounded answer"))
         yield CompletionChunk(usage=UsageInfo(prompt_tokens=2, completion_tokens=1))
+
+    async def check_connection(self) -> bool:
+        return True
+
+    async def close(self) -> None:
+        pass
+
+
+class ManualXmlToolProvider:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    @property
+    def name(self) -> str:
+        return "local"
+
+    async def stream(
+        self,
+        request: CompletionRequest,
+    ) -> AsyncGenerator[CompletionChunk, None]:
+        self.calls += 1
+        if self.calls == 1:
+            self.first_request = request
+            yield CompletionChunk(content=ContentDelta(text='<tool_call>{"name":"echo","arguments":{"text":"hi"}}</tool_call>'))
+            return
+        yield CompletionChunk(content=ContentDelta(text="after xml tool"))
 
     async def check_connection(self) -> bool:
         return True
@@ -672,6 +698,51 @@ class Qwen3ParsingTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Answer from the grounded evidence now.", provider.requests[1].system)
         self.assertTrue(any(isinstance(event, TextEvent) and event.text == "grounded answer" for event in events))
         self.assertTrue(any(isinstance(event, DoneEvent) for event in events))
+
+    async def test_manual_xml_tool_calls_need_explicit_execution_gate(self) -> None:
+        provider = ManualXmlToolProvider()
+        engine = ChatEngine(provider=provider, bridge=EchoBridge())
+
+        events = [
+            event async for event in engine.chat(
+                "run a manual tool",
+                "qwen3",
+                use_tools=False,
+                allow_manual_tool_calls=False,
+            )
+        ]
+
+        self.assertEqual(provider.calls, 1)
+        self.assertIsNone(provider.first_request.tools)
+        self.assertFalse(any(isinstance(event, ToolResultEvent) for event in events))
+        self.assertTrue(any(
+            isinstance(event, TextEvent) and "<tool_call>" in event.text
+            for event in events
+        ))
+
+    async def test_manual_xml_tool_calls_can_execute_without_native_schemas(self) -> None:
+        provider = ManualXmlToolProvider()
+        engine = ChatEngine(provider=provider, bridge=EchoBridge())
+
+        events = [
+            event async for event in engine.chat(
+                "run a manual tool",
+                "qwen3",
+                use_tools=False,
+                allow_manual_tool_calls=True,
+            )
+        ]
+
+        self.assertEqual(provider.calls, 2)
+        self.assertIsNone(provider.first_request.tools)
+        self.assertTrue(any(
+            isinstance(event, ToolResultEvent) and event.result == "tool-output"
+            for event in events
+        ))
+        self.assertTrue(any(
+            isinstance(event, TextEvent) and event.text == "after xml tool"
+            for event in events
+        ))
 
     async def test_retry_burst_429_counts_error_after_retry_budget_exhausted(self) -> None:
         provider = Burst429Provider()

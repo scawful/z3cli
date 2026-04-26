@@ -24,6 +24,9 @@ export const CONTEXT_PANEL_WIDE_COLUMNS = 36;
 /** Terminal rows at which the keyboard-legend footer starts to render. */
 export const KEYBOARD_LEGEND_MIN_ROWS = 22;
 
+/** Terminal columns below which the keyboard-legend footer is hidden. */
+export const KEYBOARD_LEGEND_MIN_COLS = 80;
+
 export function computeTranscriptViewportHeight(
   terminalRows: number,
   showKeyboardLegend: boolean = true,
@@ -132,4 +135,21 @@ export function shouldShowContextPanel(width: number, settingsOpen: boolean): bo
 
 export function shouldShowKeyboardLegend(rows: number): boolean {
   return rows >= KEYBOARD_LEGEND_MIN_ROWS;
+}
+
+export interface KeyHintBarVisibilityState {
+  rows: number;
+  width: number;
+  modalOpen: boolean;
+}
+
+/**
+ * Single source of truth for whether the KeyHintBar renders. Used both to
+ * decide what to mount and to reserve the matching transcript row, so the
+ * two never disagree.
+ */
+export function shouldShowKeyHintBar(state: KeyHintBarVisibilityState): boolean {
+  return shouldShowKeyboardLegend(state.rows)
+    && state.width >= KEYBOARD_LEGEND_MIN_COLS
+    && !state.modalOpen;
 }

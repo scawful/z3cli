@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package z3cli;
+
+import "common.proto";
+import "google/protobuf/timestamp.proto";
+import "models.proto";
+
+// Cached runtime inventory for one serving endpoint or host.
+message InventorySnapshot {
+  string source = 1;
+  Endpoint endpoint = 2;
+  HealthState health = 3;
+  string detail = 4;
+  repeated Model available_models = 5;
+  repeated LoadedModel loaded_models = 6;
+  google.protobuf.Timestamp observed_at = 7;
+  int32 ttl_ms = 8;
+  uint64 generation = 9;
+}
+
+message InventoryQuery {
+  repeated string route_names = 1;
+  bool force_refresh = 2;
+}
+
+message InventoryQueryResponse {
+  repeated InventorySnapshot snapshots = 1;
+}
+
+message InventoryEvent {
+  InventorySnapshot snapshot = 1;
+  string reason = 2;
+}

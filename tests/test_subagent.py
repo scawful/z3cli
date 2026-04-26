@@ -11,15 +11,15 @@ import json
 import unittest
 from typing import AsyncGenerator
 
-from z3cli.core.config import ModelConfig
-from z3cli.core.provider import (
+from core.config import ModelConfig
+from core.provider import (
     CompletionChunk, CompletionRequest, ContentDelta, ToolCallDelta, UsageInfo,
 )
-from z3cli.core.subagent import (
+from core.subagent import (
     SubagentConfig, SubagentDoneEvent, SubagentResult, SubagentRunner,
     SubagentStartEvent, SubagentTextEvent, format_subagent_summary,
 )
-from z3cli.core.subagent_bridge import SPAWN_TOOL_NAME, SubagentBridge
+from core.subagent_bridge import SPAWN_TOOL_NAME, SubagentBridge
 
 
 # ---------------------------------------------------------------------------

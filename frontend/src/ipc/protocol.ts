@@ -2,7 +2,7 @@
  * Frontend IPC protocol facade.
  *
  * Transport-layer JSON-RPC request/notification types are generated from the
- * backend schema in `z3cli.app.ipc_schema`. This file keeps only app-local
+ * backend schema in `app.ipc_schema`. This file keeps only app-local
  * view models and camelCase config/message shapes used by React state.
  */
 

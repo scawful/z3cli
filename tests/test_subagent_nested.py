@@ -11,9 +11,9 @@ import json
 import unittest
 from unittest.mock import patch
 
-from z3cli.core.subagent import SubagentConfig, SubagentRunner
-from z3cli.core.subagent_bridge import SPAWN_TOOL_NAME, SubagentBridge
-from z3cli.core.tool_bridge import CompositeBridge
+from core.subagent import SubagentConfig, SubagentRunner
+from core.subagent_bridge import SPAWN_TOOL_NAME, SubagentBridge
+from core.tool_bridge import CompositeBridge
 
 from tests.test_subagent import MockProvider, make_model, text_chunks
 
@@ -177,7 +177,7 @@ class NestedSubagentTests(unittest.IsolatedAsyncioTestCase):
         root = CompositeBridge([SubagentBridge(runner=runner, models=models)])
         runner.set_bridge(root)
 
-        with patch("z3cli.core.subagent.ChatEngine", CapturingEngine):
+        with patch("core.subagent.ChatEngine", CapturingEngine):
             await runner.spawn(
                 SubagentConfig(name="worker", model=models["worker"], depth=1),
                 "go",
@@ -196,7 +196,7 @@ class NestedSubagentTests(unittest.IsolatedAsyncioTestCase):
             captured["depth"] = config.depth
             captured["parent_chain"] = list(config.parent_chain)
             captured["model_name"] = config.model.name
-            from z3cli.core.subagent import SubagentResult
+            from core.subagent import SubagentResult
 
             return SubagentResult(
                 id="sub-test",
@@ -240,7 +240,7 @@ class NestedSubagentTests(unittest.IsolatedAsyncioTestCase):
         ])
         runner.set_bridge(root)
 
-        with patch("z3cli.core.subagent.ChatEngine", CapturingEngine):
+        with patch("core.subagent.ChatEngine", CapturingEngine):
             await runner.spawn(
                 SubagentConfig(name="worker", model=models["worker"], depth=1),
                 "go",
@@ -255,7 +255,7 @@ class NestedSubagentTests(unittest.IsolatedAsyncioTestCase):
             del prompt
             captured["model_name"] = config.model.name
             captured["system_context"] = str(kwargs.get("system_context", ""))
-            from z3cli.core.subagent import SubagentResult
+            from core.subagent import SubagentResult
 
             return SubagentResult(
                 id="sub-test",

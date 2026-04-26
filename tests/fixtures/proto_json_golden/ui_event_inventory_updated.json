@@ -1,0 +1,63 @@
+{
+  "kind": "UI_EVENT_KIND_INVENTORY_UPDATED",
+  "requestId": "req-2",
+  "routeName": "oracle-pro-5090",
+  "message": "Inventory updated",
+  "health": "HEALTH_STATE_HEALTHY",
+  "observedAt": "2026-01-01T00:00:00Z",
+  "inventory": {
+    "source": "oracle-pro-5090",
+    "endpoint": {
+      "uri": "http://127.0.0.1:2234/v1",
+      "hostAlias": "127.0.0.1",
+      "nodeName": "oracle-pro-home",
+      "backend": "SERVING_BACKEND_STUDIO"
+    },
+    "health": "HEALTH_STATE_HEALTHY",
+    "detail": "port=1234",
+    "availableModels": [
+      {
+        "ref": {
+          "name": "oracle-pro",
+          "modelId": "qwen3-oracle-14b-v8-q4km",
+          "provider": "studio"
+        },
+        "displayName": "Oracle Pro",
+        "role": "pro",
+        "aliases": [],
+        "tags": [],
+        "local": true,
+        "hidden": false,
+        "selectable": true,
+        "toolsEnabled": true,
+        "contextTokens": 0,
+        "maxTokens": 2048
+      }
+    ],
+    "loadedModels": [
+      {
+        "ref": {
+          "name": "oracle-pro",
+          "modelId": "qwen3-oracle-14b-v8-q4km",
+          "provider": "studio"
+        },
+        "runtimeId": "oracle-pro",
+        "displayName": "Oracle Pro",
+        "backend": "SERVING_BACKEND_STUDIO",
+        "health": "HEALTH_STATE_HEALTHY",
+        "sizeBytes": 14,
+        "architecture": "",
+        "quantization": "",
+        "contextLength": 0,
+        "maxContextLength": 0,
+        "parallel": 0,
+        "queued": 0,
+        "estimatedGpuBytes": 0,
+        "estimatedTotalBytes": 0
+      }
+    ],
+    "observedAt": "2026-01-01T00:00:00Z",
+    "ttlMs": 5000,
+    "generation": 7
+  }
+}

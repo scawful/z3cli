@@ -1,6 +1,6 @@
 # Oracle Adapter Plan
 
-Status: proposed; not implemented
+Status: implemented
 Owner: scawful
 Date: 2026-04-20
 
@@ -33,26 +33,22 @@ z3cli already has the substrate. No new bridge needed.
 | `workspace`| files  | `workspace_read` |
 | `reference`| MCP    | `consult_reference`, `find_usages`, `memory.search` |
 
-Existing per-specialist adapters all sit in `z3cli/core/tool_adapters/` and use
+Existing per-specialist adapters all sit in `src/core/tool_adapters/` and use
 `_call_on(capability, tool, args)` against this substrate.
 
-## What's Missing
+## Current State
 
-There is no entry for `oracle` (or `oracle-fast`) in `ADAPTER_REGISTRY`
-(`z3cli/core/tool_adapters/__init__.py:30`). The canonical Oracle models
-currently use the full unfiltered surface (the `"*"` catch-all), which exposes
-50+ tools — too noisy for an 8B/14B local model.
+`oracle`, `oracle-fast`, and `oracle-pro` are registered in
+`ADAPTER_REGISTRY` and use `OracleAdapter` instead of the full unfiltered MCP
+surface. The adapter exposes a compact read-only surface, while the full
+profile remains available to models explicitly configured for it.
 
-Result: the model sees a wide surface, never settles on the right primitive,
-and answers from weights alone — exactly the r3 failure pattern.
+Runtime Oracle prefetch also preserves failed grounding results. If a register,
+symbol, disassembly, or workspace lookup is unavailable, the prompt now carries
+that failure forward instead of silently dropping it and encouraging an answer
+from weights alone.
 
-## The Smallest Delta
-
-Add one new adapter that exposes ~6 compact tools, all read-only, mapped to
-existing primitives. Mirror the Nayru pattern (`tool_adapters/nayru.py`) since
-Nayru is the closest existing role — explanation + reference, no writes.
-
-### Proposed tool surface
+## Implemented Tool Surface
 
 | Adapter tool | Underlying primitive(s) | Targets failure ID(s) |
 |--------------|-------------------------|------------------------|
@@ -61,42 +57,40 @@ Nayru is the closest existing role — explanation + reference, no writes.
 | `rom_read(address, length)` | `("emulator", "mesen_memory_read", {"address": a, "length": n})` | `darkroom_capture_first` |
 | `disasm_at(address, count)` | `("emulator", "mesen_disasm", {"address": a, "count": n})` | `applygraphicssheet_dma`, `torch_loop_width` |
 | `cpu_state()` | `("emulator", "mesen_cpu", {})` + `("emulator", "mesen_gamestate", {})` | `darkroom_capture_first`, `jumptablelocal_guard` |
-| `register_doc(name_or_addr)` | static lookup against a small SNES register table | `mdmaen_vs_hdmaen`, `applygraphicssheet_dma`, `stz_long_address` |
+| `register_doc(name_or_addr)` | static lookup against a compact SNES register table | `mdmaen_vs_hdmaen`, `applygraphicssheet_dma`, `stz_long_address` |
+| `workspace_read(path, max_lines)` | `("workspace", "workspace_read", {"path": p, "max_lines": n})` | source/layout questions, code-content grounding |
 
 `register_doc` is the only one whose data does not live behind an existing
-bridge. It needs a single static table mapping common SNES MMIO addresses
-(`$2100`-`$21FF`, `$4200`-`$43FF`) to short prose. Source the prose from the
-SNES Hardware doc that already powers `consult_docs(topic="snes_hardware")` —
-just split it into address-keyed entries shipped as a JSON file under
-`z3cli/core/tool_adapters/data/snes_registers.json`.
+bridge. It uses a static table mapping common SNES MMIO addresses
+(`$2100`-`$21FF`, `$4200`-`$43FF`) to short prose, shipped under
+`src/core/tool_adapters/data/snes_registers.json`.
 
 ### Wiring
 
-1. New file: `z3cli/core/tool_adapters/oracle.py` (~180 lines, modeled on
-   `nayru.py`).
-2. New data file: `z3cli/core/tool_adapters/data/snes_registers.json`
-   (one-time extract; ~200 entries).
-3. Register in `tool_adapters/__init__.py:30`:
+1. `src/core/tool_adapters/oracle.py` defines the read-only adapter.
+2. `src/core/tool_adapters/data/snes_registers.json` ships the static
+   register table.
+3. `tool_adapters/__init__.py` registers:
    ```python
    "oracle": OracleAdapter,
    "oracle-fast": OracleAdapter,
+   "oracle-pro": OracleAdapter,
    ```
-4. `runtime.py:718` already iterates `ADAPTER_REGISTRY.items()` — once the
-   registry entry exists, the adapter binds automatically for matching profiles.
-5. `WRITE_TOOLS = frozenset()` — every tool here is read-only, so the
-   ReadOnlyBridge wrapper is unnecessary. The `register_doc` static lookup
-   doesn't even hit a bridge.
+4. `runtime.py` binds adapter profiles automatically for matching models.
+5. `WRITE_TOOLS = frozenset()` keeps this adapter read-only.
 
 ### Subagent path
 
-Nested subagent delegation already exists (`core/subagent.py`,
-`expose_subagent_bridge_to_children=True`). When a SOTA cloud planner
-delegates to the local oracle profile, the subagent will inherit the new
-OracleAdapter automatically — same wiring as the other specialists.
+Nested subagent delegation exists in both serve and REPL paths. Oracle-family
+parents can expose `spawn_subagent` to delegate focused coding work to
+`oracle-coder`, heavier Oracle-Pro authoring to `oracle-coder-pro`, and
+long-context model/catalog/training analysis to `oracle-reasoner-27b`; child
+agents inherit the same model-aware bridge wrapping and Oracle adapter behavior
+as top-level local-model runs.
 
 ## Validation Plan
 
-Before promoting:
+Before relying on a new model/checkpoint:
 
 1. Dry-run each tool against a real Mesen socket and a checked-out
    `oracle-of-secrets` workspace. Confirm `label_lookup("$0088EC")` returns

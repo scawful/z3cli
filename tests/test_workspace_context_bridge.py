@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from z3cli.protocol.workspace_context_bridge import WorkspaceContextBridge
+from protocol.workspace_context_bridge import WorkspaceContextBridge
 
 
 class WorkspaceContextBridgeTests(unittest.IsolatedAsyncioTestCase):

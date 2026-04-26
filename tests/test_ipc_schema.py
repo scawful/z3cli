@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 
-from z3cli.app.ipc_schema import (
+from app.ipc_schema import (
     done_params,
     generate_typescript_protocol,
     make_notification,

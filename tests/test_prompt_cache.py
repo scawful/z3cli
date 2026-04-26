@@ -6,8 +6,8 @@ import json
 import unittest
 from typing import AsyncGenerator
 
-from z3cli.core.engine import ChatEngine, DoneEvent
-from z3cli.core.provider import (
+from core.engine import ChatEngine, DoneEvent
+from core.provider import (
     AnthropicProvider, CompletionChunk, CompletionRequest, ContentDelta,
     UsageInfo,
 )

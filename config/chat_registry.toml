@@ -49,19 +49,19 @@ Do not invent file contents, addresses, symbol names, or tool output.
 If code is requested, provide it directly. Keep explanations precise, patient, and evidence-grounded."""
 
 [[models]]
-name = "farore"
+name = "navi"
 provider = "studio"
 model_id = "gguf/zelda/farore-9b-q8_0.gguf"
-role = "autocomplete, FIM, quick inference"
-description = "9B Qwen3.5 debug/FIM · q8_0"
+role = "FIM, autocomplete, quick debug triage, and z3cli workflow repair"
+description = "9B Qwen3.5 Navi autocomplete/debug helper · q8_0"
 tags = ["oracle", "local", "provisional", "qwen35"]
 tool_profile = "farore"
-aliases = ["farore-q8"]
+aliases = ["navi-q8", "farore", "farore-q8"]
 hide_if_unavailable = true
 options = { temperature = 0.3 }
-system_prompt = """You are Farore, the Oracle of Secrets and embodiment of Courage.
+system_prompt = """You are Navi, z3cli's local autocomplete and quick-debug helper.
 
-You specialize in 65816 assembly debugging and autocomplete.
+You specialize in 65816 assembly autocomplete, FIM completions, and fast debugging triage.
 Before diagnosing a bug against workspace, ROM, or emulator state, call tools to verify.
 Do not invent register values, addresses, or tool output.
 
@@ -69,84 +69,19 @@ For autocomplete, provide just the code.
 For debugging, explain the symptom, trigger, and fix."""
 
 [[models]]
-name = "farore-q4km"
+name = "navi-q4km"
 provider = "studio"
 model_id = "gguf/zelda/farore-9b-q4km.gguf"
-role = "lighter farore quant for autocomplete, FIM, and quick debug loops"
-description = "9B Qwen3.5 debug/FIM · q4km"
+role = "lighter Navi quant for FIM, autocomplete, quick debug triage, and workflow repair"
+description = "9B Qwen3.5 Navi autocomplete/debug helper · q4km"
 tags = ["oracle", "local", "provisional", "qwen35", "z3ui"]
 tool_profile = "farore"
+aliases = ["farore-q4km"]
 hide_if_unavailable = true
 options = { temperature = 0.3 }
-system_prompt = """You are Farore, the Oracle of Secrets and embodiment of Courage.
+system_prompt = """You are Navi, z3cli's lightweight autocomplete and quick-debug helper.
 
-Keep the same tool-first debug and autocomplete behavior as the main Farore model, but stay concise and evidence-grounded."""
-
-[[models]]
-name = "veran"
-provider = "studio"
-model_id = "gguf/zelda/veran-9b-q8_0.gguf"
-role = "complex analysis, large context"
-description = "9B Qwen3.5 deep analysis · q8_0"
-tags = ["oracle", "local", "provisional", "qwen35"]
-tool_profile = "veran"
-aliases = ["veran-q8"]
-rollout_block_reason = "No veran GGUF is currently installed in LM Studio. Import `gguf/zelda/veran-9b-*.gguf` and clear this field to re-enable."
-hide_if_unavailable = true
-options = { temperature = 0.3 }
-system_prompt = """You are Veran, the Sorceress of Shadows.
-
-Analyze deep context, complex logic chains, and edge cases in SNES hardware.
-Before analyzing workspace code, ROM bytes, or register state, call a tool to verify.
-Read, trace, then conclude. Never invent file contents, addresses, bit layouts, or tool output."""
-
-[[models]]
-name = "hylia"
-provider = "studio"
-model_id = "gguf/zelda/hylia-9b-q8_0.gguf"
-role = "mythos, cosmology, worldbuilding"
-description = "9B Qwen3.5 lore/history · q8_0"
-tags = ["oracle", "lore", "local", "provisional", "qwen35"]
-tool_profile = "hylia"
-aliases = ["hylia-q8"]
-hide_if_unavailable = true
-options = { temperature = 0.5 }
-system_prompt = """You are Hylia, the chronicler of Oracle of Secrets development history and lore.
-
-Timeline and feature claims should stay anchored in something the user can verify.
-When the user asks about code or SRAM-backed state, prefer calling tools over pure narrative.
-Do not invent features, dates, commit histories, or design decisions."""
-
-[[models]]
-name = "hylia-q4km"
-provider = "studio"
-model_id = "gguf/zelda/hylia-9b-q4km.gguf"
-role = "lighter hylia quant for lore, history, and design-rationale reads"
-description = "9B Qwen3.5 lore/history · q4km"
-tags = ["oracle", "lore", "local", "provisional", "qwen35", "z3ui"]
-tool_profile = "hylia"
-hide_if_unavailable = true
-options = { temperature = 0.5 }
-system_prompt = """You are Hylia, the chronicler of Oracle of Secrets development history and lore.
-
-Keep the same evidence-grounded lore behavior as the main Hylia model while staying concise."""
-
-[[models]]
-name = "majora"
-provider = "studio"
-model_id = "gguf/zelda/majora-9b-q4km.gguf"
-role = "architecture mapping, subsystem interactions, system-level bug triage"
-description = "9B Qwen3.5 architecture · q4km"
-tags = ["oracle", "architecture", "local", "provisional", "qwen35"]
-tool_profile = "majora"
-aliases = ["majora-q4km"]
-hide_if_unavailable = true
-options = { temperature = 0.4 }
-system_prompt = """You are Majora, the Oracle of Secrets architecture mapper.
-
-Before answering questions about the workspace, ROM, source code, symbols, or emulator state, call tools to verify.
-For codebase overviews, read real files before describing systems.
-Do not invent file contents, addresses, banks, hooks, or tool output."""
+Keep the same tool-first debug and autocomplete behavior as the main Navi model, but stay concise and evidence-grounded."""
 
 [[models]]
 name = "oracle"
@@ -178,14 +113,36 @@ Keep vanilla ALTTP and Oracle-specific conventions separate.
 When the task is primarily trace or debug work, gather evidence before proposing a fix."""
 
 [[models]]
+name = "oracle-qwen35-9b"
+provider = "studio"
+model_id = "gguf/zelda/oracle-qwen35-9b-v1-q4km.gguf"
+tool_profile = "oracle"
+lmstudio_load = { context_length = 12288, parallel = 1, gpu = "0.80", ttl = 900 }
+hide_if_unavailable = true
+role = "Daily 9B Oracle Qwen3.5 lane (Farore-trained debug/tool-use overlay)"
+description = "9B Oracle Qwen3.5 daily · q4km"
+tags = ["oracle", "tools", "asm", "local", "qwen35", "z3ui"]
+domain = "adaptive"
+mode = "adaptive"
+effort = "medium"
+thinking_tier = "medium"
+aliases = [
+  "oracle-qwen35-9b-v1",
+  "qwen35-oracle-9b",
+  "qwen35-oracle-9b-v1",
+]
+options = { temperature = 0.2, max_tokens = 1536 }
+system_prompt_path = "prompts/oracle_qwen35_9b.md"
+
+[[models]]
 name = "oracle-pro"
 provider = "studio"
-model_id = "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf"
+model_id = "gguf/zelda/qwen3-oracle-14b-v8-q4km.gguf"
 tool_profile = "oracle-pro"
 lmstudio_load = { context_length = 16384, parallel = 1, gpu = "0.80", ttl = 900 }
 hide_if_unavailable = true
-role = "gate-cleared 14B oracle-pro lane for grounded local Zelda work"
-description = "14B Oracle-Pro · q4km"
+role = "critical-safe 14B oracle-pro v8 lane for grounded local Zelda work"
+description = "14B Oracle-Pro v8 · q4km"
 tags = ["oracle", "tools", "asm", "local", "oracle-pro"]
 domain = "adaptive"
 mode = "adaptive"
@@ -193,12 +150,14 @@ effort = "high"
 thinking_tier = "medium"
 aliases = [
   "oracle-pro-q4km",
+  "oracle-main-14b-v8",
+  "qwen3-oracle-14b-v8",
   "oracle-main-14b-v7",
   "qwen3-oracle-14b-v7",
   "oracle-pro-14b",
 ]
 options = { temperature = 0.15, max_tokens = 1536 }
-system_prompt = """You are Oracle-Pro, the gate-cleared 14B Zelda ROM hacking specialist for 65816 ASM, Oracle of Secrets, vanilla ALTTP disassembly, and structured tool use.
+system_prompt = """You are Oracle-Pro, the critical-safe 14B Zelda ROM hacking specialist for 65816 ASM, Oracle of Secrets, vanilla ALTTP disassembly, and structured tool use.
 
 Prefer canonical tool surfaces when available.
 Do not invent symbols, addresses, or tool names.
@@ -278,6 +237,55 @@ system_prompt = """You are `oracle-coder`, the internal Oracle coding worker.
 Write or repair the code directly.
 Keep patches minimal, preserve width, ABI, and register discipline, and prefer concrete replacements over generic advice.
 When a brief already includes enough evidence, return the candidate patch cleanly and let the parent Oracle model handle final verification."""
+
+[[models]]
+name = "oracle-coder-pro"
+provider = "llamacpp"
+model_id = "oracle-coder-pro"
+api_base = "http://127.0.0.1:18081/v1"
+tool_profile = "oracle-pro"
+role = "30B-A3B Qwen3-Coder sidecar for higher-quality Oracle-Pro code authoring and patch synthesis"
+description = "Qwen3-Coder 30B-A3B · FP8 vLLM sidecar"
+tags = ["oracle", "tools", "asm", "local", "qwen3-coder", "heavy"]
+visibility = "hidden"
+spawn_only = true
+spawnable_by = ["oracle-pro", "oracle", "oracle-fast"]
+allow_auto_load = false
+hide_if_unavailable = true
+deferred_tools = true
+native_tools = false
+core_tools = ["workspace_read"]
+options = { temperature = 0.1, max_tokens = 2048 }
+system_prompt = """You are `oracle-coder-pro`, the high-capacity Oracle coding sidecar.
+
+Write or repair code directly when the parent Oracle model gives you enough evidence.
+Preserve 65816 width, ABI, flags, bank, and register discipline.
+Prefer minimal patches over broad rewrites, and call tools before relying on uncertain workspace, ROM, or symbol facts.
+Return the candidate patch and the key verification assumptions; the parent Oracle model owns final integration."""
+
+[[models]]
+name = "oracle-reasoner-27b"
+provider = "llamacpp"
+model_id = "oracle-reasoner-27b"
+api_base = "http://127.0.0.1:18082/v1"
+tool_profile = "oracle-pro"
+role = "27B Qwen3.6 reasoner sidecar for long-context model, dataset, architecture, and strategy review"
+description = "Qwen3.6 27B · FP8 vLLM reasoner"
+tags = ["oracle", "tools", "asm", "local", "qwen36", "heavy", "reasoner"]
+visibility = "hidden"
+spawn_only = true
+spawnable_by = ["oracle-pro", "oracle", "oracle-fast"]
+allow_auto_load = false
+hide_if_unavailable = true
+deferred_tools = true
+native_tools = false
+core_tools = ["workspace_read"]
+options = { temperature = 0.6, max_tokens = 4096 }
+system_prompt = """You are `oracle-reasoner-27b`, the long-context Oracle reasoning sidecar.
+
+Focus on repo-scale architecture, model catalog decisions, training data review, eval strategy, and high-uncertainty planning.
+Use tools before claiming current workspace or dataset facts.
+Do not author final patches unless explicitly asked; return crisp findings, tradeoffs, and recommended next actions for the parent Oracle model."""
 
 [[models]]
 name = "qwen3-local-8b"
@@ -418,6 +426,27 @@ model = "oracle-pro"
 description = "SSH-tunneled Vast oracle-pro endpoint for the remote 14B GGUF."
 lean_prompt = true
 
+[[llamacpp_nodes]]
+name = "oracle-pro-home-ssh"
+api_base = "ssh://medical-mechanica/127.0.0.1:1234/v1"
+model = "gguf/zelda/qwen3-oracle-14b-v8-q4km.gguf"
+description = "SSH command-proxy to medical-mechanica LM Studio; no local tunnel required."
+lean_prompt = true
+
+[[llamacpp_nodes]]
+name = "oracle-coder-pro-vllm"
+api_base = "http://127.0.0.1:18081/v1"
+model = "oracle-coder-pro"
+description = "vLLM Qwen3-Coder-30B-A3B FP8 endpoint for delegated Oracle-Pro code authoring."
+lean_prompt = true
+
+[[llamacpp_nodes]]
+name = "oracle-reasoner-27b-vllm"
+api_base = "http://127.0.0.1:18082/v1"
+model = "oracle-reasoner-27b"
+description = "vLLM Qwen3.6-27B FP8 endpoint for delegated Oracle reasoning and strategy review."
+lean_prompt = true
+
 [[studio_nodes]]
 name = "oracle-pro-home"
 api_base = "http://127.0.0.1:2234/v1"
@@ -449,4 +478,4 @@ model = "nayru"
 
 [[routers.rules]]
 keywords = ["autocomplete", "fim", "fill in", "snippet", "quick"]
-model = "farore"
+model = "navi"

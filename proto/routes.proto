@@ -1,0 +1,74 @@
+syntax = "proto3";
+
+package z3cli;
+
+import "common.proto";
+import "google/protobuf/timestamp.proto";
+import "models.proto";
+
+// A named inference route. Routes are the primary operator-facing concept.
+message Route {
+  string name = 1;
+  string display_name = 2;
+  ModelRef model = 3;
+  ServingBackend backend = 4;
+  Endpoint inference_endpoint = 5;
+  Endpoint control_endpoint = 6;
+  repeated string aliases = 7;
+  bool auto_load = 8;
+  bool preferred = 9;
+  HealthState health = 10;
+  string detail = 11;
+  uint64 generation = 12;
+  google.protobuf.Timestamp updated_at = 13;
+}
+
+message ListRoutesRequest {
+  bool include_hidden = 1;
+}
+
+message ListRoutesResponse {
+  string active_route = 1;
+  repeated Route routes = 2;
+}
+
+// Selects the desired route. Implementations must acknowledge this quickly and
+// perform slow health/load checks out of band.
+message SelectRouteRequest {
+  string route = 1;
+  string request_id = 2;
+  bool probe_after_select = 3;
+}
+
+message SelectRouteResponse {
+  bool accepted = 1;
+  string previous_route = 2;
+  Route route = 3;
+  string message = 4;
+}
+
+message RouteStatusRequest {
+  string route = 1;
+}
+
+message RouteStatus {
+  Route route = 1;
+  HealthState health = 2;
+  string detail = 3;
+  google.protobuf.Timestamp observed_at = 4;
+}
+
+message RouteProbeRequest {
+  string route = 1;
+  string prompt = 2;
+  int32 timeout_ms = 3;
+}
+
+message RouteProbeResponse {
+  string route = 1;
+  bool ok = 2;
+  bool matched = 3;
+  string text = 4;
+  int32 duration_ms = 5;
+  string error = 6;
+}

@@ -8,8 +8,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from z3cli.core.rom_project import RomProject
-from z3cli.protocol.asm_test_bridge import AsmTestBridge
+from core.rom_project import RomProject
+from protocol.asm_test_bridge import AsmTestBridge
 
 
 class _FakeZ3asmBridge:

@@ -32,8 +32,8 @@ This document maps the existing z3cli frontend to what an iOS (SwiftUI) client c
 
 ### Backend alignment
 
-- **`z3cli/app/serve.py`** — stdin/stdout NDJSON loop; same messages must pass through the bridge unchanged.
-- **`z3cli/core/session.py`** — Session files on the **host**; iOS triggers `/resume` etc. via `command`.
+- **`src/app/serve.py`** — stdin/stdout NDJSON loop; same messages must pass through the bridge unchanged.
+- **`src/core/session.py`** — Session files on the **host**; iOS triggers `/resume` etc. via `command`.
 
 ## Split rule for new shared work
 

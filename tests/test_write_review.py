@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from z3cli.app.write_review import (
+from app.write_review import (
     build_review_preview,
     detect_changes,
     prepare_write_context,

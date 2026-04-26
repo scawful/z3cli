@@ -2,8 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from z3cli.app.runtime import ensure_model_available, ensure_targets_available
-from z3cli.core.config import load_registry, rollout_warnings
+from app.runtime import ensure_model_available, ensure_targets_available
+from core.config import load_registry, rollout_warnings
 
 
 class RolloutGateTests(unittest.TestCase):

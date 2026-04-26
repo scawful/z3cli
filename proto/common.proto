@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package z3cli;
+
+// Runtime backend used for model inference.
+enum ServingBackend {
+  SERVING_BACKEND_UNSPECIFIED = 0;
+  SERVING_BACKEND_STUDIO = 1;
+  SERVING_BACKEND_LLAMACPP = 2;
+  SERVING_BACKEND_OPENAI = 3;
+  SERVING_BACKEND_SSH_OPENAI = 4;
+  SERVING_BACKEND_VLLM = 5;
+}
+
+// Coarse health state for routes, endpoints, and inventory snapshots.
+enum HealthState {
+  HEALTH_STATE_UNSPECIFIED = 0;
+  HEALTH_STATE_UNKNOWN = 1;
+  HEALTH_STATE_REFRESHING = 2;
+  HEALTH_STATE_HEALTHY = 3;
+  HEALTH_STATE_DEGRADED = 4;
+  HEALTH_STATE_UNAVAILABLE = 5;
+}
+
+// Endpoint metadata. Do not put API keys or secrets in this message.
+message Endpoint {
+  string uri = 1;
+  string host_alias = 2;
+  string node_name = 3;
+  ServingBackend backend = 4;
+}

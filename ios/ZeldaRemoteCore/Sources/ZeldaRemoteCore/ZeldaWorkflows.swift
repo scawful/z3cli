@@ -41,7 +41,7 @@ public enum ZeldaWorkflows {
         ),
     ]
 
-    /// Slash commands implemented by `handle_command` in `z3cli/app/serve.py`.
+    /// Slash commands implemented by `handle_command` in `src/app/serve.py`.
     public static let slashHints: [(label: String, cmd: String, args: [String])] = [
         ("Sessions", "/sessions", []),
         ("Status", "/status", []),

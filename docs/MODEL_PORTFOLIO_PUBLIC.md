@@ -1,7 +1,7 @@
 # Public Model Portfolio Notes
 
-z3cli exposes a **public routing contract** for model names while keeping
-deployments and checkpoints private.
+z3cli exposes an operator-facing routing contract for model names while keeping
+private deployment details out of the repo.
 
 This page is now more operator-facing than public-sanitized. It keeps the
 canonical Oracle model names, but it no longer tries to hide the concrete local
@@ -12,22 +12,24 @@ developer model variants that are useful in day-to-day z3cli work.
 - Canonical models:
   - `oracle-fast` — `8B corrective Oracle · q4km`
   - `oracle` — reserved mainline slot hidden until installed
-  - `oracle-pro` — `14B Oracle-Pro · q4km` current local pro lane
+  - `oracle-pro` — `14B Oracle-Pro v8 · q4km` current critical-safe local pro lane
 - Heavy model:
   - `oracle-mythic` — `27B switchhook Oracle · q4km` manual-only
 - Direct local developer variants:
+  - `oracle-qwen35-9b` — `9B Oracle Qwen3.5 daily · q4km` (Farore-trained debug/tool-use overlay)
   - `qwen3-oracle-8b` / `oracle-q8` — `8B corrective Oracle · q8_0`
   - `nayru` / `nayru-q8` — `9B Qwen3.5 explainer · q8_0`
-  - `farore` / `farore-q8` — `9B Qwen3.5 debug/FIM · q8_0`
-  - `farore-q4km` — `9B Qwen3.5 debug/FIM · q4km`
-  - `majora` / `majora-q4km` — `9B Qwen3.5 architecture · q4km`
-  - `hylia` / `hylia-q8` — `9B Qwen3.5 lore/history · q8_0`
-  - `hylia-q4km` — `9B Qwen3.5 lore/history · q4km`
+  - `navi` / `navi-q8` — `9B Qwen3.5 FIM/autocomplete + quick debug · q8_0`
+  - `navi-q4km` — `9B Qwen3.5 FIM/autocomplete + quick debug · q4km`
 - Internal callable worker:
   - `oracle-coder` — internal-only code authoring worker, not a normal picker target
-- Legacy compatibility aliases still resolve quietly, but the real working names are the ones above.
+  - `oracle-coder-pro` — hidden Qwen3-Coder 30B-A3B FP8 vLLM sidecar for Oracle-Pro patch synthesis
+  - `oracle-reasoner-27b` — hidden Qwen3.6 27B FP8 vLLM sidecar for model/catalog/training strategy review
+- Legacy compatibility aliases still resolve quietly. `farore`, `farore-q8`,
+  and `farore-q4km` now resolve to the Navi autocomplete/debug entries so the
+  Farore training-run label does not collide with FIM helper naming.
 
-## Public capabilities snapshot
+## Operator Capabilities Snapshot
 
 - Local-first interactive workflow with model switching, resumable sessions, and
   model-scoped context history.
@@ -46,16 +48,23 @@ developer model variants that are useful in day-to-day z3cli work.
 - Alias names and routing semantics can still stay stable while checkpoints
   evolve.
 
-## Public one-minute summary
+## Operator One-Minute Summary
 
 - `oracle-fast` is the real pinned local Oracle model today.
 - `oracle` is the reserved mainline slot and stays hidden until LM Studio can actually load it.
-- `oracle-pro` is the current local pro lane.
-- `oracle-mythic` is the explicit heavy-model opt-in and is not part of the simple primary picker.
-- The local Qwen3.5 specialist bench is intentionally visible in z3cli:
-  `nayru`, `farore`, `farore-q4km`, `majora`, `hylia`, and `hylia-q4km`.
-- `qwen3-oracle-8b` stays available as an alternate catalog entry, not part of the simple main Oracle surface.
-- `oracle-coder` stays internal and is meant to be invoked by `oracle`, not selected as a public-facing working model.
+- `oracle-pro` is the current critical-safe local pro lane.
+- `oracle-mythic` is the explicit heavy-model opt-in and should only be loaded when that path is intentional.
+- `oracle-qwen35-9b` is the daily 9B Oracle Qwen3.5 lane — promoted from candidate after the Farore-labeled training run landed cleanly. Plain `oracle` stays reserved for the eventual 14B mainline; do not collapse the two.
+- The local specialist bench is intentionally small in z3cli:
+  `din`, `nayru`, `navi`, and `navi-q4km`.
+- `veran`, `hylia`, and `majora` are retired from the active z3cli picker and
+  catalog. Their old adapter code may remain for legacy/custom registries, but
+  they are no longer part of the primary model family.
+- `qwen3-oracle-8b` stays available as an alternate direct model entry.
+- `oracle-coder` stays internal and is meant to be invoked by Oracle-family parents, not selected as a top-level working model.
+- `oracle-coder-pro` and `oracle-reasoner-27b` are also internal-only, but they
+  give Oracle-Pro heavier delegated authoring and long-context analysis lanes
+  when the matching vLLM endpoints are running.
 - Operationally, `medical-mechanica` WSL2 + RTX `5090` is the primary local
   Oracle/scawfulbot host, Mac is the control plane, and Vast is the fallback
   when the shared desktop cannot spare the GPU.

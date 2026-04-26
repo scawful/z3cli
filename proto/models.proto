@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+package z3cli;
+
+import "common.proto";
+
+// Stable reference to a configured model.
+message ModelRef {
+  string name = 1;
+  string model_id = 2;
+  string provider = 3;
+}
+
+// Configured model catalog entry.
+message Model {
+  ModelRef ref = 1;
+  string display_name = 2;
+  string role = 3;
+  repeated string aliases = 4;
+  repeated string tags = 5;
+  bool local = 6;
+  bool hidden = 7;
+  bool selectable = 8;
+  bool tools_enabled = 9;
+  int32 context_tokens = 10;
+  int32 max_tokens = 11;
+}
+
+// Runtime model entry reported by LM Studio, llama.cpp, vLLM, or a host daemon.
+message LoadedModel {
+  ModelRef ref = 1;
+  string runtime_id = 2;
+  string display_name = 3;
+  ServingBackend backend = 4;
+  HealthState health = 5;
+  uint64 size_bytes = 6;
+  string architecture = 7;
+  string quantization = 8;
+  int32 context_length = 9;
+  int32 max_context_length = 10;
+  int32 parallel = 11;
+  int32 queued = 12;
+  uint64 estimated_gpu_bytes = 13;
+  uint64 estimated_total_bytes = 14;
+}

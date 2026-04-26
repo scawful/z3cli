@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from rich.console import Console
 
-from z3cli.app.repl import (
+from app.repl import (
     AppState,
     _resolve_request_model_name,
     current_mode_help,
@@ -13,7 +13,7 @@ from z3cli.app.repl import (
     handle_command,
     render_model_table,
 )
-from z3cli.app.runtime import (
+from app.runtime import (
     DEFAULT_ACTIVE_MODEL,
     DEFAULT_ORACLE_MAIN_MODEL,
     choose_startup_model,
@@ -23,8 +23,8 @@ from z3cli.app.runtime import (
     resolve_model_name,
     resolve_targets,
 )
-from z3cli.app.shared_runtime import visible_model_infos
-from z3cli.core.config import ModelConfig, RouterConfig, RouterRule, list_visible_zelda_models, list_zelda_models
+from app.shared_runtime import visible_model_infos
+from core.config import ModelConfig, RouterConfig, RouterRule, list_visible_zelda_models, list_zelda_models
 
 
 def _model(
@@ -199,8 +199,8 @@ class ModeAndAliasTests(unittest.IsolatedAsyncioTestCase):
             system_prompt="Oracle continuity and Zelda workflow notes.",
         )
 
-        with patch("z3cli.app.shared_runtime.available_models", return_value=[]), patch(
-            "z3cli.app.shared_runtime.loaded_models",
+        with patch("app.shared_runtime.available_models", return_value=[]), patch(
+            "app.shared_runtime.loaded_models",
             return_value=[],
         ):
             names = [str(item["name"]) for item in visible_model_infos(state)]
@@ -217,9 +217,9 @@ class ModeAndAliasTests(unittest.IsolatedAsyncioTestCase):
         )
         state.models["oracle-coder-preview"].hide_if_unavailable = True
 
-        with patch("z3cli.app.shared_runtime.available_models", return_value=[
+        with patch("app.shared_runtime.available_models", return_value=[
             {"id": "oracle", "path": "oracle"},
-        ]), patch("z3cli.app.shared_runtime.loaded_models", return_value=[]):
+        ]), patch("app.shared_runtime.loaded_models", return_value=[]):
             names = [str(item["name"]) for item in visible_model_infos(state)]
 
         self.assertIn("oracle", names)
@@ -347,6 +347,25 @@ class ModeAndAliasTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual([item.name for item in target], ["oracle"])
+
+    def test_oracle_mode_routes_farore_adapter_tool_names_to_navi(self) -> None:
+        models = _state().models
+        models["navi"] = _model("navi", tool_profile="farore")
+
+        target = resolve_targets(
+            models=models,
+            routers={},
+            active_model="oracle",
+            mode="oracle",
+            prompt="inspect_room 0x45 and summarize the sprites",
+            broadcast_models=["navi", "din", "nayru"],
+            backend_name="studio",
+            llamacpp_model="oracle-fast",
+            temperature=0.2,
+            max_tokens=1024,
+        )
+
+        self.assertEqual([item.name for item in target], ["navi"])
 
     def test_oracle_mode_profiles_include_new_zelda_models_when_oracle_is_blocked(self) -> None:
         models = _state().models
@@ -497,10 +516,11 @@ class ModeAndAliasTests(unittest.IsolatedAsyncioTestCase):
     async def test_specialist_command_switches_to_manual_specialist(self) -> None:
         state = _state()
         state.mode = "oracle-main"
+        state.models["navi"] = _model("navi", tool_profile="farore")
 
-        await handle_command(state, "/specialist farore")
+        await handle_command(state, "/specialist navi")
 
-        self.assertEqual(state.active_model, "farore")
+        self.assertEqual(state.active_model, "navi")
         self.assertEqual(state.mode, "manual")
 
     async def test_mode_command_normalizes_legacy_alias(self) -> None:

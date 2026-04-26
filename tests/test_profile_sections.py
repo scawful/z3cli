@@ -2,14 +2,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from z3cli.app.runtime import (
+from app.runtime import (
     build_oracle_hidden_routing_prompt,
     resolve_model_name,
     resolve_oracle_profile_system_prompts,
     resolve_targets_with_reason,
     resolve_targets,
 )
-from z3cli.core import config as config_mod
+from core import config as config_mod
 
 
 class ProfileSectionTests(unittest.TestCase):

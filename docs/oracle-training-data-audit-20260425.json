@@ -1,0 +1,1913 @@
+{
+  "datasets": [
+    {
+      "bucket_counts": {
+        "abi_and_width_contracts": 132,
+        "debug_capture_and_triage": 54,
+        "hardware_register_grounding": 5,
+        "hook_safety_and_authoring": 3,
+        "oracle_docs_and_system_reasoning": 3,
+        "uncertainty_and_scope_control": 4
+      },
+      "bucket_unique_counts": {
+        "abi_and_width_contracts": 13,
+        "debug_capture_and_triage": 6,
+        "hardware_register_grounding": 1,
+        "hook_safety_and_authoring": 1,
+        "oracle_docs_and_system_reasoning": 1,
+        "uncertainty_and_scope_control": 1
+      },
+      "content_duplicate_rows": 178,
+      "eval_answer_overlaps": {
+        "evals/oracle_main_capability_eval_v1.jsonl": 201,
+        "evals/oracle_main_grounded_eval_v1.jsonl": 76,
+        "evals/oracle_main_grounded_eval_v2.jsonl": 125
+      },
+      "eval_prompt_overlaps": {
+        "evals/oracle_main_capability_eval_v1.jsonl": 34,
+        "evals/oracle_main_grounded_eval_v1.jsonl": 12,
+        "evals/oracle_main_grounded_eval_v2.jsonl": 22
+      },
+      "examples_by_bucket": {
+        "abi_and_width_contracts": [
+          "qwen3_oracle_14b_corrective_v6_rewrite_oracle_main_stz_long_address",
+          "qwen3_oracle_14b_corrective_v6_rewrite_oracle_main_stz_long_address",
+          "qwen3_oracle_14b_corrective_v6_abi_precision_oracle_main_v2_rep20_store_then_flag",
+          "qwen3_oracle_14b_corrective_v6_rewrite_oracle_main_v2_rep20_store_then_flag"
+        ],
+        "debug_capture_and_triage": [
+          "qwen3_oracle_14b_corrective_v6_score_gap_oracle_main_v2_capture_assert_jtl",
+          "qwen3_oracle_14b_corrective_v6_capture_first_oracle_main_v2_capture_assert_jtl",
+          "qwen3_oracle_14b_corrective_v6_rewrite_oracle_main_v2_capture_assert_jtl",
+          "qwen3_oracle_14b_corrective_v6_rewrite_oracle_main_v2_capture_assert_jtl"
+        ],
+        "hardware_register_grounding": [
+          "qwen3_oracle_14b_corrective_v6_stability_anchor_oracle_main_mdmaen_vs_hdmaen",
+          "qwen3_oracle_14b_corrective_v6_stability_anchor_oracle_main_mdmaen_vs_hdmaen",
+          "qwen3_oracle_14b_corrective_v6_stability_anchor_oracle_main_mdmaen_vs_hdmaen",
+          "qwen3_oracle_14b_corrective_v6_stability_anchor_oracle_main_mdmaen_vs_hdmaen"
+        ],
+        "hook_safety_and_authoring": [
+          "qwen3_oracle_14b_corrective_v6_protective_anchor_oracle_main_v2_hook_stub_overwritten_logic",
+          "qwen3_oracle_14b_corrective_v6_protective_anchor_oracle_main_v2_hook_stub_overwritten_logic",
+          "qwen3_oracle_14b_corrective_v6_protective_anchor_oracle_main_v2_hook_stub_overwritten_logic"
+        ],
+        "oracle_docs_and_system_reasoning": [
+          "qwen3_oracle_14b_corrective_v6_protective_anchor_oracle_main_zso_time_system",
+          "qwen3_oracle_14b_corrective_v6_protective_anchor_oracle_main_zso_time_system",
+          "qwen3_oracle_14b_corrective_v6_protective_anchor_oracle_main_zso_time_system"
+        ],
+        "uncertainty_and_scope_control": [
+          "qwen3_oracle_14b_corrective_v6_protective_anchor_oracle_main_v2_docs_refuse_fake_symbol",
+          "qwen3_oracle_14b_corrective_v6_protective_anchor_oracle_main_v2_docs_refuse_fake_symbol",
+          "qwen3_oracle_14b_corrective_v6_protective_anchor_oracle_main_v2_docs_refuse_fake_symbol",
+          "qwen3_oracle_14b_corrective_v6_protective_anchor_oracle_main_v2_docs_refuse_fake_symbol_test_anchor"
+        ]
+      },
+      "name": "qwen3_oracle_14b_v7",
+      "parse_errors": [],
+      "path": "/Users/scawful/src/training/datasets/qwen3_oracle_14b_v7",
+      "prompt_duplicate_rows": 178,
+      "prompt_family_clusters": [
+        {
+          "buckets": {
+            "abi_and_width_contracts": 60
+          },
+          "count": 60,
+          "prompt_preview": "Why does `STZ $7E2000,X` fail to assemble? Show two correct fixes.  A previous answer still failed this Oracle-main capability check: ```text <think>  </think>  `STZ` does not have",
+          "sample_ids": [
+            "qwen3_oracle_14b_corrective_v6_rewrite_oracle_main_stz_long_address",
+            "qwen3_oracle_14b_corrective_v6_rewrite_oracle_main_stz_long_address",
+            "qwen3_oracle_14b_corrective_v6_abi_precision_oracle_main_stz_long_address",
+            "qwen3_oracle_14b_corrective_v6_score_gap_oracle_main_stz_long_address",
+            "qwen3_oracle_14b_corrective_v6_abi_precision_oracle_main_stz_long_address"
+          ],
+          "splits": {
+            "train": 60
+          },
+          "unique_prompts": 5
+        },
+        {
+          "buckets": {
+            "abi_and_width_contracts": 60
+          },
+          "count": 60,
+          "prompt_preview": "Inside a `REP #$20` region, why is it unsafe to do 8-bit flag logic before the replaced 16-bit store, and what is the safe pattern?  A previous answer was still too fuzzy about the",
+          "sample_ids": [
+            "qwen3_oracle_14b_corrective_v6_abi_precision_oracle_main_v2_rep20_store_then_flag",
+            "qwen3_oracle_14b_corrective_v6_rewrite_oracle_main_v2_rep20_store_then_flag",
+            "qwen3_oracle_14b_corrective_v6_direct_oracle_main_v2_rep20_store_then_flag",
+            "qwen3_oracle_14b_corrective_v6_score_gap_oracle_main_v2_rep20_store_then_flag",
+            "qwen3_oracle_14b_corrective_v6_rewrite_oracle_main_v2_rep20_store_then_flag"
+          ],
+          "splits": {
+            "train": 60
+          },
+          "unique_prompts": 5
+        },
+        {
+          "buckets": {
+            "debug_capture_and_triage": 50
+          },
+          "count": 50,
+          "prompt_preview": "When should you use `capture_blackout.py arm --assert-jtl`, and what does it help prove?  A previous answer missed the scorer on these exact points: - include one of: `upstream` / ",
+          "sample_ids": [
+            "qwen3_oracle_14b_corrective_v6_score_gap_oracle_main_v2_capture_assert_jtl",
+            "qwen3_oracle_14b_corrective_v6_capture_first_oracle_main_v2_capture_assert_jtl",
+            "qwen3_oracle_14b_corrective_v6_rewrite_oracle_main_v2_capture_assert_jtl",
+            "qwen3_oracle_14b_corrective_v6_rewrite_oracle_main_v2_capture_assert_jtl",
+            "qwen3_oracle_14b_corrective_v6_direct_oracle_main_v2_capture_assert_jtl"
+          ],
+          "splits": {
+            "train": 50
+          },
+          "unique_prompts": 5
+        },
+        {
+          "buckets": {
+            "hardware_register_grounding": 5
+          },
+          "count": 5,
+          "prompt_preview": "Explain what $420B (MDMAEN) and $420C (HDMAEN) do and when you would use each.  Answer concretely and preserve the exact contract details that make this Oracle-main answer pass. - ",
+          "sample_ids": [
+            "qwen3_oracle_14b_corrective_v6_stability_anchor_oracle_main_mdmaen_vs_hdmaen",
+            "qwen3_oracle_14b_corrective_v6_stability_anchor_oracle_main_mdmaen_vs_hdmaen",
+            "qwen3_oracle_14b_corrective_v6_stability_anchor_oracle_main_mdmaen_vs_hdmaen",
+            "qwen3_oracle_14b_corrective_v6_stability_anchor_oracle_main_mdmaen_vs_hdmaen",
+            "qwen3_oracle_14b_corrective_v6_stability_anchor_oracle_main_mdmaen_vs_hdmaen_val_anchor"
+          ],
+          "splits": {
+            "train": 4,
+            "val": 1
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "debug_capture_and_triage": 4
+          },
+          "count": 4,
+          "prompt_preview": "A dark-room transition blacks out. What should you capture first, and why is that better than blind spotlight patching?  Answer concretely and preserve the exact contract details t",
+          "sample_ids": [
+            "qwen3_oracle_14b_corrective_v6_stability_anchor_oracle_main_v2_darkroom_capture_order",
+            "qwen3_oracle_14b_corrective_v6_stability_anchor_oracle_main_v2_darkroom_capture_order",
+            "qwen3_oracle_14b_corrective_v6_stability_anchor_oracle_main_v2_darkroom_capture_order",
+            "qwen3_oracle_14b_corrective_v6_stability_anchor_oracle_main_v2_darkroom_capture_order"
+          ],
+          "splits": {
+            "train": 4
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "abi_and_width_contracts": 4
+          },
+          "count": 4,
+          "prompt_preview": "A hook does `SEP #$30` and then `JML $0188C9` back into the vanilla torch loop. Why can that black-screen even if the code assembles?  Answer concretely and preserve the exact cont",
+          "sample_ids": [
+            "qwen3_oracle_14b_corrective_v6_stability_anchor_oracle_main_v2_torch_loop_return_path",
+            "qwen3_oracle_14b_corrective_v6_stability_anchor_oracle_main_v2_torch_loop_return_path",
+            "qwen3_oracle_14b_corrective_v6_stability_anchor_oracle_main_v2_torch_loop_return_path",
+            "qwen3_oracle_14b_corrective_v6_stability_anchor_oracle_main_v2_torch_loop_return_path"
+          ],
+          "splits": {
+            "train": 4
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "abi_and_width_contracts": 4
+          },
+          "count": 4,
+          "prompt_preview": "Why can forcing `SEP #$10` before the first `PLY` in `JumpTableLocal` prevent a blackout-class stack corruption?  Answer concretely and preserve the exact contract details that mak",
+          "sample_ids": [
+            "qwen3_oracle_14b_corrective_v6_stability_anchor_oracle_main_jumptablelocal_guard",
+            "qwen3_oracle_14b_corrective_v6_stability_anchor_oracle_main_jumptablelocal_guard",
+            "qwen3_oracle_14b_corrective_v6_stability_anchor_oracle_main_jumptablelocal_guard",
+            "qwen3_oracle_14b_corrective_v6_stability_anchor_oracle_main_jumptablelocal_guard"
+          ],
+          "splits": {
+            "train": 4
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "uncertainty_and_scope_control": 4
+          },
+          "count": 4,
+          "prompt_preview": "The docs mention palette modulation, but what bank contains `OraclePaletteRouter_Main`?  Answer concretely and preserve the exact contract details that make this Oracle-main answer",
+          "sample_ids": [
+            "qwen3_oracle_14b_corrective_v6_protective_anchor_oracle_main_v2_docs_refuse_fake_symbol",
+            "qwen3_oracle_14b_corrective_v6_protective_anchor_oracle_main_v2_docs_refuse_fake_symbol",
+            "qwen3_oracle_14b_corrective_v6_protective_anchor_oracle_main_v2_docs_refuse_fake_symbol",
+            "qwen3_oracle_14b_corrective_v6_protective_anchor_oracle_main_v2_docs_refuse_fake_symbol_test_anchor"
+          ],
+          "splits": {
+            "test": 1,
+            "train": 3
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "abi_and_width_contracts": 4
+          },
+          "count": 4,
+          "prompt_preview": "Explain the bug and fix it:  ```asm JSR $1234 LDA #$01 STA $7E2000 RTL ```  Answer concretely and preserve the exact contract details that make this Oracle-main answer pass. - Name",
+          "sample_ids": [
+            "qwen3_oracle_14b_corrective_v6_stability_anchor_oracle_main_jsr_rtl_mismatch",
+            "qwen3_oracle_14b_corrective_v6_stability_anchor_oracle_main_jsr_rtl_mismatch",
+            "qwen3_oracle_14b_corrective_v6_stability_anchor_oracle_main_jsr_rtl_mismatch",
+            "qwen3_oracle_14b_corrective_v6_stability_anchor_oracle_main_jsr_rtl_mismatch"
+          ],
+          "splits": {
+            "train": 4
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "oracle_docs_and_system_reasoning": 3
+          },
+          "count": 3,
+          "prompt_preview": "Summarize how ZSCustomOverworld and the Time System coordinate on overworld palette changes in Oracle of Secrets.  Answer concretely and preserve the exact contract details that ma",
+          "sample_ids": [
+            "qwen3_oracle_14b_corrective_v6_protective_anchor_oracle_main_zso_time_system",
+            "qwen3_oracle_14b_corrective_v6_protective_anchor_oracle_main_zso_time_system",
+            "qwen3_oracle_14b_corrective_v6_protective_anchor_oracle_main_zso_time_system"
+          ],
+          "splits": {
+            "train": 3
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "hook_safety_and_authoring": 3
+          },
+          "count": 3,
+          "prompt_preview": "Replace 4 bytes at `$00A000` with a `JSL` hook to `$028000`. What must the new routine preserve, and what must it do before `RTL` besides custom logic?  Answer concretely and prese",
+          "sample_ids": [
+            "qwen3_oracle_14b_corrective_v6_protective_anchor_oracle_main_v2_hook_stub_overwritten_logic",
+            "qwen3_oracle_14b_corrective_v6_protective_anchor_oracle_main_v2_hook_stub_overwritten_logic",
+            "qwen3_oracle_14b_corrective_v6_protective_anchor_oracle_main_v2_hook_stub_overwritten_logic"
+          ],
+          "splits": {
+            "train": 3
+          },
+          "unique_prompts": 1
+        }
+      ],
+      "role_counts": {
+        "failure_target": 170,
+        "stability_anchor": 31
+      },
+      "rows": 201,
+      "split_content_overlaps": {
+        "train/test": 1,
+        "train/val": 1,
+        "val/test": 0
+      },
+      "split_counts": {
+        "test": 1,
+        "train": 199,
+        "val": 1
+      },
+      "split_prompt_overlaps": {
+        "train/test": 1,
+        "train/val": 1,
+        "val/test": 0
+      },
+      "style_counts": {
+        "abi_precision": 24,
+        "capture_first": 10,
+        "contract": 34,
+        "direct": 34,
+        "protective_anchor": 10,
+        "rewrite": 34,
+        "score_gap": 34,
+        "stability_anchor": 21
+      },
+      "tool_surfaces": {
+        "prose-only": 201
+      },
+      "unique_answers": 11,
+      "unique_content": 23,
+      "unique_prompts": 23
+    },
+    {
+      "bucket_counts": {
+        "code_repair": 480,
+        "compile_grounding": 490,
+        "repo_retrieval": 326
+      },
+      "bucket_unique_counts": {
+        "code_repair": 89,
+        "compile_grounding": 71,
+        "repo_retrieval": 42
+      },
+      "content_duplicate_rows": 1094,
+      "eval_answer_overlaps": {
+        "evals/oracle_main_capability_eval_v1.jsonl": 48,
+        "evals/oracle_main_grounded_eval_v1.jsonl": 48
+      },
+      "eval_prompt_overlaps": {
+        "evals/oracle_code_repair_eval_v1.jsonl": 52,
+        "evals/oracle_code_repair_eval_v2.jsonl": 40,
+        "evals/oracle_compile_grounding_eval_v1.jsonl": 100,
+        "evals/oracle_compile_grounding_eval_v2.jsonl": 48,
+        "evals/oracle_main_capability_eval_v1.jsonl": 40,
+        "evals/oracle_main_grounded_eval_v1.jsonl": 40,
+        "evals/oracle_repo_retrieval_eval_v1.jsonl": 68,
+        "evals/oracle_repo_retrieval_eval_v2.jsonl": 36,
+        "evals/oracle_tool_use_eval_v1.jsonl": 4
+      },
+      "examples_by_bucket": {
+        "code_repair": [
+          "oracle_coder_corrective_v2_asar_clean_oracle_code_repair_v2_03",
+          "code_repair_fe15000230c1ef3d",
+          "oracle_coder_corrective_v2_rewrite_oracle_code_repair_02",
+          "code_repair_9b63b8f6503717cb"
+        ],
+        "compile_grounding": [
+          "oracle_coder_corrective_v2_asar_clean_oracle_compile_grounding_v2_01",
+          "oracle_coder_corrective_v2_asar_clean_oracle_compile_grounding_bea6670e75fbd132",
+          "oracle_coder_corrective_v2_asar_clean_oracle_compile_grounding_v2_05",
+          "oracle_coder_corrective_v2_direct_oracle_compile_grounding_v2_01"
+        ],
+        "repo_retrieval": [
+          "oracle_coder_corrective_v2_rewrite_oracle_repo_retrieval_v2_02",
+          "oracle_coder_corrective_v2_rewrite_oracle_repo_retrieval_03",
+          "oracle_coder_corrective_v2_direct_oracle_repo_retrieval_v2_04",
+          "oracle_coder_corrective_v2_exact_path_oracle_repo_retrieval_03"
+        ]
+      },
+      "name": "oracle_repo_code_v3",
+      "parse_errors": [],
+      "path": "/Users/scawful/src/training/datasets/oracle_repo_code_v3",
+      "prompt_duplicate_rows": 1100,
+      "prompt_family_clusters": [
+        {
+          "buckets": {
+            "compile_grounding": 108
+          },
+          "count": 108,
+          "prompt_preview": "Write a 65816 routine that (Using Oracle of Secrets symbols).  A previous answer failed under the assembler: ```text ```asm ; ======================================================",
+          "sample_ids": [
+            "oracle_coder_corrective_v2_asar_clean_oracle_compile_grounding_bea6670e75fbd132",
+            "oracle_coder_corrective_v2_direct_oracle_compile_grounding_9aaddd0341d33fc8",
+            "oracle_coder_corrective_v2_rewrite_oracle_compile_grounding_9aaddd0341d33fc8",
+            "oracle_coder_corrective_direct_oracle_compile_grounding_bea6670e75fbd132",
+            "oracle_coder_corrective_v2_rewrite_oracle_compile_grounding_9aaddd0341d33fc8"
+          ],
+          "splits": {
+            "test": 4,
+            "train": 104
+          },
+          "unique_prompts": 5
+        },
+        {
+          "buckets": {
+            "repo_retrieval": 52
+          },
+          "count": 52,
+          "prompt_preview": "Use the file map below.  [File A] Docs/Technical/MemoryMap.md Explains active labels vs stale UNUSED comments.  [File B] Core/sram_progress.asm Implements custom progression fields",
+          "sample_ids": [
+            "oracle_coder_corrective_v2_rewrite_oracle_repo_retrieval_03",
+            "oracle_coder_corrective_v2_exact_path_oracle_repo_retrieval_03",
+            "oracle_coder_corrective_v2_direct_oracle_repo_retrieval_03",
+            "oracle_coder_corrective_direct_oracle_repo_retrieval_03",
+            "oracle_coder_corrective_v2_rewrite_oracle_repo_retrieval_03"
+          ],
+          "splits": {
+            "train": 52
+          },
+          "unique_prompts": 4
+        },
+        {
+          "buckets": {
+            "repo_retrieval": 52
+          },
+          "count": 52,
+          "prompt_preview": "Repository sketch:  [File A] datasets/sources/oracle_harness_awareness_v1.jsonl Tool-activation and identity repairs.  [File B] scripts/build_qwen35_oracle_fast_v2_dataset.py Build",
+          "sample_ids": [
+            "oracle_coder_corrective_rewrite_oracle_repo_retrieval_06",
+            "oracle_coder_corrective_v2_rewrite_oracle_repo_retrieval_06",
+            "oracle_coder_corrective_v2_exact_path_oracle_repo_retrieval_06",
+            "oracle_coder_corrective_rewrite_oracle_repo_retrieval_06",
+            "oracle_coder_corrective_v2_direct_oracle_repo_retrieval_06"
+          ],
+          "splits": {
+            "train": 52
+          },
+          "unique_prompts": 4
+        },
+        {
+          "buckets": {
+            "code_repair": 42
+          },
+          "count": 42,
+          "prompt_preview": "Repair the hook body below.  ```asm MagicBeanAdvance:     lda MagicBeanProg     inc     sta MagicBeanProg     rtl ```  Problem: `MagicBeanProg` is structured quest state and must n",
+          "sample_ids": [
+            "oracle_coder_corrective_v2_rewrite_oracle_code_repair_06",
+            "oracle_coder_corrective_v2_asar_clean_oracle_code_repair_06",
+            "oracle_coder_corrective_direct_oracle_code_repair_06",
+            "oracle_coder_corrective_v2_asar_clean_oracle_code_repair_06",
+            "oracle_coder_corrective_v2_asar_clean_oracle_code_repair_06"
+          ],
+          "splits": {
+            "train": 42
+          },
+          "unique_prompts": 4
+        },
+        {
+          "buckets": {
+            "code_repair": 42
+          },
+          "count": 42,
+          "prompt_preview": "Repair the logic below.  ```asm MaybeSkipDecompress:     lda TransGFXModule_PriorSheets     cmp CurrentSheetGroup     beq .skip     jsl DecompressCurrentSheets .skip     rtl ```  P",
+          "sample_ids": [
+            "oracle_coder_corrective_v2_asar_clean_oracle_code_repair_04",
+            "oracle_coder_corrective_v2_rewrite_oracle_code_repair_04",
+            "oracle_coder_corrective_v2_asar_clean_oracle_code_repair_04",
+            "oracle_coder_corrective_direct_oracle_code_repair_04",
+            "oracle_coder_corrective_v2_asar_clean_oracle_code_repair_04"
+          ],
+          "splits": {
+            "train": 42
+          },
+          "unique_prompts": 4
+        },
+        {
+          "buckets": {
+            "compile_grounding": 39
+          },
+          "count": 39,
+          "prompt_preview": "Write a 65816 routine named Palette_ArbitraryLoad.",
+          "sample_ids": [
+            "oracle_coder_corrective_v2_direct_oracle_compile_grounding_01bf680436b51de6",
+            "oracle_coder_corrective_v2_rewrite_oracle_compile_grounding_01bf680436b51de6",
+            "oracle_coder_corrective_v2_rewrite_oracle_compile_grounding_01bf680436b51de6",
+            "oracle_coder_corrective_v2_direct_oracle_compile_grounding_01bf680436b51de6",
+            "oracle_coder_corrective_v2_rewrite_oracle_compile_grounding_01bf680436b51de6"
+          ],
+          "splits": {
+            "train": 39
+          },
+          "unique_prompts": 3
+        },
+        {
+          "buckets": {
+            "compile_grounding": 39
+          },
+          "count": 39,
+          "prompt_preview": "Write a 65816 routine named Link_MovableStatue.  A previous answer failed this task: ```text ; ==============================================================================  ; *$C",
+          "sample_ids": [
+            "oracle_coder_corrective_v2_rewrite_oracle_compile_grounding_00dbfdb459a34be6",
+            "oracle_coder_corrective_v2_direct_oracle_compile_grounding_00dbfdb459a34be6",
+            "oracle_coder_corrective_v2_asar_clean_oracle_compile_grounding_00dbfdb459a34be6",
+            "oracle_coder_corrective_v2_direct_oracle_compile_grounding_00dbfdb459a34be6",
+            "oracle_coder_corrective_v2_asar_clean_oracle_compile_grounding_00dbfdb459a34be6"
+          ],
+          "splits": {
+            "train": 39
+          },
+          "unique_prompts": 3
+        },
+        {
+          "buckets": {
+            "compile_grounding": 39
+          },
+          "count": 39,
+          "prompt_preview": "Write a 65816 routine named Effect_TorchGanonRoom.",
+          "sample_ids": [
+            "oracle_coder_corrective_v2_direct_oracle_compile_grounding_007c5c554e7799f5",
+            "oracle_coder_corrective_v2_direct_oracle_compile_grounding_007c5c554e7799f5",
+            "compile_grounding_007c5c554e7799f5",
+            "oracle_coder_corrective_v2_rewrite_oracle_compile_grounding_007c5c554e7799f5",
+            "oracle_coder_corrective_v2_rewrite_oracle_compile_grounding_007c5c554e7799f5"
+          ],
+          "splits": {
+            "train": 39
+          },
+          "unique_prompts": 3
+        },
+        {
+          "buckets": {
+            "compile_grounding": 36
+          },
+          "count": 36,
+          "prompt_preview": "Write a 65816 routine named MenuJournal_DrawCurrentPage.  A previous answer failed under the assembler: ```text MenuJournal_DrawCurrentPage: {     ; Draw the current journal page o",
+          "sample_ids": [
+            "oracle_coder_corrective_v2_asar_clean_oracle_compile_grounding_v2_01",
+            "oracle_coder_corrective_v2_direct_oracle_compile_grounding_v2_01",
+            "oracle_coder_corrective_v2_direct_oracle_compile_grounding_v2_01",
+            "oracle_coder_corrective_v2_asar_clean_oracle_compile_grounding_v2_01",
+            "oracle_coder_corrective_v2_direct_oracle_compile_grounding_v2_01"
+          ],
+          "splits": {
+            "train": 36
+          },
+          "unique_prompts": 3
+        },
+        {
+          "buckets": {
+            "repo_retrieval": 36
+          },
+          "count": 36,
+          "prompt_preview": "Use the file map below.  [File A] Menu/menu_journal.asm Implements journal paging, read/write state changes, and page-draw flow.  [File B] Core/sram.asm Defines JournalState and ne",
+          "sample_ids": [
+            "oracle_coder_corrective_v2_rewrite_oracle_repo_retrieval_v2_02",
+            "oracle_coder_corrective_v2_exact_path_oracle_repo_retrieval_v2_02",
+            "oracle_coder_corrective_v2_exact_path_oracle_repo_retrieval_v2_02",
+            "oracle_coder_corrective_v2_rewrite_oracle_repo_retrieval_v2_02",
+            "oracle_coder_corrective_v2_direct_oracle_repo_retrieval_v2_02"
+          ],
+          "splits": {
+            "train": 36
+          },
+          "unique_prompts": 3
+        },
+        {
+          "buckets": {
+            "compile_grounding": 36
+          },
+          "count": 36,
+          "prompt_preview": "Write a 65816 routine named Intro_InitStoryFlags.  A previous answer failed under the assembler: ```text ; =========================================================================",
+          "sample_ids": [
+            "oracle_coder_corrective_v2_asar_clean_oracle_compile_grounding_v2_05",
+            "oracle_coder_corrective_v2_asar_clean_oracle_compile_grounding_v2_05",
+            "oracle_coder_corrective_v2_asar_clean_oracle_compile_grounding_v2_05",
+            "oracle_coder_corrective_v2_direct_oracle_compile_grounding_v2_05",
+            "oracle_coder_corrective_v2_rewrite_oracle_compile_grounding_v2_05"
+          ],
+          "splits": {
+            "train": 36
+          },
+          "unique_prompts": 3
+        },
+        {
+          "buckets": {
+            "repo_retrieval": 36
+          },
+          "count": 36,
+          "prompt_preview": "Use the file map below.  [File A] training/scripts/live_training_status.py Builds the shared live status JSON consumed by other dashboards.  [File B] dashboard/api.py Maps training",
+          "sample_ids": [
+            "oracle_coder_corrective_v2_direct_oracle_repo_retrieval_v2_04",
+            "oracle_coder_corrective_v2_exact_path_oracle_repo_retrieval_v2_04",
+            "oracle_coder_corrective_v2_direct_oracle_repo_retrieval_v2_04",
+            "oracle_coder_corrective_v2_exact_path_oracle_repo_retrieval_v2_04",
+            "oracle_coder_corrective_v2_direct_oracle_repo_retrieval_v2_04"
+          ],
+          "splits": {
+            "train": 36
+          },
+          "unique_prompts": 3
+        }
+      ],
+      "role_counts": {
+        "unspecified": 1296
+      },
+      "rows": 1296,
+      "split_content_overlaps": {
+        "train/test": 2,
+        "train/val": 0,
+        "val/test": 0
+      },
+      "split_counts": {
+        "test": 13,
+        "train": 1270,
+        "val": 13
+      },
+      "split_prompt_overlaps": {
+        "train/test": 1,
+        "train/val": 1,
+        "val/test": 0
+      },
+      "style_counts": {
+        "unspecified": 1296
+      },
+      "tool_surfaces": {
+        "prose-only": 1296
+      },
+      "unique_answers": 120,
+      "unique_content": 202,
+      "unique_prompts": 196
+    },
+    {
+      "bucket_counts": {
+        "chain": 405,
+        "domain": 261,
+        "oracle-fast-corrective3": 315,
+        "unbucketed": 1068
+      },
+      "bucket_unique_counts": {
+        "chain": 92,
+        "domain": 44,
+        "oracle-fast-corrective3": 14,
+        "unbucketed": 100
+      },
+      "content_duplicate_rows": 1799,
+      "eval_answer_overlaps": {},
+      "eval_prompt_overlaps": {},
+      "examples_by_bucket": {
+        "chain": [
+          "156cfd7f-16ec-4128-ae31-8936c2028ce1",
+          "930d5555-d939-4e84-9a5f-828e8e2805c8",
+          "1f985df7-ae93-4da8-9213-f865ffbdaf54",
+          "386bc257-1a03-4ee0-af4a-d33aae2404dc"
+        ],
+        "domain": [
+          "a6e43db0-4280-47d7-9268-953c8fb14fae",
+          "7764764b-9f1d-4c64-ac62-ef5007c7a71f",
+          "3493b612-97fc-48ac-a158-f19d80e6c0e5",
+          "1389a10b-e9c6-4296-a774-fe840968644d"
+        ],
+        "oracle-fast-corrective3": [
+          "train.jsonl:9",
+          "train.jsonl:12",
+          "train.jsonl:14",
+          "train.jsonl:20"
+        ],
+        "unbucketed": [
+          "train.jsonl:1",
+          "train.jsonl:3",
+          "train.jsonl:5",
+          "train.jsonl:7"
+        ]
+      },
+      "name": "oracle_fast_4b_candidate_v1",
+      "parse_errors": [],
+      "path": "/Users/scawful/src/training/datasets/oracle_fast_4b_candidate_v1",
+      "prompt_duplicate_rows": 1921,
+      "prompt_family_clusters": [
+        {
+          "buckets": {
+            "oracle-fast-corrective3": 36,
+            "unbucketed": 16
+          },
+          "count": 52,
+          "prompt_preview": "Debug a crash: first read the current CPU state, then set a breakpoint at the crash point, then step through 3 instructions.",
+          "sample_ids": [
+            "train.jsonl:14",
+            "train.jsonl:45",
+            "train.jsonl:48",
+            "train.jsonl:53",
+            "train.jsonl:74"
+          ],
+          "splits": {
+            "train": 52
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "oracle-fast-corrective3": 36,
+            "unbucketed": 16
+          },
+          "count": 52,
+          "prompt_preview": "The game crashes in room 0xB8. Inspect the room, then check the sprite list, then read Link's position.",
+          "sample_ids": [
+            "train.jsonl:32",
+            "train.jsonl:102",
+            "train.jsonl:134",
+            "train.jsonl:160",
+            "train.jsonl:262"
+          ],
+          "splits": {
+            "train": 52
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "oracle-fast-corrective3": 36,
+            "unbucketed": 16
+          },
+          "count": 52,
+          "prompt_preview": "Audit room 0x45: inspect the room layout, validate hooks used in it, then run ROM doctor.",
+          "sample_ids": [
+            "train.jsonl:66",
+            "train.jsonl:69",
+            "train.jsonl:104",
+            "train.jsonl:106",
+            "train.jsonl:111"
+          ],
+          "splits": {
+            "train": 52
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "oracle-fast-corrective3": 30,
+            "unbucketed": 16
+          },
+          "count": 46,
+          "prompt_preview": "Explain how the A register width affects LDA in different processor modes. When should I use SEP vs REP?",
+          "sample_ids": [
+            "train.jsonl:7",
+            "train.jsonl:33",
+            "train.jsonl:133",
+            "train.jsonl:248",
+            "train.jsonl:288"
+          ],
+          "splits": {
+            "train": 46
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "oracle-fast-corrective3": 30,
+            "unbucketed": 16
+          },
+          "count": 46,
+          "prompt_preview": "How does the original game determine which palette to use for each overworld area?",
+          "sample_ids": [
+            "train.jsonl:9",
+            "train.jsonl:20",
+            "train.jsonl:31",
+            "train.jsonl:59",
+            "train.jsonl:109"
+          ],
+          "splits": {
+            "train": 46
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "oracle-fast-corrective3": 30,
+            "unbucketed": 16
+          },
+          "count": 46,
+          "prompt_preview": "I want to add a crystal switch toggle to a dungeon room. What subsystems are involved?",
+          "sample_ids": [
+            "train.jsonl:12",
+            "train.jsonl:15",
+            "train.jsonl:117",
+            "train.jsonl:140",
+            "train.jsonl:147"
+          ],
+          "splits": {
+            "train": 46
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "oracle-fast-corrective3": 30,
+            "unbucketed": 16
+          },
+          "count": 46,
+          "prompt_preview": "I need to optimize the sprite drawing loop. It currently takes 47 cycles per sprite. Where should I start?",
+          "sample_ids": [
+            "train.jsonl:25",
+            "train.jsonl:60",
+            "train.jsonl:94",
+            "train.jsonl:161",
+            "train.jsonl:254"
+          ],
+          "splits": {
+            "train": 46
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "oracle-fast-corrective3": 30,
+            "unbucketed": 16
+          },
+          "count": 46,
+          "prompt_preview": "Which routine should I hook to add a new item effect that triggers on button press?",
+          "sample_ids": [
+            "train.jsonl:99",
+            "train.jsonl:118",
+            "train.jsonl:175",
+            "train.jsonl:256",
+            "train.jsonl:266"
+          ],
+          "splits": {
+            "train": 46
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "oracle-fast-corrective3": 30,
+            "unbucketed": 16
+          },
+          "count": 46,
+          "prompt_preview": "I have a custom sprite that works in room 0x45 but crashes in room 0xB8. What should I check first?",
+          "sample_ids": [
+            "train.jsonl:119",
+            "train.jsonl:241",
+            "train.jsonl:442",
+            "train.jsonl:475",
+            "train.jsonl:493"
+          ],
+          "splits": {
+            "train": 46
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "chain": 40
+          },
+          "count": 40,
+          "prompt_preview": "How does room 0x72 compare to the vanilla room \u2014 what objects changed?",
+          "sample_ids": [
+            "930d5555-d939-4e84-9a5f-828e8e2805c8",
+            "930d5555-d939-4e84-9a5f-828e8e2805c8",
+            "0647e735-7536-4a2e-b447-25c0cf307d7d",
+            "28ec9451-b979-4666-bacd-d82a1bb2e28a",
+            "28ec9451-b979-4666-bacd-d82a1bb2e28a"
+          ],
+          "splits": {
+            "train": 40
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "domain": 40
+          },
+          "count": 40,
+          "prompt_preview": "Show me the SNES memory map",
+          "sample_ids": [
+            "a6e43db0-4280-47d7-9268-953c8fb14fae",
+            "a6e43db0-4280-47d7-9268-953c8fb14fae",
+            "9345d2a1-6820-44c8-b5ad-f6dba8da7b99",
+            "a6e43db0-4280-47d7-9268-953c8fb14fae",
+            "a6e43db0-4280-47d7-9268-953c8fb14fae"
+          ],
+          "splits": {
+            "train": 40
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "domain": 40
+          },
+          "count": 40,
+          "prompt_preview": "What does the Sprite_CheckIfActive routine do?",
+          "sample_ids": [
+            "4fac87aa-676f-4265-b4d5-73cb6dcfb6d9",
+            "4fac87aa-676f-4265-b4d5-73cb6dcfb6d9",
+            "559a0894-67dd-4d7b-b850-3f52d0498654",
+            "559a0894-67dd-4d7b-b850-3f52d0498654",
+            "559a0894-67dd-4d7b-b850-3f52d0498654"
+          ],
+          "splits": {
+            "train": 40
+          },
+          "unique_prompts": 1
+        }
+      ],
+      "role_counts": {
+        "unspecified": 2049
+      },
+      "rows": 2049,
+      "split_content_overlaps": {
+        "train/test": 0,
+        "train/val": 0,
+        "val/test": 0
+      },
+      "split_counts": {
+        "test": 30,
+        "train": 1990,
+        "val": 29
+      },
+      "split_prompt_overlaps": {
+        "train/test": 16,
+        "train/val": 14,
+        "val/test": 4
+      },
+      "style_counts": {
+        "unspecified": 2049
+      },
+      "tool_surfaces": {
+        "prose-only": 142,
+        "prose-tool-context": 97,
+        "tool-role-transcript": 1810
+      },
+      "unique_answers": 236,
+      "unique_content": 250,
+      "unique_prompts": 128
+    },
+    {
+      "bucket_counts": {
+        "abi_and_width_contracts": 399,
+        "chain": 790,
+        "debug_capture_and_triage": 208,
+        "domain": 510,
+        "hardware_register_grounding": 84,
+        "hook_safety_and_authoring": 156,
+        "oracle-main-corrective": 324,
+        "oracle_docs_and_system_reasoning": 592,
+        "unbucketed": 34202,
+        "uncertainty_and_scope_control": 377
+      },
+      "bucket_unique_counts": {
+        "abi_and_width_contracts": 18,
+        "chain": 91,
+        "debug_capture_and_triage": 9,
+        "domain": 43,
+        "hardware_register_grounding": 4,
+        "hook_safety_and_authoring": 5,
+        "oracle-main-corrective": 27,
+        "oracle_docs_and_system_reasoning": 13,
+        "unbucketed": 31879,
+        "uncertainty_and_scope_control": 11
+      },
+      "content_duplicate_rows": 5550,
+      "eval_answer_overlaps": {
+        "evals/oracle_main_capability_eval_v1.jsonl": 2176,
+        "evals/oracle_main_grounded_eval_v1.jsonl": 936,
+        "evals/oracle_main_grounded_eval_v2.jsonl": 1240
+      },
+      "eval_prompt_overlaps": {
+        "evals/oracle_compile_grounding_eval_v1.jsonl": 3396,
+        "evals/oracle_main_capability_eval_v1.jsonl": 700,
+        "evals/oracle_main_grounded_eval_v1.jsonl": 372,
+        "evals/oracle_main_grounded_eval_v2.jsonl": 328,
+        "evals/oracle_tool_use_eval_v1.jsonl": 27
+      },
+      "examples_by_bucket": {
+        "abi_and_width_contracts": [
+          "qwen3_oracle_14b_corrective_v2_contract_oracle_main_jsr_rtl_mismatch",
+          "qwen3_oracle_14b_corrective_v2_contract_oracle_main_jsr_rtl_mismatch",
+          "qwen3_oracle_14b_corrective_v2_contract_oracle_main_v2_jumptablelocal_sep10",
+          "qwen3_oracle_14b_corrective_v2_contract_oracle_main_v2_jumptablelocal_sep10"
+        ],
+        "chain": [
+          "19fe80bb-cb06-4140-be1d-bc5c272e1dc7",
+          "6e37f1b6-af6f-4979-a660-7b6422a025af",
+          "7f64ba16-fe55-43a3-9d6f-aee7ed3210d5",
+          "8f79607d-6a09-4151-9a87-71fae54b2f22"
+        ],
+        "debug_capture_and_triage": [
+          "qwen3_oracle_14b_corrective_v2_rewrite_oracle_main_v2_capture_assert_jtl",
+          "qwen3_oracle_14b_corrective_v2_contract_oracle_main_v2_capture_assert_jtl",
+          "qwen3_oracle_14b_corrective_v2_contract_oracle_main_v2_capture_assert_jtl",
+          "qwen3_oracle_14b_corrective_v2_capture_first_oracle_main_v2_capture_assert_jtl"
+        ],
+        "domain": [
+          "ad3e2bb4-a938-450f-9562-edcacb3b4f28",
+          "7da58f0e-5e7b-48a1-a257-0860e53d65da",
+          "a6e43db0-4280-47d7-9268-953c8fb14fae",
+          "a6ef33db-0d53-4c69-bd6e-c6b6ed57cd9f"
+        ],
+        "hardware_register_grounding": [
+          "qwen3_oracle_14b_corrective_v2_contract_oracle_main_mdmaen_vs_hdmaen",
+          "qwen3_oracle_14b_corrective_v2_direct_oracle_main_mdmaen_vs_hdmaen",
+          "qwen3_oracle_14b_corrective_v2_direct_oracle_main_mdmaen_vs_hdmaen",
+          "qwen3_oracle_14b_corrective_v2_rewrite_oracle_main_mdmaen_vs_hdmaen"
+        ],
+        "hook_safety_and_authoring": [
+          "qwen3_oracle_14b_corrective_v2_contract_oracle_main_v2_hook_stub_overwritten_logic",
+          "qwen3_oracle_14b_corrective_v2_rewrite_oracle_main_v2_hook_stub_overwritten_logic",
+          "qwen3_oracle_14b_corrective_v2_hook_precision_oracle_main_v2_hook_stub_overwritten_logic",
+          "qwen3_oracle_14b_corrective_v2_hook_precision_oracle_main_v2_hook_stub_overwritten_logic"
+        ],
+        "oracle-main-corrective": [
+          "qwen3_oracle_14b_corrective_v1_direct_oracle_main_rep20_hook_contract",
+          "qwen3_oracle_14b_corrective_v1_rewrite_oracle_main_do_not_invent_symbols",
+          "qwen3_oracle_14b_corrective_v1_rewrite_oracle_main_do_not_invent_symbols",
+          "qwen3_oracle_14b_corrective_v1_direct_oracle_main_songbank_blackout"
+        ],
+        "oracle_docs_and_system_reasoning": [
+          "qwen3_oracle_14b_corrective_v2_rewrite_oracle_main_v2_songbank_wait_loop",
+          "qwen3_oracle_14b_corrective_v2_rewrite_oracle_main_v2_songbank_wait_loop",
+          "qwen3_oracle_14b_corrective_v2_contract_oracle_main_zso_time_system",
+          "qwen3_oracle_14b_corrective_v2_direct_oracle_main_v2_songbank_wait_loop"
+        ],
+        "unbucketed": [
+          "train.jsonl:1",
+          "train.jsonl:2",
+          "train.jsonl:4",
+          "train.jsonl:5"
+        ],
+        "uncertainty_and_scope_control": [
+          "qwen3_oracle_14b_corrective_v2_docs_chain_oracle_main_v2_no_bank_guess",
+          "qwen3_oracle_14b_corrective_v2_rewrite_oracle_main_v2_no_bank_guess",
+          "qwen3_oracle_14b_corrective_v2_rewrite_oracle_main_v2_no_bank_guess",
+          "qwen3_oracle_14b_corrective_v2_docs_chain_oracle_main_v2_no_bank_guess"
+        ]
+      },
+      "name": "oracle_9b_candidate_v1",
+      "parse_errors": [],
+      "path": "/Users/scawful/src/training/datasets/oracle_9b_candidate_v1",
+      "prompt_duplicate_rows": 27251,
+      "prompt_family_clusters": [
+        {
+          "buckets": {
+            "unbucketed": 3383
+          },
+          "count": 3383,
+          "prompt_preview": "Write a 65816 routine that (Using Oracle of Secrets symbols).",
+          "sample_ids": [
+            "train.jsonl:32",
+            "train.jsonl:42",
+            "train.jsonl:48",
+            "train.jsonl:49",
+            "train.jsonl:54"
+          ],
+          "splits": {
+            "test": 872,
+            "train": 1835,
+            "val": 676
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "unbucketed": 1752
+          },
+          "count": 1752,
+          "prompt_preview": "Write a 65816 routine that ; *$29DD6-$29E65 JUMP LOCATION.",
+          "sample_ids": [
+            "train.jsonl:7",
+            "train.jsonl:26",
+            "train.jsonl:27",
+            "train.jsonl:156",
+            "train.jsonl:247"
+          ],
+          "splits": {
+            "test": 453,
+            "train": 904,
+            "val": 395
+          },
+          "unique_prompts": 721
+        },
+        {
+          "buckets": {
+            "unbucketed": 1337
+          },
+          "count": 1337,
+          "prompt_preview": "Write a 65816 routine that *$103C7-$10569 LOCAL.",
+          "sample_ids": [
+            "train.jsonl:61",
+            "train.jsonl:85",
+            "train.jsonl:86",
+            "train.jsonl:121",
+            "train.jsonl:148"
+          ],
+          "splits": {
+            "test": 366,
+            "train": 693,
+            "val": 278
+          },
+          "unique_prompts": 551
+        },
+        {
+          "buckets": {
+            "unbucketed": 951
+          },
+          "count": 951,
+          "prompt_preview": "Write a 65816 routine that ; *$D748-$D7BF LONG.",
+          "sample_ids": [
+            "train.jsonl:103",
+            "train.jsonl:197",
+            "train.jsonl:223",
+            "train.jsonl:258",
+            "train.jsonl:261"
+          ],
+          "splits": {
+            "test": 253,
+            "train": 502,
+            "val": 196
+          },
+          "unique_prompts": 391
+        },
+        {
+          "buckets": {
+            "unbucketed": 488
+          },
+          "count": 488,
+          "prompt_preview": "Write a 65816 routine that =================================================================================================== TODO ================================================",
+          "sample_ids": [
+            "train.jsonl:6",
+            "train.jsonl:14",
+            "train.jsonl:74",
+            "train.jsonl:251",
+            "train.jsonl:269"
+          ],
+          "splits": {
+            "test": 128,
+            "train": 259,
+            "val": 101
+          },
+          "unique_prompts": 167
+        },
+        {
+          "buckets": {
+            "uncertainty_and_scope_control": 360
+          },
+          "count": 360,
+          "prompt_preview": "The blackout notes mention a `LoadSongBank` handshake wait loop. Which bank is the exact internal routine label in?  A previous answer drifted away from the documented Oracle evide",
+          "sample_ids": [
+            "qwen3_oracle_14b_corrective_v2_docs_chain_oracle_main_v2_no_bank_guess",
+            "qwen3_oracle_14b_corrective_v2_rewrite_oracle_main_v2_no_bank_guess",
+            "qwen3_oracle_14b_corrective_v2_rewrite_oracle_main_v2_no_bank_guess",
+            "qwen3_oracle_14b_corrective_v2_docs_chain_oracle_main_v2_no_bank_guess",
+            "qwen3_oracle_14b_corrective_v2_refusal_boundary_oracle_main_v2_no_bank_guess"
+          ],
+          "splits": {
+            "train": 360
+          },
+          "unique_prompts": 5
+        },
+        {
+          "buckets": {
+            "oracle_docs_and_system_reasoning": 288,
+            "unbucketed": 6
+          },
+          "count": 294,
+          "prompt_preview": "Summarize how ZSCustomOverworld and the Time System coordinate on overworld palette changes in Oracle of Secrets.  Answer in 3-6 sentences. - Stay concrete. - Name the exact Oracle",
+          "sample_ids": [
+            "qwen3_oracle_14b_corrective_v2_contract_oracle_main_zso_time_system",
+            "qwen3_oracle_14b_corrective_v2_contract_oracle_main_zso_time_system",
+            "qwen3_oracle_14b_corrective_v2_direct_oracle_main_zso_time_system",
+            "qwen3_oracle_14b_corrective_v2_contract_oracle_main_zso_time_system",
+            "qwen3_oracle_14b_corrective_v2_docs_chain_oracle_main_zso_time_system"
+          ],
+          "splits": {
+            "test": 2,
+            "train": 291,
+            "val": 1
+          },
+          "unique_prompts": 4
+        },
+        {
+          "buckets": {
+            "oracle_docs_and_system_reasoning": 288
+          },
+          "count": 288,
+          "prompt_preview": "What evidence made the song-bank handshake a stronger blackout theory than entrance-table corruption in the documented dungeon-transition case?  A previous answer failed this Oracl",
+          "sample_ids": [
+            "qwen3_oracle_14b_corrective_v2_rewrite_oracle_main_v2_songbank_wait_loop",
+            "qwen3_oracle_14b_corrective_v2_rewrite_oracle_main_v2_songbank_wait_loop",
+            "qwen3_oracle_14b_corrective_v2_direct_oracle_main_v2_songbank_wait_loop",
+            "qwen3_oracle_14b_corrective_v2_direct_oracle_main_v2_songbank_wait_loop",
+            "qwen3_oracle_14b_corrective_v2_rewrite_oracle_main_v2_songbank_wait_loop"
+          ],
+          "splits": {
+            "train": 288
+          },
+          "unique_prompts": 4
+        },
+        {
+          "buckets": {
+            "unbucketed": 235
+          },
+          "count": 235,
+          "prompt_preview": "Write a 65816 routine that =================================================================================================== FREE ROM: 0x15 ======================================",
+          "sample_ids": [
+            "train.jsonl:108",
+            "train.jsonl:175",
+            "train.jsonl:225",
+            "train.jsonl:434",
+            "train.jsonl:527"
+          ],
+          "splits": {
+            "test": 64,
+            "train": 131,
+            "val": 40
+          },
+          "unique_prompts": 63
+        },
+        {
+          "buckets": {
+            "unbucketed": 197
+          },
+          "count": 197,
+          "prompt_preview": "Write a 65816 routine that *$9B48 ALTERNATE ENTRY POINT.",
+          "sample_ids": [
+            "train.jsonl:20",
+            "train.jsonl:153",
+            "train.jsonl:259",
+            "train.jsonl:440",
+            "train.jsonl:617"
+          ],
+          "splits": {
+            "test": 52,
+            "train": 106,
+            "val": 39
+          },
+          "unique_prompts": 79
+        },
+        {
+          "buckets": {
+            "debug_capture_and_triage": 192
+          },
+          "count": 192,
+          "prompt_preview": "When should you use `capture_blackout.py arm --assert-jtl`, and what does it help prove?  A previous answer failed this Oracle-main capability check: ```text <think>  </think>  Use",
+          "sample_ids": [
+            "qwen3_oracle_14b_corrective_v2_rewrite_oracle_main_v2_capture_assert_jtl",
+            "qwen3_oracle_14b_corrective_v2_contract_oracle_main_v2_capture_assert_jtl",
+            "qwen3_oracle_14b_corrective_v2_contract_oracle_main_v2_capture_assert_jtl",
+            "qwen3_oracle_14b_corrective_v2_capture_first_oracle_main_v2_capture_assert_jtl",
+            "qwen3_oracle_14b_corrective_v2_capture_first_oracle_main_v2_capture_assert_jtl"
+          ],
+          "splits": {
+            "train": 192
+          },
+          "unique_prompts": 4
+        },
+        {
+          "buckets": {
+            "hook_safety_and_authoring": 144
+          },
+          "count": 144,
+          "prompt_preview": "Replace 4 bytes at `$00A000` with a `JSL` hook to `$028000`. What must the new routine preserve, and what must it do before `RTL` besides custom logic?  Answer in 3-6 sentences. - ",
+          "sample_ids": [
+            "qwen3_oracle_14b_corrective_v2_contract_oracle_main_v2_hook_stub_overwritten_logic",
+            "qwen3_oracle_14b_corrective_v2_rewrite_oracle_main_v2_hook_stub_overwritten_logic",
+            "qwen3_oracle_14b_corrective_v2_hook_precision_oracle_main_v2_hook_stub_overwritten_logic",
+            "qwen3_oracle_14b_corrective_v2_hook_precision_oracle_main_v2_hook_stub_overwritten_logic",
+            "qwen3_oracle_14b_corrective_v2_hook_precision_oracle_main_v2_hook_stub_overwritten_logic"
+          ],
+          "splits": {
+            "train": 144
+          },
+          "unique_prompts": 4
+        }
+      ],
+      "role_counts": {
+        "unspecified": 37642
+      },
+      "rows": 37642,
+      "split_content_overlaps": {
+        "train/test": 5,
+        "train/val": 4,
+        "val/test": 1
+      },
+      "split_counts": {
+        "test": 6866,
+        "train": 25249,
+        "val": 5527
+      },
+      "split_prompt_overlaps": {
+        "train/test": 3405,
+        "train/val": 2888,
+        "val/test": 1645
+      },
+      "style_counts": {
+        "anchor_direct": 132,
+        "capture_first": 49,
+        "contract": 436,
+        "direct": 436,
+        "docs_chain": 218,
+        "hook_precision": 36,
+        "refusal_boundary": 73,
+        "rewrite": 436,
+        "unspecified": 35826
+      },
+      "tool_surfaces": {
+        "native-tool-calls": 5695,
+        "prose-only": 28250,
+        "prose-tool-context": 193,
+        "tool-role-transcript": 3504
+      },
+      "unique_answers": 11841,
+      "unique_content": 32092,
+      "unique_prompts": 10391
+    },
+    {
+      "bucket_counts": {
+        "evidence_extraction": 104,
+        "lost_in_middle": 168,
+        "multi_file_synthesis": 136,
+        "tool_transcript_grounding": 136
+      },
+      "bucket_unique_counts": {
+        "evidence_extraction": 40,
+        "lost_in_middle": 40,
+        "multi_file_synthesis": 40,
+        "tool_transcript_grounding": 40
+      },
+      "content_duplicate_rows": 384,
+      "eval_answer_overlaps": {},
+      "eval_prompt_overlaps": {},
+      "examples_by_bucket": {
+        "evidence_extraction": [
+          "oracle_longctx_docs_identity_2",
+          "oracle_longctx_docs_scrolls_bitfield_3",
+          "oracle_longctx_docs_transgfx_cache_3",
+          "oracle_longctx_docs_active_label_2"
+        ],
+        "lost_in_middle": [
+          "oracle_longctx_lostmiddle_code_red_3",
+          "oracle_longctx_lostmiddle_palette_pipeline_1",
+          "oracle_longctx_lostmiddle_active_label_2",
+          "oracle_longctx_lostmiddle_palette_pipeline_4"
+        ],
+        "multi_file_synthesis": [
+          "oracle_longctx_synth_synth_debug_evidence_3",
+          "oracle_longctx_synth_synth_namespace_hooks_2",
+          "oracle_longctx_synth_synth_gate_reason_3",
+          "oracle_longctx_synth_synth_debug_evidence_4"
+        ],
+        "tool_transcript_grounding": [
+          "oracle_longctx_transcript_tx_scrolls_4",
+          "oracle_longctx_transcript_tx_gate_14b_3",
+          "oracle_longctx_transcript_tx_gate_14b_3",
+          "oracle_longctx_transcript_tx_code_red_1"
+        ]
+      },
+      "name": "oracle_longctx_v1",
+      "parse_errors": [],
+      "path": "/Users/scawful/src/training/datasets/oracle_longctx_v1",
+      "prompt_duplicate_rows": 384,
+      "prompt_family_clusters": [
+        {
+          "buckets": {
+            "lost_in_middle": 5
+          },
+          "count": 5,
+          "prompt_preview": "Use only the context below.  [Noise] Front-loaded notes discuss old smoke tests and stale launch commands.  [Middle evidence] CODE RED means repro-state integrity failed, so save-s",
+          "sample_ids": [
+            "oracle_longctx_lostmiddle_code_red_3",
+            "oracle_longctx_lostmiddle_code_red_3",
+            "oracle_longctx_lostmiddle_code_red_3",
+            "oracle_longctx_lostmiddle_code_red_3",
+            "oracle_longctx_lostmiddle_code_red_3"
+          ],
+          "splits": {
+            "train": 5
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "lost_in_middle": 5
+          },
+          "count": 5,
+          "prompt_preview": "Use only the context below.  [Noise] Older export notes, benchmark scraps, and unrelated rollout reminders appear first.  [Middle evidence] ZSCustomOverworld chooses the area's bas",
+          "sample_ids": [
+            "oracle_longctx_lostmiddle_palette_pipeline_1",
+            "oracle_longctx_lostmiddle_palette_pipeline_1",
+            "oracle_longctx_lostmiddle_palette_pipeline_1",
+            "oracle_longctx_lostmiddle_palette_pipeline_1",
+            "oracle_longctx_lostmiddle_palette_pipeline_1"
+          ],
+          "splits": {
+            "train": 5
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "lost_in_middle": 5
+          },
+          "count": 5,
+          "prompt_preview": "Use only the context below.  [Noise] Legacy router notes and archived quantization chatter appear first but do not answer the question.  [Middle evidence] If an Oracle doc shows bo",
+          "sample_ids": [
+            "oracle_longctx_lostmiddle_active_label_2",
+            "oracle_longctx_lostmiddle_active_label_2",
+            "oracle_longctx_lostmiddle_active_label_2",
+            "oracle_longctx_lostmiddle_active_label_2",
+            "oracle_longctx_lostmiddle_active_label_2"
+          ],
+          "splits": {
+            "train": 5
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "lost_in_middle": 5
+          },
+          "count": 5,
+          "prompt_preview": "Use only the context below.  [Noise] The first section is intentionally distracting and not relevant to the answer.  [Middle evidence] ZSCustomOverworld chooses the area's base pal",
+          "sample_ids": [
+            "oracle_longctx_lostmiddle_palette_pipeline_4",
+            "oracle_longctx_lostmiddle_palette_pipeline_4",
+            "oracle_longctx_lostmiddle_palette_pipeline_4",
+            "oracle_longctx_lostmiddle_palette_pipeline_4",
+            "oracle_longctx_lostmiddle_palette_pipeline_4"
+          ],
+          "splits": {
+            "train": 5
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "lost_in_middle": 5
+          },
+          "count": 5,
+          "prompt_preview": "Use only the context below.  [Noise] Legacy router notes and archived quantization chatter appear first but do not answer the question.  [Middle evidence] CODE RED means repro-stat",
+          "sample_ids": [
+            "oracle_longctx_lostmiddle_code_red_2",
+            "oracle_longctx_lostmiddle_code_red_2",
+            "oracle_longctx_lostmiddle_code_red_2",
+            "oracle_longctx_lostmiddle_code_red_2",
+            "oracle_longctx_lostmiddle_code_red_2"
+          ],
+          "splits": {
+            "train": 5
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "lost_in_middle": 5
+          },
+          "count": 5,
+          "prompt_preview": "Use only the context below.  [Noise] The first section is intentionally distracting and not relevant to the answer.  [Middle evidence] The advanced ZScream docs describe a transiti",
+          "sample_ids": [
+            "oracle_longctx_lostmiddle_transgfx_cache_4",
+            "oracle_longctx_lostmiddle_transgfx_cache_4",
+            "oracle_longctx_lostmiddle_transgfx_cache_4",
+            "oracle_longctx_lostmiddle_transgfx_cache_4",
+            "oracle_longctx_lostmiddle_transgfx_cache_4"
+          ],
+          "splits": {
+            "train": 5
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "lost_in_middle": 5
+          },
+          "count": 5,
+          "prompt_preview": "Use only the context below.  [Noise] The first section is intentionally distracting and not relevant to the answer.  [Middle evidence] The repurposed SRAM block carries Oracle coll",
+          "sample_ids": [
+            "oracle_longctx_lostmiddle_scrolls_bitfield_4",
+            "oracle_longctx_lostmiddle_scrolls_bitfield_4",
+            "oracle_longctx_lostmiddle_scrolls_bitfield_4",
+            "oracle_longctx_lostmiddle_scrolls_bitfield_4",
+            "oracle_longctx_lostmiddle_scrolls_bitfield_4"
+          ],
+          "splits": {
+            "train": 5
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "lost_in_middle": 5
+          },
+          "count": 5,
+          "prompt_preview": "Use only the context below.  [Noise] Legacy router notes and archived quantization chatter appear first but do not answer the question.  [Middle evidence] The repurposed SRAM block",
+          "sample_ids": [
+            "oracle_longctx_lostmiddle_scrolls_bitfield_2",
+            "oracle_longctx_lostmiddle_scrolls_bitfield_2",
+            "oracle_longctx_lostmiddle_scrolls_bitfield_2",
+            "oracle_longctx_lostmiddle_scrolls_bitfield_2",
+            "oracle_longctx_lostmiddle_scrolls_bitfield_2"
+          ],
+          "splits": {
+            "train": 5
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "lost_in_middle": 5
+          },
+          "count": 5,
+          "prompt_preview": "Use only the context below.  [Noise] The first section is intentionally distracting and not relevant to the answer.  [Middle evidence] If an Oracle doc shows both an active label a",
+          "sample_ids": [
+            "oracle_longctx_lostmiddle_active_label_4",
+            "oracle_longctx_lostmiddle_active_label_4",
+            "oracle_longctx_lostmiddle_active_label_4",
+            "oracle_longctx_lostmiddle_active_label_4",
+            "oracle_longctx_lostmiddle_active_label_4"
+          ],
+          "splits": {
+            "train": 5
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "lost_in_middle": 5
+          },
+          "count": 5,
+          "prompt_preview": "Use only the context below.  [Noise] The first section is intentionally distracting and not relevant to the answer.  [Middle evidence] CODE RED means repro-state integrity failed, ",
+          "sample_ids": [
+            "oracle_longctx_lostmiddle_code_red_4",
+            "oracle_longctx_lostmiddle_code_red_4",
+            "oracle_longctx_lostmiddle_code_red_4",
+            "oracle_longctx_lostmiddle_code_red_4",
+            "oracle_longctx_lostmiddle_code_red_4"
+          ],
+          "splits": {
+            "train": 5
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "lost_in_middle": 5
+          },
+          "count": 5,
+          "prompt_preview": "Use only the context below.  [Noise] Front-loaded notes discuss old smoke tests and stale launch commands.  [Middle evidence] The smaller corrective should stay on the critical pat",
+          "sample_ids": [
+            "oracle_longctx_lostmiddle_gate_14b_3",
+            "oracle_longctx_lostmiddle_gate_14b_3",
+            "oracle_longctx_lostmiddle_gate_14b_3",
+            "oracle_longctx_lostmiddle_gate_14b_3",
+            "oracle_longctx_lostmiddle_gate_14b_3"
+          ],
+          "splits": {
+            "train": 5
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "lost_in_middle": 5
+          },
+          "count": 5,
+          "prompt_preview": "Use only the context below.  [Noise] Legacy router notes and archived quantization chatter appear first but do not answer the question.  [Middle evidence] The local Oracle model sh",
+          "sample_ids": [
+            "oracle_longctx_lostmiddle_identity_2",
+            "oracle_longctx_lostmiddle_identity_2",
+            "oracle_longctx_lostmiddle_identity_2",
+            "oracle_longctx_lostmiddle_identity_2",
+            "oracle_longctx_lostmiddle_identity_2"
+          ],
+          "splits": {
+            "train": 5
+          },
+          "unique_prompts": 1
+        }
+      ],
+      "role_counts": {
+        "unspecified": 544
+      },
+      "rows": 544,
+      "split_content_overlaps": {
+        "train/test": 0,
+        "train/val": 0,
+        "val/test": 0
+      },
+      "split_counts": {
+        "test": 16,
+        "train": 512,
+        "val": 16
+      },
+      "split_prompt_overlaps": {
+        "train/test": 0,
+        "train/val": 0,
+        "val/test": 0
+      },
+      "style_counts": {
+        "unspecified": 544
+      },
+      "tool_surfaces": {
+        "prose-only": 496,
+        "prose-tool-context": 48
+      },
+      "unique_answers": 30,
+      "unique_content": 160,
+      "unique_prompts": 160
+    },
+    {
+      "bucket_counts": {
+        "grounding": 104,
+        "lost_middle": 168,
+        "multifile_synthesis": 136,
+        "tool_transcripts": 136
+      },
+      "bucket_unique_counts": {
+        "grounding": 40,
+        "lost_middle": 40,
+        "multifile_synthesis": 40,
+        "tool_transcripts": 40
+      },
+      "content_duplicate_rows": 384,
+      "eval_answer_overlaps": {},
+      "eval_prompt_overlaps": {},
+      "examples_by_bucket": {
+        "grounding": [
+          "train.jsonl:9",
+          "train.jsonl:12",
+          "train.jsonl:17",
+          "train.jsonl:24"
+        ],
+        "lost_middle": [
+          "train.jsonl:1",
+          "train.jsonl:2",
+          "train.jsonl:11",
+          "train.jsonl:16"
+        ],
+        "multifile_synthesis": [
+          "train.jsonl:4",
+          "train.jsonl:5",
+          "train.jsonl:6",
+          "train.jsonl:10"
+        ],
+        "tool_transcripts": [
+          "train.jsonl:3",
+          "train.jsonl:7",
+          "train.jsonl:8",
+          "train.jsonl:14"
+        ]
+      },
+      "name": "oracle_longctx_dpo_v1",
+      "parse_errors": [],
+      "path": "/Users/scawful/src/training/datasets/oracle_longctx_dpo_v1",
+      "prompt_duplicate_rows": 384,
+      "prompt_family_clusters": [
+        {
+          "buckets": {
+            "lost_middle": 5
+          },
+          "count": 5,
+          "prompt_preview": "Use only the context below.  [Noise] Front-loaded notes discuss old smoke tests and stale launch commands.  [Middle evidence] CODE RED means repro-state integrity failed, so save-s",
+          "sample_ids": [
+            "train.jsonl:1",
+            "train.jsonl:246",
+            "train.jsonl:328",
+            "train.jsonl:383",
+            "train.jsonl:442"
+          ],
+          "splits": {
+            "train": 5
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "lost_middle": 5
+          },
+          "count": 5,
+          "prompt_preview": "Use only the context below.  [Noise] Older export notes, benchmark scraps, and unrelated rollout reminders appear first.  [Middle evidence] ZSCustomOverworld chooses the area's bas",
+          "sample_ids": [
+            "train.jsonl:2",
+            "train.jsonl:245",
+            "train.jsonl:284",
+            "train.jsonl:297",
+            "train.jsonl:332"
+          ],
+          "splits": {
+            "train": 5
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "lost_middle": 5
+          },
+          "count": 5,
+          "prompt_preview": "Use only the context below.  [Noise] The first section is intentionally distracting and not relevant to the answer.  [Middle evidence] The advanced ZScream docs describe a transiti",
+          "sample_ids": [
+            "train.jsonl:11",
+            "train.jsonl:124",
+            "train.jsonl:158",
+            "train.jsonl:209",
+            "train.jsonl:277"
+          ],
+          "splits": {
+            "train": 5
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "lost_middle": 5
+          },
+          "count": 5,
+          "prompt_preview": "Use only the context below.  [Noise] Front-loaded notes discuss old smoke tests and stale launch commands.  [Middle evidence] The smaller corrective should stay on the critical pat",
+          "sample_ids": [
+            "train.jsonl:16",
+            "train.jsonl:19",
+            "train.jsonl:255",
+            "train.jsonl:376",
+            "train.jsonl:448"
+          ],
+          "splits": {
+            "train": 5
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "lost_middle": 5
+          },
+          "count": 5,
+          "prompt_preview": "Use only the context below.  [Noise] Older export notes, benchmark scraps, and unrelated rollout reminders appear first.  [Middle evidence] If an Oracle doc shows both an active la",
+          "sample_ids": [
+            "train.jsonl:22",
+            "train.jsonl:127",
+            "train.jsonl:128",
+            "train.jsonl:154",
+            "train.jsonl:359"
+          ],
+          "splits": {
+            "train": 5
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "lost_middle": 5
+          },
+          "count": 5,
+          "prompt_preview": "Use only the context below.  [Noise] Front-loaded notes discuss old smoke tests and stale launch commands.  [Middle evidence] If an Oracle doc shows both an active label and an `UN",
+          "sample_ids": [
+            "train.jsonl:26",
+            "train.jsonl:48",
+            "train.jsonl:87",
+            "train.jsonl:93",
+            "train.jsonl:365"
+          ],
+          "splits": {
+            "train": 5
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "lost_middle": 5
+          },
+          "count": 5,
+          "prompt_preview": "Use only the context below.  [Noise] Legacy router notes and archived quantization chatter appear first but do not answer the question.  [Middle evidence] The smaller corrective sh",
+          "sample_ids": [
+            "train.jsonl:27",
+            "train.jsonl:56",
+            "train.jsonl:330",
+            "train.jsonl:401",
+            "train.jsonl:433"
+          ],
+          "splits": {
+            "train": 5
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "lost_middle": 5
+          },
+          "count": 5,
+          "prompt_preview": "Use only the context below.  [Noise] Front-loaded notes discuss old smoke tests and stale launch commands.  [Middle evidence] ZSCustomOverworld chooses the area's base palette, ove",
+          "sample_ids": [
+            "train.jsonl:33",
+            "train.jsonl:210",
+            "train.jsonl:262",
+            "train.jsonl:361",
+            "train.jsonl:487"
+          ],
+          "splits": {
+            "train": 5
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "lost_middle": 5
+          },
+          "count": 5,
+          "prompt_preview": "Use only the context below.  [Noise] Legacy router notes and archived quantization chatter appear first but do not answer the question.  [Middle evidence] ZSCustomOverworld chooses",
+          "sample_ids": [
+            "train.jsonl:36",
+            "train.jsonl:117",
+            "train.jsonl:296",
+            "train.jsonl:398",
+            "train.jsonl:400"
+          ],
+          "splits": {
+            "train": 5
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "lost_middle": 5
+          },
+          "count": 5,
+          "prompt_preview": "Use only the context below.  [Noise] Front-loaded notes discuss old smoke tests and stale launch commands.  [Middle evidence] The repurposed SRAM block carries Oracle collectibles ",
+          "sample_ids": [
+            "train.jsonl:42",
+            "train.jsonl:169",
+            "train.jsonl:270",
+            "train.jsonl:440",
+            "train.jsonl:468"
+          ],
+          "splits": {
+            "train": 5
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "lost_middle": 5
+          },
+          "count": 5,
+          "prompt_preview": "Use only the context below.  [Noise] Older export notes, benchmark scraps, and unrelated rollout reminders appear first.  [Middle evidence] The repurposed SRAM block carries Oracle",
+          "sample_ids": [
+            "train.jsonl:44",
+            "train.jsonl:187",
+            "train.jsonl:287",
+            "train.jsonl:294",
+            "train.jsonl:436"
+          ],
+          "splits": {
+            "train": 5
+          },
+          "unique_prompts": 1
+        },
+        {
+          "buckets": {
+            "lost_middle": 5
+          },
+          "count": 5,
+          "prompt_preview": "Use only the context below.  [Noise] Front-loaded notes discuss old smoke tests and stale launch commands.  [Middle evidence] The local Oracle model should not drift into claiming ",
+          "sample_ids": [
+            "train.jsonl:50",
+            "train.jsonl:179",
+            "train.jsonl:263",
+            "train.jsonl:437",
+            "train.jsonl:474"
+          ],
+          "splits": {
+            "train": 5
+          },
+          "unique_prompts": 1
+        }
+      ],
+      "role_counts": {
+        "unspecified": 544
+      },
+      "rows": 544,
+      "split_content_overlaps": {
+        "train/test": 0,
+        "train/val": 0,
+        "val/test": 0
+      },
+      "split_counts": {
+        "test": 16,
+        "train": 512,
+        "val": 16
+      },
+      "split_prompt_overlaps": {
+        "train/test": 0,
+        "train/val": 0,
+        "val/test": 0
+      },
+      "style_counts": {
+        "unspecified": 544
+      },
+      "tool_surfaces": {
+        "prose-only": 496,
+        "prose-tool-context": 48
+      },
+      "unique_answers": 40,
+      "unique_content": 160,
+      "unique_prompts": 160
+    }
+  ],
+  "eval_files": [
+    "evals/oracle-tools-7b_eval_20260117_224428.jsonl",
+    "evals/oracle-tools-7b_eval_v2_20260117_230233.jsonl",
+    "evals/oracle-tools-7b_eval_v3_20260117_231101.jsonl",
+    "evals/oracle_agent_eval_v1.jsonl",
+    "evals/oracle_code_repair_eval_v1.jsonl",
+    "evals/oracle_code_repair_eval_v2.jsonl",
+    "evals/oracle_compile_grounding_eval_v1.jsonl",
+    "evals/oracle_compile_grounding_eval_v2.jsonl",
+    "evals/oracle_compile_hard_eval_v1.jsonl",
+    "evals/oracle_harness_awareness_eval_v1.jsonl",
+    "evals/oracle_longctx_eval_v1.jsonl",
+    "evals/oracle_longctx_preference_eval_v1.jsonl",
+    "evals/oracle_main_capability_eval_v1.jsonl",
+    "evals/oracle_main_grounded_eval_v1.jsonl",
+    "evals/oracle_main_grounded_eval_v2.jsonl",
+    "evals/oracle_oos_hook_data_boundary_eval_v1.jsonl",
+    "evals/oracle_oos_knowledge_eval_v1.jsonl",
+    "evals/oracle_oos_subsystem_maps_eval_v1.jsonl",
+    "evals/oracle_repo_retrieval_eval_v1.jsonl",
+    "evals/oracle_repo_retrieval_eval_v2.jsonl",
+    "evals/oracle_tool_use_eval_v1.jsonl",
+    "evals/oracle_tools_eval_v1.jsonl",
+    "evals/oracle_tools_eval_v2.jsonl"
+  ],
+  "findings": [
+    "`qwen3_oracle_14b_v7` is heavily weighted by duplication (178/201 duplicate rows, 88.6%). Keep this only when each weight maps to a measured failure bucket.",
+    "`qwen3_oracle_14b_v7` has tiny validation/test splits (val 1, test 1); treat them as smoke checks, not promotion gates.",
+    "`qwen3_oracle_14b_v7` has no actual tool-call transcript rows. If this trains a tool-using Oracle lane, add deployed-format tool call/result/final-answer examples.",
+    "`qwen3_oracle_14b_v7` overlaps Oracle eval material (prompt rows 68, answer rows 402). Use those evals as regression checks and keep a fresh holdout for promotion.",
+    "`oracle_repo_code_v3` is heavily weighted by duplication (1094/1296 duplicate rows, 84.4%). Keep this only when each weight maps to a measured failure bucket.",
+    "`oracle_repo_code_v3` has no actual tool-call transcript rows. If this trains a tool-using Oracle lane, add deployed-format tool call/result/final-answer examples.",
+    "`oracle_repo_code_v3` overlaps Oracle eval material (prompt rows 428, answer rows 96). Use those evals as regression checks and keep a fresh holdout for promotion.",
+    "`oracle_fast_4b_candidate_v1` is heavily weighted by duplication (1799/2049 duplicate rows, 87.8%). Keep this only when each weight maps to a measured failure bucket.",
+    "`oracle_9b_candidate_v1` overlaps Oracle eval material (prompt rows 4823, answer rows 4352). Use those evals as regression checks and keep a fresh holdout for promotion.",
+    "`oracle_longctx_v1` is heavily weighted by duplication (384/544 duplicate rows, 70.6%). Keep this only when each weight maps to a measured failure bucket.",
+    "`oracle_longctx_v1` has no actual tool-call transcript rows. If this trains a tool-using Oracle lane, add deployed-format tool call/result/final-answer examples.",
+    "`oracle_longctx_dpo_v1` is heavily weighted by duplication (384/544 duplicate rows, 70.6%). Keep this only when each weight maps to a measured failure bucket.",
+    "`oracle_longctx_dpo_v1` has no actual tool-call transcript rows. If this trains a tool-using Oracle lane, add deployed-format tool call/result/final-answer examples."
+  ],
+  "training_root": "/Users/scawful/src/training"
+}

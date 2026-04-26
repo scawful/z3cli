@@ -2,7 +2,7 @@
 
 The Python backend for the Ink UI speaks **newline-delimited JSON-RPC** on **stdio** (`z3cli --serve`). iOS cannot attach to that directly, so this repo adds **`z3cli --bridge`**: a small process that accepts **WebSocket** connections and proxies **one text frame ↔ one NDJSON line** to a child `z3cli --serve` process.
 
-Implementation: [`z3cli/app/ws_bridge.py`](../../z3cli/app/ws_bridge.py). Entry: [`z3cli/__main__.py`](../../z3cli/__main__.py) (`--bridge`).
+Implementation: [`src/app/ws_bridge.py`](../../src/app/ws_bridge.py). Entry: [`z3cli.py`](../../z3cli.py) (`python -m z3cli --bridge`) or [`src/app/__main__.py`](../../src/app/__main__.py) (`PYTHONPATH=src python -m app --bridge`).
 
 ## Install
 

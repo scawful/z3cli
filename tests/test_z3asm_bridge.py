@@ -11,8 +11,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from z3cli.core.rom_project import RomProject
-from z3cli.protocol.z3asm_bridge import Z3asmBridge
+from core.rom_project import RomProject
+from protocol.z3asm_bridge import Z3asmBridge
 
 
 def _write_stub(target: Path, body: str) -> None:

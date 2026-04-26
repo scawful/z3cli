@@ -9,71 +9,134 @@ import {
 } from "../utils/models.js";
 
 // ---------------------------------------------------------------------------
-// Palettes
+// Palettes — each theme is a *place* in the Oracle universe with its own
+// chrome (primary/accent/text/borders). Goddess colors stay semantic and
+// don't vary per theme — they identify models, servers, and modes.
 // ---------------------------------------------------------------------------
 
-const palettes = {
-  gold: {
-    primary: "#FFD700",
-    accent: "#FFD700",
+interface Palette {
+  primary: string;       // brand accent / triforce
+  accent: string;        // secondary accent
+  text: string;          // main text color
+  dim: string;           // separators, soft secondary text
+  muted: string;         // labels, third-tier text
+  borderRest: string;    // default chrome border
+  borderActive: string;  // hovered/focused border
+  heartFull: string;     // context-window hearts when healthy
+}
+
+const themes: Record<string, Palette> = {
+  // Default — warm gold parchment, the home castle palette.
+  hyrule: {
+    primary:      "#FFD700",
+    accent:       "#F59E0B",
+    text:         "#E5E7EB",
+    dim:          "#6B7280",
+    muted:        "#9CA3AF",
+    borderRest:   "#FFD700",
+    borderActive: "#FBBF24",
+    heartFull:    "#EF4444",
   },
-  green: {
-    primary: "#22C55E",
-    accent: "#22C55E",
+  // Volcanic underground — ember reds and lava oranges. Dim/muted are
+  // warm-tinted neutrals (not raw red-700/red-900) so secondary text and
+  // separators stay legible on dark terminals.
+  subrosia: {
+    primary:      "#EF4444",
+    accent:       "#F97316",
+    text:         "#FED7AA",
+    dim:          "#8C6F6F",
+    muted:        "#C5A5A5",
+    borderRest:   "#DC2626",
+    borderActive: "#FCA5A5",
+    heartFull:    "#FBBF24",
   },
-  red: {
-    primary: "#EF4444",
-    accent: "#EF4444",
+  // Time-traveler's land — calm teal / nayru blue.
+  labrynna: {
+    primary:      "#3B82F6",
+    accent:       "#14B8A6",
+    text:         "#DBEAFE",
+    dim:          "#475569",
+    muted:        "#64748B",
+    borderRest:   "#2563EB",
+    borderActive: "#93C5FD",
+    heartFull:    "#FBBF24",
   },
-  blue: {
-    primary: "#3B82F6",
-    accent: "#3B82F6",
+  // Twilight realm — veran purple, shadow orange. Dim/muted are cool
+  // purple-tinted neutrals (not raw violet-900/violet-600) so secondary text
+  // and separators stay legible on dark terminals.
+  twilight: {
+    primary:      "#8B5CF6",
+    accent:       "#F97316",
+    text:         "#E9D5FF",
+    dim:          "#6B6584",
+    muted:        "#9C90B5",
+    borderRest:   "#7C3AED",
+    borderActive: "#C4B5FD",
+    heartFull:    "#F97316",
   },
 };
 
-export function getThemeColors(theme: string = "gold") {
-  const p = (palettes as any)[theme] || palettes.gold;
+// Legacy theme names map to their nearest new equivalent. Keeps saved
+// `~/.config/z3cli/ui-settings.json` files working through one release.
+const themeAliases: Record<string, keyof typeof themes> = {
+  gold:  "hyrule",
+  red:   "subrosia",
+  blue:  "labrynna",
+  green: "labrynna",
+};
+
+export const THEME_NAMES = ["hyrule", "subrosia", "labrynna", "twilight"] as const;
+export type ThemeName = (typeof THEME_NAMES)[number];
+
+export function resolveThemeName(name: string): ThemeName {
+  if ((THEME_NAMES as readonly string[]).includes(name)) return name as ThemeName;
+  return (themeAliases[name] as ThemeName | undefined) ?? "hyrule";
+}
+
+export function getThemeColors(theme: string = "hyrule") {
+  const p = themes[resolveThemeName(theme)]!;
   return {
-    // The three goddesses
+    // The three goddesses (semantic — never vary per theme)
     din: "#EF4444",        // red — power, optimization
     nayru: "#3B82F6",      // blue — wisdom, explanation
-    farore: "#22C55E",     // green — courage, autocomplete
+    farore: "#22C55E",     // green — courage (semantic; broadcast/build mode + hyrule-historian server)
 
-    // Oracle pantheon
+    // Helpers + Oracle pantheon (semantic — never vary per theme)
+    navi: "#4FCFFF",       // cyan — fairy glow, FIM/autocomplete/quick-debug helper
     veran: "#8B5CF6",      // purple — sorceress of shadows
     majora: "#F97316",     // orange — mask of chaos
     hylia: "#EC4899",      // pink — golden goddess
     oracleTools: "#FBBF24", // amber — tool-calling
 
-    // Theme primary
-    triforce: p.primary,
-    accent: p.accent,
+    // Theme chrome (varies per theme)
+    triforce:     p.primary,
+    accent:       p.accent,
+    border:       p.borderRest,
+    borderActive: p.borderActive,
+    text:         p.text,
+    dim:          p.dim,
+    muted:        p.muted,
 
-    // UI chrome
-    border: p.primary,
-    borderActive: p.primary,
+    // Status (semantic)
     success: "#22C55E",
-    error: "#EF4444",
+    error:   "#EF4444",
     warning: "#F59E0B",
-    dim: "#6B7280",
-    text: "#E5E7EB",
-    muted: "#9CA3AF",
 
-    // Roles
-    user: "#5EEAD4",
+    // Roles (semantic)
+    user:      "#5EEAD4",
     assistant: "#A78BFA",
-    system: "#6B7280",
-    tool: "#FBBF24",
+    system:    "#6B7280",
+    tool:      "#FBBF24",
 
     // Hearts (context)
-    heartFull: "#EF4444",
-    heartLow: "#F59E0B",
+    heartFull:  p.heartFull,
+    heartLow:   "#F59E0B",
     heartEmpty: "#4B5563",
 
-    // Rupees (tokens)
+    // Rupees (token counter — semantic by amount)
     rupeeGreen: "#22C55E",
-    rupeeBlue: "#3B82F6",
-    rupeeRed: "#EF4444",
+    rupeeBlue:  "#3B82F6",
+    rupeeRed:   "#EF4444",
 
     // Hex addresses
     address: p.primary,
@@ -81,7 +144,7 @@ export function getThemeColors(theme: string = "gold") {
 }
 
 // Default export for backward compatibility
-export const colors = getThemeColors("gold");
+export const colors = getThemeColors("hyrule");
 
 // ---------------------------------------------------------------------------
 // Zelda symbols
@@ -141,23 +204,37 @@ export function toolSymbol(name: string): string {
 const exactModelColorMap: Record<string, string> = {
   din: colors.din,
   nayru: colors.nayru,
-  farore: colors.farore,
+  "nayru-q8": colors.nayru,
+  navi: colors.navi,
+  "navi-q4km": colors.navi,
+  "navi-q8": colors.navi,
+  farore: colors.navi,        // back-compat alias of navi
+  "farore-q4km": colors.navi, // back-compat alias of navi-q4km
+  "farore-q8": colors.navi,   // back-compat alias of navi
   veran: colors.veran,
   majora: colors.majora,
   hylia: colors.hylia,
   oracle: colors.nayru,
   "oracle-fast": colors.oracleTools,
+  "oracle-qwen35-9b": colors.nayru,
 };
 
 const exactModelSymbolMap: Record<string, string> = {
   din: symbols.triforce,
   nayru: symbols.crystal,
+  "nayru-q8": symbols.crystal,
+  navi: symbols.pendant,
+  "navi-q4km": symbols.pendant,
+  "navi-q8": symbols.pendant,
   farore: symbols.pendant,
+  "farore-q4km": symbols.pendant,
+  "farore-q8": symbols.pendant,
   veran: symbols.crystal,
   majora: symbols.shield,
   hylia: symbols.pendant,
   oracle: symbols.compass,
   "oracle-fast": symbols.sword,
+  "oracle-qwen35-9b": symbols.compass,
 };
 const ORACLE_MODE_LEGACY_ALIASES = new Set(["oracle-main", "switchhook"]);
 
@@ -165,12 +242,19 @@ export function modelColor(name: string, c: any = colors): string {
   const exactModelColorMap: Record<string, string> = {
     din: c.din,
     nayru: c.nayru,
-    farore: c.farore,
+    "nayru-q8": c.nayru,
+    navi: c.navi,
+    "navi-q4km": c.navi,
+    "navi-q8": c.navi,
+    farore: c.navi,
+    "farore-q4km": c.navi,
+    "farore-q8": c.navi,
     veran: c.veran,
     majora: c.majora,
     hylia: c.hylia,
     oracle: c.nayru,
     "oracle-fast": c.oracleTools,
+    "oracle-qwen35-9b": c.nayru,
   };
 
   const lowered = normalizeModelName(name);
@@ -199,12 +283,19 @@ export function modelSymbol(name: string): string {
   const exactModelSymbolMap: Record<string, string> = {
     din: symbols.triforce,
     nayru: symbols.crystal,
+    "nayru-q8": symbols.crystal,
+    navi: symbols.pendant,
+    "navi-q4km": symbols.pendant,
+    "navi-q8": symbols.pendant,
     farore: symbols.pendant,
+    "farore-q4km": symbols.pendant,
+    "farore-q8": symbols.pendant,
     veran: symbols.crystal,
     majora: symbols.shield,
     hylia: symbols.pendant,
     oracle: symbols.compass,
     "oracle-fast": symbols.sword,
+    "oracle-qwen35-9b": symbols.compass,
   };
 
   const lowered = normalizeModelName(name);

@@ -1,6 +1,6 @@
 """Bridge CLI argument parsing (no network)."""
 
-from z3cli.app.ws_bridge import parse_bridge_args
+from app.ws_bridge import parse_bridge_args
 
 
 def test_parse_bridge_defaults() -> None:

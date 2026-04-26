@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from z3cli.core.asm_workflow import AsmPatchInput, AsmPatchResult, AssertionOutcome
+from core.asm_workflow import AsmPatchInput, AsmPatchResult, AssertionOutcome
 
 
 class AsmPatchInputTests(unittest.TestCase):

@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from z3cli.app.verify import VerificationCommand, run_verification_hooks, select_verification_commands
+from app.verify import VerificationCommand, run_verification_hooks, select_verification_commands
 
 
 class _FakeToolBridge:
@@ -80,21 +80,21 @@ class VerifyHookTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp)
             (workspace / "pyproject.toml").write_text("[project]\nname='z3cli'\n", encoding="utf-8")
-            live = workspace / "z3cli" / "app" / "serve.py"
+            live = workspace / "src" / "app" / "serve.py"
             live.parent.mkdir(parents=True, exist_ok=True)
             live.write_text("print('ok')\n", encoding="utf-8")
 
             commands = select_verification_commands(
                 workspace,
                 [
-                    workspace / "z3cli" / "app" / "gone.py",
+                    workspace / "src" / "app" / "gone.py",
                     live,
                 ],
             )
             compile_cmd = next(command for command in commands if command.display.startswith("python3 -m py_compile"))
 
-            self.assertIn("z3cli/app/serve.py", compile_cmd.display)
-            self.assertNotIn("z3cli/app/gone.py", compile_cmd.display)
+            self.assertIn("src/app/serve.py", compile_cmd.display)
+            self.assertNotIn("src/app/gone.py", compile_cmd.display)
 
     def test_select_verification_commands_adds_asm_lint_when_tool_is_available(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -167,9 +167,9 @@ class VerifyHookTimeoutTests(unittest.IsolatedAsyncioTestCase):
         async def fake_create_subprocess_exec(*args, **kwargs):  # type: ignore[no-untyped-def]
             return fake_proc
 
-        with patch("z3cli.app.verify.select_verification_commands", return_value=[
+        with patch("app.verify.select_verification_commands", return_value=[
             VerificationCommand(["python3", "-m", "py_compile", "main.py"], cwd=workspace, timeout_s=0.01),
-        ]), patch("z3cli.app.verify.asyncio.create_subprocess_exec", side_effect=fake_create_subprocess_exec):
+        ]), patch("app.verify.asyncio.create_subprocess_exec", side_effect=fake_create_subprocess_exec):
             summary = await run_verification_hooks(workspace, [workspace / "main.py"])
 
         self.assertTrue(fake_proc.killed)

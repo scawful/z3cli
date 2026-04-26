@@ -49,7 +49,7 @@ test("filterFiles prioritizes basename and prefix matches", () => {
   const files = [
     "frontend/src/components/PromptInput.tsx",
     "frontend/src/components/PermissionDialog.tsx",
-    "z3cli/app/serve.py",
+    "src/app/serve.py",
   ];
   const filtered = filterFiles(files, "pr");
   assert.equal(filtered[0], "frontend/src/components/PromptInput.tsx");

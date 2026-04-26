@@ -290,6 +290,308 @@ test("dispatchCommand formats loaded model details", async () => {
   assert.match(messages[0] ?? "", /8\.87 GiB/);
 });
 
+test("dispatchCommand renders /models catalog from config", async () => {
+  const messages: string[] = [];
+
+  await dispatchCommand("/models", ["catalog"], {
+    config: {
+      version: "0.2.0-test",
+      backend: "studio",
+      activeModel: "oracle-pro",
+      mode: "manual",
+      workspace: "/tmp",
+      romPath: "",
+      toolsEnabled: true,
+      servers: [],
+      toolCount: 0,
+      warnings: [],
+      models: [],
+      modelCatalog: [
+        {
+          name: "oracle-pro",
+          modelId: "gguf/zelda/qwen3-oracle-14b-v8-q4km.gguf",
+          role: "pro",
+          loaded: true,
+          toolsEnabled: true,
+        },
+      ],
+      sessionPath: "",
+    },
+    settings: {} as any,
+    addSystemMessage: (content: string) => {
+      messages.push(content);
+    },
+    replaceMessages: () => {},
+    replaceSubagents: () => {},
+    updateConfig: () => {},
+    sendCommand: async () => {
+      throw new Error("catalog should render from config");
+    },
+    sendMessage: async () => {},
+    setSetting: () => {},
+    resetSettings: () => {},
+    openSettings: () => {},
+    openHelp: () => {},
+    openSessionPicker: () => {},
+    exit: () => {},
+  });
+
+  assert.match(messages[0] ?? "", /Model Catalog/);
+  assert.match(messages[0] ?? "", /oracle-pro/);
+});
+
+test("dispatchCommand fetches /models routes from backend", async () => {
+  const messages: string[] = [];
+
+  await dispatchCommand("/models", ["routes"], {
+    config: {
+      version: "0.2.0-test",
+      backend: "studio",
+      activeModel: "oracle-pro",
+      mode: "manual",
+      workspace: "/tmp",
+      romPath: "",
+      toolsEnabled: true,
+      servers: [],
+      toolCount: 0,
+      warnings: [],
+      models: [],
+      sessionPath: "",
+    },
+    settings: {} as any,
+    addSystemMessage: (content: string) => {
+      messages.push(content);
+    },
+    replaceMessages: () => {},
+    replaceSubagents: () => {},
+    updateConfig: () => {},
+    sendCommand: async (cmd: string, args?: string[]) => {
+      assert.equal(cmd, "/models");
+      assert.deepEqual(args, ["routes"]);
+      return {
+        active: { backend: "studio", model: "oracle-pro" },
+        entries: [
+          {
+            name: "oracle-pro-5090",
+            backend: "studio",
+            model: "oracle-pro",
+            description: "Windows tunnel",
+            aliases: ["home", "pro"],
+          },
+        ],
+      };
+    },
+    sendMessage: async () => {},
+    setSetting: () => {},
+    resetSettings: () => {},
+    openSettings: () => {},
+    openHelp: () => {},
+    openSessionPicker: () => {},
+    exit: () => {},
+  });
+
+  assert.match(messages[0] ?? "", /Routes/);
+  assert.match(messages[0] ?? "", /oracle-pro-5090/);
+  assert.match(messages[0] ?? "", /aliases: `home`, `pro`/);
+});
+
+test("dispatchCommand shows immediate and final /use feedback", async () => {
+  const updates: Array<Record<string, unknown>> = [];
+  const messages: string[] = [];
+
+  await dispatchCommand("/use", ["home-ssh"], {
+    config: {
+      version: "0.2.0-test",
+      backend: "studio",
+      activeModel: "oracle",
+      mode: "manual",
+      workspace: "/tmp",
+      romPath: "",
+      toolsEnabled: true,
+      servers: [],
+      toolCount: 0,
+      warnings: [],
+      models: [],
+      sessionPath: "",
+    },
+    settings: {} as any,
+    addSystemMessage: (content: string) => {
+      messages.push(content);
+    },
+    replaceMessages: () => {},
+    replaceSubagents: () => {},
+    updateConfig: (patch) => {
+      updates.push(patch as Record<string, unknown>);
+    },
+    sendCommand: async (cmd: string, args?: string[]) => {
+      assert.equal(cmd, "/use");
+      assert.deepEqual(args, ["home-ssh"]);
+      return {
+        backend: "llamacpp",
+        model: "gguf/zelda/qwen3-oracle-14b-v8-q4km.gguf",
+        resolved: "oracle-pro-home-ssh",
+        llamacpp_node: "oracle-pro-home-ssh",
+      };
+    },
+    sendMessage: async () => {},
+    setSetting: () => {},
+    resetSettings: () => {},
+    openSettings: () => {},
+    openHelp: () => {},
+    openSessionPicker: () => {},
+    exit: () => {},
+  });
+
+  assert.match(messages[0] ?? "", /Switching route to \*\*home-ssh\*\*/);
+  assert.match(messages[1] ?? "", /Using \*\*oracle-pro-home-ssh\*\* via \*\*llamacpp\*\*/);
+  assert.deepEqual(updates, [{
+    backend: "llamacpp",
+    activeModel: "gguf/zelda/qwen3-oracle-14b-v8-q4km.gguf",
+  }]);
+});
+
+test("dispatchCommand renders /use route list payload", async () => {
+  const messages: string[] = [];
+
+  await dispatchCommand("/use", [], {
+    config: {
+      version: "0.2.0-test",
+      backend: "studio",
+      activeModel: "oracle",
+      mode: "manual",
+      workspace: "/tmp",
+      romPath: "",
+      toolsEnabled: true,
+      servers: [],
+      toolCount: 0,
+      warnings: [],
+      models: [],
+      sessionPath: "",
+    },
+    settings: {} as any,
+    addSystemMessage: (content: string) => {
+      messages.push(content);
+    },
+    replaceMessages: () => {},
+    replaceSubagents: () => {},
+    updateConfig: () => {},
+    sendCommand: async (cmd: string, args?: string[]) => {
+      assert.equal(cmd, "/use");
+      assert.deepEqual(args, []);
+      return {
+        active: { backend: "studio", model: "oracle" },
+        entries: [
+          { name: "oracle-pro-5090", backend: "studio", model: "oracle-pro", aliases: ["home"] },
+        ],
+      };
+    },
+    sendMessage: async () => {},
+    setSetting: () => {},
+    resetSettings: () => {},
+    openSettings: () => {},
+    openHelp: () => {},
+    openSessionPicker: () => {},
+    exit: () => {},
+  });
+
+  assert.match(messages[0] ?? "", /Routes/);
+  assert.match(messages[0] ?? "", /oracle-pro-5090/);
+});
+
+test("dispatchCommand handles canonical /route selection", async () => {
+  const updates: Array<Record<string, unknown>> = [];
+  const messages: string[] = [];
+
+  await dispatchCommand("/route", ["oracle-pro-5090"], {
+    config: {
+      version: "0.2.0-test",
+      backend: "studio",
+      activeModel: "oracle",
+      mode: "manual",
+      workspace: "/tmp",
+      romPath: "",
+      toolsEnabled: true,
+      servers: [],
+      toolCount: 0,
+      warnings: [],
+      models: [],
+      sessionPath: "",
+    },
+    settings: {} as any,
+    addSystemMessage: (content: string) => {
+      messages.push(content);
+    },
+    replaceMessages: () => {},
+    replaceSubagents: () => {},
+    updateConfig: (patch) => {
+      updates.push(patch as Record<string, unknown>);
+    },
+    sendCommand: async (cmd: string, args?: string[]) => {
+      assert.equal(cmd, "/route");
+      assert.deepEqual(args, ["oracle-pro-5090"]);
+      return {
+        backend: "studio",
+        model: "oracle-pro",
+        route: "oracle-pro-5090",
+        resolved: "oracle-pro-home",
+        studio_node: "oracle-pro-home",
+      };
+    },
+    sendMessage: async () => {},
+    setSetting: () => {},
+    resetSettings: () => {},
+    openSettings: () => {},
+    openHelp: () => {},
+    openSessionPicker: () => {},
+    exit: () => {},
+  });
+
+  assert.match(messages[0] ?? "", /Switching route to \*\*oracle-pro-5090\*\*/);
+  assert.match(messages[1] ?? "", /Route set to \*\*oracle-pro-5090\*\* via \*\*studio\*\*/);
+  assert.deepEqual(updates, [{
+    backend: "studio",
+    activeModel: "oracle-pro",
+  }]);
+});
+
+test("dispatchCommand formats smoke failures explicitly", async () => {
+  const messages: string[] = [];
+
+  await dispatchCommand("/smoke", ["home-ssh"], {
+    config: null,
+    settings: {} as any,
+    addSystemMessage: (content: string) => {
+      messages.push(content);
+    },
+    replaceMessages: () => {},
+    replaceSubagents: () => {},
+    updateConfig: () => {},
+    sendCommand: async (cmd: string, args?: string[]) => {
+      assert.equal(cmd, "/smoke");
+      assert.deepEqual(args, ["home-ssh"]);
+      return {
+        ok: false,
+        matched: false,
+        backend: "llamacpp",
+        node: "oracle-pro-home-ssh",
+        model: "gguf/zelda/qwen3-oracle-14b-v8-q4km.gguf",
+        error: "ssh failed",
+      };
+    },
+    sendMessage: async () => {},
+    setSetting: () => {},
+    resetSettings: () => {},
+    openSettings: () => {},
+    openHelp: () => {},
+    openSessionPicker: () => {},
+    exit: () => {},
+  });
+
+  assert.match(messages[0] ?? "", /Probing \*\*home-ssh\*\*/);
+  assert.match(messages[1] ?? "", /Smoke Failed/);
+  assert.match(messages[1] ?? "", /ssh failed/);
+});
+
 test("dispatchCommand reports unload results", async () => {
   const messages: string[] = [];
 
@@ -446,7 +748,7 @@ test("dispatchCommand rejects boolean-style values for enum settings", async () 
   });
 
   assert.deepEqual(setCalls, []);
-  assert.match(messages[0] ?? "", /Usage: `\/settings theme gold\|green\|red\|blue`/);
+  assert.match(messages[0] ?? "", /Usage: `\/settings theme hyrule\|subrosia\|labrynna\|twilight`/);
 });
 
 test("dispatchCommand applies enum settings with explicit values", async () => {

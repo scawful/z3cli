@@ -1,10 +1,13 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from z3cli.core.session import (
+from core.session import (
     Session,
+    default_session_dir,
     export_training,
     find_session,
     list_sessions,
@@ -14,6 +17,32 @@ from z3cli.core.session import (
 
 
 class SessionResumeTests(unittest.TestCase):
+    def test_default_session_dir_honors_env_overrides(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            override = root / "explicit-sessions"
+            with patch.dict(os.environ, {
+                "Z3CLI_SESSION_DIR": str(override),
+                "XDG_DATA_HOME": str(root / "xdg-ignored"),
+            }, clear=True):
+                self.assertEqual(default_session_dir(), override)
+                session = Session()
+                session.start(
+                    active_model="nayru",
+                    backend="studio",
+                    mode="manual",
+                    workspace="/tmp/ws",
+                    rom_path="",
+                    tools_enabled=True,
+                    broadcast_models=["nayru"],
+                )
+                self.assertEqual(session.path.parent, override)
+                session.close()
+
+            xdg = root / "xdg"
+            with patch.dict(os.environ, {"XDG_DATA_HOME": str(xdg)}, clear=True):
+                self.assertEqual(default_session_dir(), xdg / "z3cli" / "sessions")
+
     def test_load_session_bundle_restores_final_state_and_transcript(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             session = Session(Path(tmp))

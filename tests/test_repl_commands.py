@@ -8,11 +8,21 @@ from unittest.mock import AsyncMock, patch
 
 from rich.console import Console
 
-from z3cli.app.repl import AppState, _post_tool_hook, build_state, handle_command, send_prompt, stream_response
-from z3cli.app.shell_session import PersistentShellSession
-from z3cli.app.write_review import prepare_write_context
-from z3cli.core.config import LlamaCppNodeConfig, ModelConfig, RouterConfig, StudioNodeConfig
-from z3cli.core.engine import CompactionEvent, DoneEvent
+from app.repl import (
+    AppState,
+    _post_tool_hook,
+    build_state,
+    handle_command,
+    parse_args,
+    run_control_cli_command,
+    send_prompt,
+    stream_response,
+)
+from app.shell_session import PersistentShellSession
+from app.write_review import prepare_write_context
+from core.config import LlamaCppNodeConfig, ModelConfig, RouterConfig, StudioNodeConfig
+from core.engine import CompactionEvent, DoneEvent
+from core.subagent_bridge import LIST_TOOL_NAME, SPAWN_TOOL_NAME
 
 
 def _model(name: str, *, role: str = "", tool_profile: str = "") -> ModelConfig:
@@ -60,6 +70,20 @@ def _state() -> AppState:
 
 
 class ReplCommandTests(unittest.IsolatedAsyncioTestCase):
+    def test_parse_args_accepts_optional_smoke_target(self) -> None:
+        with patch.object(os.sys, "argv", ["z3cli", "--smoke", "home-ssh"]):
+            args = parse_args()
+
+        self.assertEqual(args.smoke, "home-ssh")
+        self.assertFalse(args.model_explicit)
+
+    def test_parse_args_accepts_route_subcommand(self) -> None:
+        with patch.object(os.sys, "argv", ["z3cli", "route", "list"]):
+            args = parse_args()
+
+        self.assertEqual(args.command_args, ["route", "list"])
+        self.assertFalse(args.model_explicit)
+
     async def test_build_state_applies_studio_node_model_on_startup(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -115,6 +139,7 @@ model_id = "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf"
                 list_models=False,
                 list_loaded=False,
                 status=False,
+                smoke=None,
                 route_only=False,
                 prompt="",
             )
@@ -125,6 +150,123 @@ model_id = "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf"
         self.assertEqual(state.backend_name, "studio")
         self.assertEqual(state.studio_api_base, "http://127.0.0.1:2234/v1")
         self.assertEqual(state.active_model, "oracle-pro")
+
+    async def test_build_state_smoke_skips_local_server_start_and_tools(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry = root / "chat_registry.toml"
+            mcp = root / "mcp.json"
+            workspace = root / "workspace"
+            workspace.mkdir()
+            registry.write_text(
+                """
+[[models]]
+name = "oracle-pro"
+provider = "studio"
+model_id = "oracle-pro"
+""".strip(),
+                encoding="utf-8",
+            )
+            mcp.write_text("{}", encoding="utf-8")
+            args = SimpleNamespace(
+                registry=str(registry),
+                mcp_config=str(mcp),
+                backend="studio",
+                host="127.0.0.1",
+                port=1234,
+                studio_api_base="http://127.0.0.1:1234/v1",
+                studio_node="",
+                llamacpp_api_base="http://127.0.0.1:8080/v1",
+                llamacpp_model="oracle-fast",
+                llamacpp_node="",
+                workspace=str(workspace),
+                rom="",
+                model="oracle-pro",
+                model_explicit=False,
+                mode="manual",
+                broadcast_models="",
+                temperature=0.2,
+                max_tokens=256,
+                tools=True,
+                lsp_context="auto",
+                auto_load=True,
+                auto_start_server=True,
+                list_models=False,
+                list_loaded=False,
+                status=False,
+                smoke="home-ssh",
+                route_only=False,
+                prompt="",
+            )
+
+            with patch("app.repl.ensure_server") as ensure, patch(
+                "app.repl.connect_tool_bridge",
+                new=AsyncMock(),
+            ) as connect:
+                state = await build_state(args)
+
+        ensure.assert_not_called()
+        connect.assert_not_called()
+        self.assertIsNone(state.bridge)
+
+    async def test_build_state_control_cli_skips_local_server_start_and_tools(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry = root / "chat_registry.toml"
+            mcp = root / "mcp.json"
+            workspace = root / "workspace"
+            workspace.mkdir()
+            registry.write_text(
+                """
+[[models]]
+name = "oracle-pro"
+provider = "studio"
+model_id = "oracle-pro"
+""".strip(),
+                encoding="utf-8",
+            )
+            mcp.write_text("{}", encoding="utf-8")
+            args = SimpleNamespace(
+                registry=str(registry),
+                mcp_config=str(mcp),
+                backend="studio",
+                host="127.0.0.1",
+                port=1234,
+                studio_api_base="http://127.0.0.1:1234/v1",
+                studio_node="",
+                llamacpp_api_base="http://127.0.0.1:8080/v1",
+                llamacpp_model="oracle-fast",
+                llamacpp_node="",
+                workspace=str(workspace),
+                rom="",
+                model="oracle-pro",
+                model_explicit=False,
+                mode="manual",
+                broadcast_models="",
+                temperature=0.2,
+                max_tokens=256,
+                tools=True,
+                lsp_context="auto",
+                auto_load=True,
+                auto_start_server=True,
+                list_models=False,
+                list_loaded=False,
+                status=False,
+                smoke=None,
+                route_only=False,
+                prompt="",
+                command_args=["route", "list"],
+            )
+
+            with patch("app.repl.ensure_server") as ensure, patch(
+                "app.repl.connect_tool_bridge",
+                new=AsyncMock(),
+            ) as connect:
+                state = await build_state(args)
+
+        ensure.assert_not_called()
+        connect.assert_not_called()
+        self.assertIsNone(state.bridge)
 
     async def test_studio_node_command_switches_named_endpoint(self) -> None:
         state = _state()
@@ -171,6 +313,34 @@ model_id = "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf"
             self.assertEqual(os.environ.get("Z3CLI_LMSTUDIO_HOSTD_URL"), "http://127.0.0.1:8766")
             self.assertIn("Using studio (oracle-pro-home) as oracle-pro", state.console.export_text())
 
+    async def test_route_command_switches_to_canonical_5090_alias(self) -> None:
+        state = _state()
+        state.studio_nodes = {
+            "oracle-pro-home": StudioNodeConfig(
+                name="oracle-pro-home",
+                api_base="http://127.0.0.1:2234/v1",
+                model="oracle-pro",
+                description="Windows tunnel",
+                hostd_url="http://127.0.0.1:8766",
+            ),
+        }
+
+        handled = await handle_command(state, "/route oracle-pro-5090")
+
+        self.assertTrue(handled)
+        self.assertEqual(state.backend_name, "studio")
+        self.assertEqual(state.studio_node, "oracle-pro-home")
+        self.assertEqual(state.active_model, "oracle-pro")
+        self.assertIn("Route set to oracle-pro-5090 via studio", state.console.export_text())
+
+    async def test_route_preview_preserves_old_routing_preview(self) -> None:
+        state = _state()
+
+        handled = await handle_command(state, "/route preview inspect sprite draw routine")
+
+        self.assertTrue(handled)
+        self.assertIn("oracle-main-plan", state.console.export_text())
+
     async def test_llamacpp_node_command_switches_named_endpoint(self) -> None:
         state = _state()
         state.llamacpp_nodes = {
@@ -191,6 +361,165 @@ model_id = "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf"
         self.assertEqual(state.backend_name, "llamacpp")
         self.assertIn("llama.cpp node set to oracle-pro-vast", state.console.export_text())
 
+    async def test_smoke_command_switches_target_and_reports_result(self) -> None:
+        state = _state()
+        state.llamacpp_nodes = {
+            "oracle-pro-home-ssh": LlamaCppNodeConfig(
+                name="oracle-pro-home-ssh",
+                api_base="ssh://medical-mechanica/127.0.0.1:1234/v1",
+                model="gguf/zelda/qwen3-oracle-14b-v8-q4km.gguf",
+                description="SSH command proxy",
+                lean_prompt=True,
+            ),
+        }
+
+        with patch(
+            "app.repl.smoke_current_route",
+            new=AsyncMock(return_value={
+                "ok": True,
+                "matched": True,
+                "backend": "llamacpp",
+                "node": "oracle-pro-home-ssh",
+                "api_base": "ssh://medical-mechanica/127.0.0.1:1234/v1",
+                "model": "gguf/zelda/qwen3-oracle-14b-v8-q4km.gguf",
+                "duration_ms": 42,
+                "text": "z3cli smoke ok",
+            }),
+        ):
+            handled = await handle_command(state, "/smoke home-ssh")
+
+        self.assertTrue(handled)
+        self.assertEqual(state.backend_name, "llamacpp")
+        self.assertEqual(state.llamacpp_node, "oracle-pro-home-ssh")
+        text = state.console.export_text()
+        self.assertIn("Smoking llamacpp (oracle-pro-home-ssh)", text)
+        self.assertIn("Smoke OK", text)
+        self.assertIn("matched expected reply", text)
+
+    async def test_route_smoke_uses_canonical_ssh_route(self) -> None:
+        state = _state()
+        state.llamacpp_nodes = {
+            "oracle-pro-home-ssh": LlamaCppNodeConfig(
+                name="oracle-pro-home-ssh",
+                api_base="ssh://medical-mechanica/127.0.0.1:1234/v1",
+                model="gguf/zelda/qwen3-oracle-14b-v8-q4km.gguf",
+                description="SSH command proxy",
+                lean_prompt=True,
+            ),
+        }
+
+        with patch(
+            "app.repl.smoke_current_route",
+            new=AsyncMock(return_value={
+                "ok": True,
+                "matched": True,
+                "backend": "llamacpp",
+                "node": "oracle-pro-home-ssh",
+                "api_base": "ssh://medical-mechanica/127.0.0.1:1234/v1",
+                "model": "gguf/zelda/qwen3-oracle-14b-v8-q4km.gguf",
+                "duration_ms": 42,
+                "text": "z3cli smoke ok",
+            }),
+        ):
+            handled = await handle_command(state, "/route smoke oracle-pro-ssh")
+
+        self.assertTrue(handled)
+        self.assertEqual(state.backend_name, "llamacpp")
+        self.assertEqual(state.llamacpp_node, "oracle-pro-home-ssh")
+        self.assertIn("Smoke OK", state.console.export_text())
+
+    async def test_models_subcommands_show_catalog_and_routes(self) -> None:
+        state = _state()
+        state.studio_nodes = {
+            "oracle-pro-home": StudioNodeConfig(
+                name="oracle-pro-home",
+                api_base="http://127.0.0.1:2234/v1",
+                model="oracle-pro",
+                description="Windows tunnel",
+            ),
+        }
+
+        with patch(
+            "app.repl.model_catalog_infos",
+            return_value=[{
+                "name": "oracle",
+                "provider": "studio",
+                "loaded": False,
+                "size_bytes": 0,
+                "available": True,
+                "role": "planner",
+                "description": "",
+                "model_id": "oracle",
+            }],
+        ):
+            handled_catalog = await handle_command(state, "/models catalog")
+        handled_routes = await handle_command(state, "/models routes")
+
+        text = state.console.export_text()
+        self.assertTrue(handled_catalog)
+        self.assertTrue(handled_routes)
+        self.assertIn("Model Catalog", text)
+        self.assertIn("routes:", text)
+        self.assertIn("oracle-pro-5090", text)
+        self.assertNotIn("oracle-pro-home", text)
+
+    async def test_route_list_advanced_shows_raw_route_targets(self) -> None:
+        state = _state()
+        state.studio_nodes = {
+            "oracle-pro-home": StudioNodeConfig(
+                name="oracle-pro-home",
+                api_base="http://127.0.0.1:2234/v1",
+                model="oracle-pro",
+                description="Windows tunnel",
+            ),
+        }
+
+        handled = await handle_command(state, "/route list advanced")
+
+        text = state.console.export_text()
+        self.assertTrue(handled)
+        self.assertIn("oracle-pro-5090", text)
+        self.assertIn("oracle-pro-home", text)
+
+    async def test_control_cli_route_list_outputs_routes(self) -> None:
+        state = _state()
+        state.studio_nodes = {
+            "oracle-pro-home": StudioNodeConfig(
+                name="oracle-pro-home",
+                api_base="http://127.0.0.1:2234/v1",
+                model="oracle-pro",
+                description="Windows tunnel",
+            ),
+        }
+
+        exit_code = await run_control_cli_command(state, ["route", "list"])
+
+        self.assertEqual(exit_code, 0)
+        text = state.console.export_text()
+        self.assertIn("oracle-pro-5090", text)
+        self.assertNotIn("oracle-pro-home", text)
+
+    async def test_control_cli_models_catalog_outputs_catalog(self) -> None:
+        state = _state()
+
+        with patch(
+            "app.repl.model_catalog_infos",
+            return_value=[{
+                "name": "oracle",
+                "provider": "studio",
+                "loaded": False,
+                "size_bytes": 0,
+                "available": True,
+                "role": "planner",
+                "description": "",
+                "model_id": "oracle",
+            }],
+        ):
+            exit_code = await run_control_cli_command(state, ["models", "catalog"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Model Catalog", state.console.export_text())
+
     async def test_lsp_context_command_updates_mode(self) -> None:
         state = _state()
 
@@ -206,10 +535,10 @@ model_id = "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf"
         with tempfile.TemporaryDirectory() as tmp:
             session_dir = Path(tmp)
             with (
-                patch("z3cli.app.repl.SESSION_DIR", session_dir),
-                patch("z3cli.app.repl.preview_targets", return_value=[SimpleNamespace(name="farore")]),
-                patch("z3cli.app.repl.ensure_targets_available"),
-                patch("z3cli.app.repl.stream_response", new=AsyncMock()),
+                patch("app.repl.SESSION_DIR", session_dir),
+                patch("app.repl.preview_targets", return_value=[SimpleNamespace(name="farore")]),
+                patch("app.repl.ensure_targets_available"),
+                patch("app.repl.stream_response", new=AsyncMock()),
             ):
                 await send_prompt(state, "Inspect the workspace.")
                 self.assertIsNotNone(state.session)
@@ -258,15 +587,15 @@ model_id = "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf"
                 ]
 
             with (
-                patch("z3cli.app.repl.SESSION_DIR", session_dir),
-                patch("z3cli.app.repl.preview_targets", return_value=[small, large]),
-                patch("z3cli.app.repl.ensure_targets_available"),
-                patch("z3cli.app.repl.add_attachment_context_packs", new=AsyncMock(side_effect=fake_add_context)),
+                patch("app.repl.SESSION_DIR", session_dir),
+                patch("app.repl.preview_targets", return_value=[small, large]),
+                patch("app.repl.ensure_targets_available"),
+                patch("app.repl.add_attachment_context_packs", new=AsyncMock(side_effect=fake_add_context)),
                 patch(
-                    "z3cli.app.repl._resolve_focus_context",
+                    "app.repl._resolve_focus_context",
                     new=AsyncMock(side_effect=lambda _state, name, query="": f"# Focus: main.asm\n\nfocus:{name}"),
                 ),
-                patch("z3cli.app.repl.stream_response", new=AsyncMock()) as stream_mock,
+                patch("app.repl.stream_response", new=AsyncMock()) as stream_mock,
             ):
                 await send_prompt(state, "Inspect @src/main.asm")
 
@@ -289,7 +618,7 @@ model_id = "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf"
         state = _state()
 
         with patch(
-            "z3cli.app.repl.list_sessions",
+            "app.repl.list_sessions",
             return_value=[
                 {
                     "name": "saved",
@@ -310,6 +639,7 @@ model_id = "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf"
 
     async def test_stream_response_honors_deferred_tool_config(self) -> None:
         state = _state()
+        state.subagent_tools_enabled = False
         target = ModelConfig(
             name="qwen3-oracle-8b",
             model_id="gguf/zelda/qwen3-oracle-8b-v1-corrective2-q8_0.gguf",
@@ -333,11 +663,11 @@ model_id = "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf"
         fake_engine = FakeEngine()
         wrapped_bridge = object()
 
-        with patch("z3cli.app.repl._resolve_request_model_name", return_value=target.model_id), patch(
-            "z3cli.app.repl.get_engine",
+        with patch("app.repl._resolve_request_model_name", return_value=target.model_id), patch(
+            "app.repl.get_engine",
             return_value=fake_engine,
         ), patch(
-            "z3cli.app.repl.wrap_bridge_for_model",
+            "app.repl.wrap_bridge_for_model",
             return_value=wrapped_bridge,
         ) as wrap_bridge:
             await stream_response(state, target, "Reply READY.")
@@ -385,8 +715,8 @@ model_id = "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf"
 
         fake_engine = FakeEngine()
 
-        with patch("z3cli.app.repl._resolve_request_model_name", return_value=target.model_id), patch(
-            "z3cli.app.repl.get_engine",
+        with patch("app.repl._resolve_request_model_name", return_value=target.model_id), patch(
+            "app.repl.get_engine",
             return_value=fake_engine,
         ):
             await stream_response(state, target, "repair this asm hook", target_count=1)
@@ -398,6 +728,75 @@ model_id = "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf"
             fake_engine.chat_kwargs["system"],
         )
         self.assertIn("Quality-first policy", fake_engine.chat_kwargs["system"])
+        self.assertTrue(fake_engine.chat_kwargs["use_tools"])
+        self.assertIsNotNone(fake_engine.bridge)
+        assert fake_engine.bridge is not None
+        tool_names = [tool["function"]["name"] for tool in fake_engine.bridge.get_openai_tools()]
+        self.assertIn(SPAWN_TOOL_NAME, tool_names)
+        self.assertIn(LIST_TOOL_NAME, tool_names)
+        spawn_tool = next(tool for tool in fake_engine.bridge.get_openai_tools() if tool["function"]["name"] == SPAWN_TOOL_NAME)
+        self.assertIn("oracle-coder", spawn_tool["function"]["parameters"]["properties"]["model"]["enum"])
+
+    async def test_stream_response_prefers_oracle_coder_pro_and_reasoner_for_oracle_pro(self) -> None:
+        state = _state()
+        state.models["oracle-coder-pro"] = ModelConfig(
+            name="oracle-coder-pro",
+            model_id="oracle-coder-pro",
+            provider="llamacpp",
+            api_base="http://127.0.0.1:18081/v1",
+            role="high-capacity coding worker",
+            tags=["oracle", "tools"],
+            visibility="hidden",
+            spawn_only=True,
+            spawnable_by=["oracle-pro"],
+            tools_enabled=True,
+        )
+        state.models["oracle-reasoner-27b"] = ModelConfig(
+            name="oracle-reasoner-27b",
+            model_id="oracle-reasoner-27b",
+            provider="llamacpp",
+            api_base="http://127.0.0.1:18082/v1",
+            role="long-context reasoning worker",
+            tags=["oracle", "tools"],
+            visibility="hidden",
+            spawn_only=True,
+            spawnable_by=["oracle-pro"],
+            tools_enabled=True,
+        )
+        target = state.models["oracle-pro"]
+
+        class FakeEngine:
+            def __init__(self) -> None:
+                self.bridge = None
+                self.chat_kwargs: dict | None = None
+
+            async def chat(self, **kwargs):  # type: ignore[no-untyped-def]
+                self.chat_kwargs = dict(kwargs)
+                yield DoneEvent()
+
+        fake_engine = FakeEngine()
+
+        with patch("app.repl._resolve_request_model_name", return_value=target.model_id), patch(
+            "app.repl.get_engine",
+            return_value=fake_engine,
+        ):
+            await stream_response(state, target, "review the training strategy and patch the asm hook", target_count=1)
+
+        self.assertIsNotNone(fake_engine.chat_kwargs)
+        assert fake_engine.chat_kwargs is not None
+        self.assertIn(
+            "Delegate the code-writing pass to `spawn_subagent` with model `oracle-coder-pro`",
+            fake_engine.chat_kwargs["system"],
+        )
+        self.assertIn(
+            "Delegate a bounded analysis pass to `spawn_subagent` with model `oracle-reasoner-27b`",
+            fake_engine.chat_kwargs["system"],
+        )
+        assert fake_engine.bridge is not None
+        spawn_tool = next(tool for tool in fake_engine.bridge.get_openai_tools() if tool["function"]["name"] == SPAWN_TOOL_NAME)
+        spawn_models = spawn_tool["function"]["parameters"]["properties"]["model"]["enum"]
+        self.assertIn("oracle-coder-pro", spawn_models)
+        self.assertIn("oracle-reasoner-27b", spawn_models)
 
     async def test_stream_response_injects_oracle_natural_chat_prompt_for_oracle_pro(self) -> None:
         state = _state()
@@ -414,8 +813,8 @@ model_id = "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf"
 
         fake_engine = FakeEngine()
 
-        with patch("z3cli.app.repl._resolve_request_model_name", return_value=target.model_id), patch(
-            "z3cli.app.repl.get_engine",
+        with patch("app.repl._resolve_request_model_name", return_value=target.model_id), patch(
+            "app.repl.get_engine",
             return_value=fake_engine,
         ):
             await stream_response(state, target, "minecart is weird", target_count=1)
@@ -568,7 +967,7 @@ model_id = "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf"
                 )
 
         engine = CompactingEngine()
-        with patch("z3cli.app.repl.get_engine", return_value=engine):
+        with patch("app.repl.get_engine", return_value=engine):
             await handle_command(state, "/compact farore")
 
         self.assertEqual(engine.calls, 1)
@@ -592,7 +991,7 @@ model_id = "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf"
                 return target.name
 
         backend = FakeBackend()
-        with patch("z3cli.app.repl.get_backend", return_value=backend):
+        with patch("app.repl.get_backend", return_value=backend):
             await handle_command(state, "/load oracle-main-plan")
 
         self.assertEqual(backend.calls, [("oracle-main-plan", True, True)])
@@ -635,7 +1034,7 @@ model_id = "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf"
                 return []
 
         backend = FakeBackend()
-        with patch("z3cli.app.repl.get_backend", return_value=backend):
+        with patch("app.repl.get_backend", return_value=backend):
             await handle_command(state, "/unload oracle-main-plan")
 
         self.assertEqual(backend.last_target, "oracle-main-plan")

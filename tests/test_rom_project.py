@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from z3cli.core.rom_project import RomProject
+from core.rom_project import RomProject
 
 
 class DiscoveryTests(unittest.TestCase):

@@ -8,10 +8,9 @@ public-facing status page.
 
 ## Overview
 
-`z3cli` ships with a public routing contract for model aliases, while private
-implementations remain intentionally out-of-band. The goal is to make the
-surface area stable enough for tooling and docs while keeping internals
-iterative.
+`z3cli` ships with an operator-facing routing contract for model aliases. The
+goal is to keep names stable enough for tooling and docs while still surfacing
+the concrete local variants that are useful during day-to-day development.
 
 - `oracle` is the canonical Zelda workflow model
 - `oracle-fast` is the lower-latency model for quick checks and light edits
@@ -41,8 +40,8 @@ iterative.
 - Safety and traceability:
   - resumable sessions, persistent workspace/tool state, and explicit write
     reviews in serve mode
-- Public contract shaping:
-  - only stable aliases and behaviors are committed in public docs
+- Operator contract shaping:
+  - stable aliases and useful local variants are documented together
 
 ## Early signals worth showing
 

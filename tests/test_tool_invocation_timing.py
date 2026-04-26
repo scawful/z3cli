@@ -6,15 +6,15 @@ import unittest
 from pathlib import Path
 from typing import AsyncGenerator
 
-from z3cli.core.engine import ChatEngine, DoneEvent, ToolResultEvent
-from z3cli.core.provider import (
+from core.engine import ChatEngine, DoneEvent, ToolResultEvent
+from core.provider import (
     CompletionChunk,
     CompletionRequest,
     ContentDelta,
     ToolCallDelta,
     UsageInfo,
 )
-from z3cli.core.session import Session, load_tool_invocations
+from core.session import Session, load_tool_invocations
 
 
 class StubProvider:

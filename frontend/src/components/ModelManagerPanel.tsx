@@ -8,6 +8,7 @@ import { modelColor, modelSymbol, symbols } from "../theme/index.js";
 const VISIBLE_ROWS = 10;
 const ORACLE_MODEL_ORDER = [
   "oracle-fast",
+  "oracle-qwen35-9b",
   "oracle",
   "oracle-pro",
   "qwen3-oracle-14b",
@@ -16,12 +17,8 @@ const BENCH_MODEL_ORDER = [
   "qwen3-oracle-8b",
   "din",
   "nayru",
-  "farore",
-  "farore-q4km",
-  "majora",
-  "hylia",
-  "hylia-q4km",
-  "veran",
+  "navi",
+  "navi-q4km",
   "oracle-coder",
 ] as const;
 const QWEN_MODEL_ORDER = [
@@ -42,18 +39,15 @@ const ORACLE_MODELS = new Set<string>([
   "oracle",
   "oracle-pro",
   "oracle-fast",
+  "oracle-qwen35-9b",
   "qwen3-oracle-14b",
 ]);
 const BENCH_MODELS = new Set<string>([
   "qwen3-oracle-8b",
   "din",
   "nayru",
-  "farore",
-  "farore-q4km",
-  "majora",
-  "hylia",
-  "hylia-q4km",
-  "veran",
+  "navi",
+  "navi-q4km",
   "oracle-coder",
 ]);
 

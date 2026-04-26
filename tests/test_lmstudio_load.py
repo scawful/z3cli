@@ -4,9 +4,9 @@ import base64
 from pathlib import Path
 from unittest.mock import patch
 
-from z3cli.app.backends import LMStudioBackend
-from z3cli.core.config import ModelConfig, load_registry
-from z3cli.protocol.lmstudio import (
+from app.backends import LMStudioBackend
+from core.config import ModelConfig, load_registry
+from protocol.lmstudio import (
     ensure_model_loaded,
     loaded_request_name,
     normalize_loaded_model_entry,
@@ -114,7 +114,10 @@ allow_auto_load = false
 
         backend = LMStudioBackend(api_base="http://127.0.0.1:1234/v1", host="127.0.0.1", port=1234)
 
-        with patch("z3cli.app.backends.ensure_model_loaded", return_value=target.name) as ensure:
+        with patch.object(backend, "_openai_model_entries", return_value=[]), patch(
+            "app.backends.ensure_model_loaded",
+            return_value=target.name,
+        ) as ensure:
             request_name = backend.resolve_request_model(target, auto_load=True)
 
         self.assertEqual(request_name, target.name)
@@ -133,8 +136,8 @@ allow_auto_load = false
         )
 
     def test_ensure_model_loaded_rejects_background_load_for_manual_only_model(self) -> None:
-        with patch("z3cli.protocol.lmstudio.loaded_models", return_value=[]), patch(
-            "z3cli.protocol.lmstudio.run_lms",
+        with patch("protocol.lmstudio.loaded_models", return_value=[]), patch(
+            "protocol.lmstudio.run_lms",
         ) as run_lms:
             with self.assertRaisesRegex(RuntimeError, "skip automatic LM Studio loads"):
                 ensure_model_loaded(
@@ -149,8 +152,8 @@ allow_auto_load = false
         run_lms.assert_not_called()
 
     def test_ensure_model_loaded_manual_load_overrides_manual_only_guard(self) -> None:
-        with patch("z3cli.protocol.lmstudio.loaded_models", return_value=[]), patch(
-            "z3cli.protocol.lmstudio.run_lms",
+        with patch("protocol.lmstudio.loaded_models", return_value=[]), patch(
+            "protocol.lmstudio.run_lms",
             return_value="",
         ) as run_lms:
             request_name = ensure_model_loaded(
@@ -172,12 +175,12 @@ allow_auto_load = false
         )
 
     def test_unload_model_uses_loaded_identifier(self) -> None:
-        with patch("z3cli.protocol.lmstudio.loaded_models", return_value=[
+        with patch("protocol.lmstudio.loaded_models", return_value=[
             {
                 "identifier": "nayru",
                 "modelKey": "gguf/zelda/nayru-9b-q8_0.gguf",
             },
-        ]), patch("z3cli.protocol.lmstudio.run_lms", return_value="") as run_lms:
+        ]), patch("protocol.lmstudio.run_lms", return_value="") as run_lms:
             result = unload_model("127.0.0.1", 1234, "gguf/zelda/nayru-9b-q8_0.gguf")
 
         self.assertEqual(result, {"all": False, "unloaded": ["nayru"]})
@@ -250,6 +253,70 @@ allow_auto_load = false
         self.assertEqual(request_name, "oracle-fast")
         self.assertEqual(urlopen.call_count, 2)
 
+    def test_server_status_falls_back_to_api_when_afs_hostd_is_refused(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {"AFS_HOSTD_URL": "http://127.0.0.1:8765"},
+            clear=False,
+        ), patch(
+            "protocol.lmstudio._hostd_request_json",
+            side_effect=RuntimeError("afs-hostd request failed: [Errno 61] Connection refused"),
+        ), patch(
+            "protocol.lmstudio._api_endpoint_running",
+            return_value=True,
+        ), patch("protocol.lmstudio.run_lms") as run_lms:
+            status = server_status("127.0.0.1", 2234)
+
+        self.assertEqual(status, {"running": True, "port": 2234})
+        run_lms.assert_not_called()
+
+    def test_ensure_model_loaded_falls_back_to_loaded_api_model_when_afs_hostd_is_refused(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {"AFS_HOSTD_URL": "http://127.0.0.1:8765"},
+            clear=False,
+        ), patch(
+            "protocol.lmstudio._hostd_request_json",
+            side_effect=RuntimeError("afs-hostd request failed: [Errno 61] Connection refused"),
+        ), patch(
+            "protocol.lmstudio._loaded_entries_from_api",
+            return_value=[{"identifier": "oracle-pro", "modelKey": "oracle-pro"}],
+        ), patch("protocol.lmstudio.run_lms") as run_lms:
+            request_name = ensure_model_loaded(
+                alias="oracle-pro",
+                model_id="gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf",
+                host="127.0.0.1",
+                port=2234,
+                auto_load=True,
+            )
+
+        self.assertEqual(request_name, "oracle-pro")
+        run_lms.assert_not_called()
+
+    def test_ensure_model_loaded_reports_hostd_outage_cleanly_when_model_is_not_loaded(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {"AFS_HOSTD_URL": "http://127.0.0.1:8765"},
+            clear=False,
+        ), patch(
+            "protocol.lmstudio._hostd_request_json",
+            side_effect=RuntimeError("afs-hostd request failed: [Errno 61] Connection refused"),
+        ), patch(
+            "protocol.lmstudio._loaded_entries_from_api",
+            return_value=[],
+        ), patch(
+            "protocol.lmstudio._can_run_cli_fallback",
+            return_value=False,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "restore the hostd tunnel"):
+                ensure_model_loaded(
+                    alias="oracle-pro",
+                    model_id="gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf",
+                    host="127.0.0.1",
+                    port=2234,
+                    auto_load=True,
+                )
+
     def test_loaded_request_name_accepts_identifier_equal_to_model_id(self) -> None:
         request_name = loaded_request_name(
             "oracle-pro",
@@ -261,6 +328,19 @@ allow_auto_load = false
         )
 
         self.assertEqual(request_name, "gguf/zelda/qwen3-oracle-14b-v7-q4km.gguf")
+
+    def test_loaded_request_name_matches_indexed_model_identifier(self) -> None:
+        request_name = loaded_request_name(
+            "oracle-pro",
+            "gguf/zelda/qwen3-oracle-14b-v8-q4km.gguf",
+            [{
+                "identifier": "zelda",
+                "modelKey": "gguf/lmstudio/qwen3-oracle-14b-v8-q4km.gguf",
+                "indexedModelIdentifier": "gguf/zelda/qwen3-oracle-14b-v8-q4km.gguf",
+            }],
+        )
+
+        self.assertEqual(request_name, "zelda")
 
     def test_ensure_model_loaded_uses_remote_windows_inventory_for_fuzzy_match(self) -> None:
         def fake_remote_lms(command: list[str], *args, **kwargs) -> str:
@@ -301,20 +381,36 @@ allow_auto_load = false
         self.assertEqual(request_name, "oracle-fast")
         self.assertEqual(run.call_count, 3)
 
+    def test_studio_backend_resolves_remote_api_model_before_lms_load(self) -> None:
+        backend = LMStudioBackend(api_base="http://127.0.0.1:2234/v1", host="127.0.0.1", port=1234)
+        target = ModelConfig(
+            name="oracle-pro",
+            model_id="gguf/zelda/qwen3-oracle-14b-v8-q4km.gguf",
+        )
+
+        with patch.object(backend, "_openai_model_entries", return_value=[{
+            "identifier": "gguf/lmstudio/qwen3-oracle-14b-v8-q4km.gguf",
+            "modelKey": "gguf/lmstudio/qwen3-oracle-14b-v8-q4km.gguf",
+        }]), patch("app.backends.ensure_model_loaded") as ensure:
+            request_name = backend.resolve_request_model(target, auto_load=True)
+
+        self.assertEqual(request_name, "gguf/lmstudio/qwen3-oracle-14b-v8-q4km.gguf")
+        ensure.assert_not_called()
+
 
 class LMStudioLoadAsyncTests(unittest.IsolatedAsyncioTestCase):
     async def test_backend_list_loaded_model_details_merges_estimates(self) -> None:
         backend = LMStudioBackend(api_base="http://127.0.0.1:1234/v1", host="127.0.0.1", port=1234)
 
-        with patch("z3cli.app.backends.available_models_async", return_value=[{
+        with patch("app.backends.available_models_async", return_value=[{
             "modelKey": "gguf/zelda/nayru-9b-q8_0.gguf",
             "sizeBytes": 9_527_501_152,
-        }]), patch("z3cli.app.backends.loaded_models_async", return_value=[{
+        }]), patch("app.backends.loaded_models_async", return_value=[{
             "identifier": "nayru",
             "modelKey": "gguf/zelda/nayru-9b-q8_0.gguf",
             "sizeBytes": 9_527_501_152,
             "contextLength": 262144,
-        }]), patch("z3cli.app.backends.estimate_model_memory_async", return_value={
+        }]), patch("app.backends.estimate_model_memory_async", return_value={
             "estimated_gpu_bytes": int(9.95 * 1024 ** 3),
             "estimated_total_bytes": int(9.95 * 1024 ** 3),
         }):

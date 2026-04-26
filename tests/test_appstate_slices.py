@@ -7,7 +7,7 @@ from pathlib import Path
 
 from rich.console import Console
 
-from z3cli.app.repl import AppState
+from app.repl import AppState
 
 
 def _make_state() -> AppState:

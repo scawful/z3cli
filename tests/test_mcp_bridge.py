@@ -5,8 +5,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from z3cli.core.config import MCPServerConfig
-from z3cli.protocol.mcp_bridge import MCPBridge
+from core.config import MCPServerConfig
+from protocol.mcp_bridge import MCPBridge
 
 
 class _TaskBoundTransport:
@@ -66,8 +66,8 @@ class MCPBridgeTests(unittest.IsolatedAsyncioTestCase):
         }
 
         with (
-            patch("z3cli.protocol.mcp_bridge.stdio_client", side_effect=lambda params: _TaskBoundTransport()),
-            patch("z3cli.protocol.mcp_bridge.ClientSession", _TaskBoundClientSession),
+            patch("protocol.mcp_bridge.stdio_client", side_effect=lambda params: _TaskBoundTransport()),
+            patch("protocol.mcp_bridge.ClientSession", _TaskBoundClientSession),
         ):
             errors = await bridge.connect(config)
             self.assertEqual(errors, [])

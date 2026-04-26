@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from z3cli.core.tool_bridge import CompositeBridge
+from core.tool_bridge import CompositeBridge
 
 
 class _StubBridge:

@@ -5,11 +5,11 @@ from __future__ import annotations
 import unittest
 from typing import AsyncGenerator
 
-from z3cli.core.compaction import (
+from core.compaction import (
     CompactionPolicy, ConversationCompactor, ProviderSummarizer,
     estimate_messages_tokens, estimate_tokens,
 )
-from z3cli.core.provider import (
+from core.provider import (
     CompletionChunk, CompletionRequest, ContentDelta, UsageInfo,
 )
 
@@ -195,7 +195,7 @@ class ProviderSummarizerTests(unittest.IsolatedAsyncioTestCase):
 
 class ChatEngineCompactionTests(unittest.IsolatedAsyncioTestCase):
     async def test_engine_compact_now_returns_event(self) -> None:
-        from z3cli.core.engine import CompactionEvent, ChatEngine
+        from core.engine import CompactionEvent, ChatEngine
         provider = ScriptedProvider("text")
         engine = ChatEngine(provider=provider)
         # Seed some history
@@ -220,7 +220,7 @@ class ChatEngineCompactionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(engine.messages[-1]["content"], "d")
 
     async def test_engine_compact_now_no_compactor_returns_none(self) -> None:
-        from z3cli.core.engine import ChatEngine
+        from core.engine import ChatEngine
         engine = ChatEngine(provider=ScriptedProvider("text"))
         self.assertIsNone(await engine.compact_now(force=True))
 

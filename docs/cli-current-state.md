@@ -89,14 +89,14 @@ Core commands:
 - `/backend [name]`
 - `/backends`
 - `/backend-status`
-- `/models`
+- `/models [list|catalog|loaded|routes [advanced|--all]]`
 - `/loaded`
 - `/servers`
 - `/model <name>`
 - `/specialist <name>`
 - `/mode <name>`
 - `/modes`
-- `/route <prompt>`
+- `/route [list [advanced|--all]|target|smoke [target]|health [target]|preview <prompt>]`
 - `/broadcast <a,b,c>`
 - `/load [name]`
 - `/unload [name|all]`
@@ -108,6 +108,16 @@ Core commands:
 - `/verify-hooks <on|off>`
 - `/permissions [clear]`
 
+Non-interactive control-plane entrypoints:
+
+- `python3 -m z3cli route list`
+- `python3 -m z3cli route list advanced`
+- `python3 -m z3cli route <target>`
+- `python3 -m z3cli route smoke [target]`
+- `python3 -m z3cli route health [target]`
+- `python3 -m z3cli route preview <prompt>`
+- `python3 -m z3cli models [list|catalog|loaded|routes [advanced|--all]]`
+
 Model notes:
 
 - `oracle-fast` is now the real pinned local Oracle model: the current 8B
@@ -117,9 +127,10 @@ Model notes:
 - `/models` and the top-level ready payload keep the primary surface simple:
   `oracle-fast`, `oracle`, plus the active specialist when it differs.
 - The wider local bench stays available through the model manager catalog tabs:
-  `qwen3-oracle-8b`, `nayru`, `farore`, `majora`, `hylia`, and related quants.
-- `oracle-pro` now points at the gate-cleared local `14B Oracle-Pro · q4km`
-  artifact.
+  `qwen3-oracle-8b`, `nayru`, `navi`, and related quants.
+- `oracle-pro` now points at the critical-safe local `14B Oracle-Pro v8 · q4km`
+  artifact, exported and indexed on the Windows LM Studio host as
+  `gguf/zelda/qwen3-oracle-14b-v8-q4km.gguf`.
 - `oracle-mythic` is the manual-only heavy-model alias for the older 27B
   switchhook lane.
 - `oracle-coder` remains internal and spawn-only. It should appear only in
@@ -132,6 +143,19 @@ Model notes:
   `AFS_HOSTD_URL=http://127.0.0.1:8766` plus `LMSTUDIO_BASE_URL` pointing at a
   local tunnel (for example `http://127.0.0.1:2234/v1`) so `/load`, `/unload`,
   `/loaded`, and backend-status checks go through the Windows host API.
+- When local `ssh -L` forwarding is unavailable, `/route oracle-pro-ssh` selects the
+  SSH command-proxy node `oracle-pro-home-ssh`. That node talks to
+  `medical-mechanica`'s local LM Studio API through remote `curl`, skips LM
+  Studio auto-load, and uses the already-loaded
+  `gguf/zelda/qwen3-oracle-14b-v8-q4km.gguf` id.
+- `/route smoke oracle-pro-ssh` probes that route with a tiny completion through the same
+  provider path used for chat, so it verifies the SSH command proxy without
+  requiring manual `curl` commands. The non-interactive equivalent is
+  `python3 -m z3cli --smoke home-ssh`; smoke runs intentionally skip local
+  server startup and tool-bridge connection.
+- `/route list` intentionally shows only canonical operator routes. Raw registry
+  nodes, legacy aliases, and model fallback targets are available with
+  `/route list advanced` or `python3 -m z3cli route list advanced`.
 - The same host daemon now exposes WSL runtime status and start/stop control
   for training and `vllm`, so the Windows-side training controller can use the
   same local tunnel instead of a second SSH + PowerShell control path.

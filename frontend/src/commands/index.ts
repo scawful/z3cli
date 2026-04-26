@@ -14,7 +14,7 @@ import { symbols } from "../theme/index.js";
 import { shortenPath } from "../utils/path.js";
 import { describeLoadedModelRuntime, formatModelMemory, modelPickerDescription } from "../utils/models.js";
 import { UI_MODES, UI_THEMES, UI_THINKING_DETAILS, UI_THINKING_MODES } from "../hooks/useSettings.js";
-import type { AppConfig, ConstructRef, Message } from "../ipc/protocol.js";
+import type { AppConfig, ConstructRef, Message, ModelInfo } from "../ipc/protocol.js";
 import type { ShowThinkingMode, ThinkingDetailMode, UISettings, UIMode, UITheme } from "../hooks/useSettings.js";
 import type { SubagentEntry } from "../utils/subagentState.js";
 
@@ -137,6 +137,21 @@ function renderLoadedModels(result: unknown): string {
   return `${header}\n\n${lines.join("\n")}`;
 }
 
+function renderModelList(models: ModelInfo[], activeModel: string | undefined, title: string): string {
+  if (models.length === 0) {
+    return `### ${title}\n\nNo models available.`;
+  }
+  const lines = models.map((m) => {
+    const active = m.name === activeModel ? "⚔" : " ";
+    const loaded = m.loaded ? "✓" : " ";
+    const tools = m.toolsEnabled ? "🔨" : " ";
+    const summary = modelPickerDescription(m);
+    const runtime = describeLoadedModelRuntime(m);
+    return `${active} **${m.name}** · ${loaded} loaded · ${tools} tools · _${summary}_${runtime ? ` · ${runtime}` : ""}`;
+  });
+  return `### ${title}\n\n${lines.join("\n")}`;
+}
+
 function renderBackendStatus(result: unknown): string {
   const payload = (result && typeof result === "object") ? result as Record<string, unknown> : {};
   const totalBytes = typeof payload.loaded_model_memory_bytes === "number" ? payload.loaded_model_memory_bytes : 0;
@@ -150,6 +165,65 @@ function renderBackendStatus(result: unknown): string {
   }
   lines.push(`- **loaded**: \`${loadedCount}\`${totalBytes > 0 ? ` (${formatModelMemory(totalBytes)})` : ""}`);
   return `### Backend Status\n\n${lines.join("\n")}`;
+}
+
+function renderSmokeResult(result: unknown): string {
+  const payload = (result && typeof result === "object") ? result as Record<string, unknown> : {};
+  const ok = payload.ok === true;
+  const matched = payload.matched === true;
+  const backend = String(payload.backend ?? "?");
+  const node = typeof payload.node === "string" && payload.node ? payload.node : String(payload.api_base ?? "");
+  const model = String(payload.model ?? "?");
+  const duration = typeof payload.duration_ms === "number" ? `${payload.duration_ms}ms` : "?ms";
+  const text = typeof payload.text === "string" ? payload.text.trim() : "";
+  const error = typeof payload.error === "string" ? payload.error.trim() : "";
+  if (!ok) {
+    return [
+      "### Smoke Failed",
+      "",
+      `- **backend**: \`${backend}\``,
+      node ? `- **route**: \`${node}\`` : "",
+      `- **model**: \`${model}\``,
+      error ? `- **error**: ${error}` : "- **error**: empty response",
+    ].filter(Boolean).join("\n");
+  }
+  return [
+    "### Smoke OK",
+    "",
+    `- **backend**: \`${backend}\``,
+    node ? `- **route**: \`${node}\`` : "",
+    `- **model**: \`${model}\``,
+    `- **duration**: \`${duration}\``,
+    `- **expected reply**: \`${matched ? "matched" : "not matched"}\``,
+    text && !matched ? `\nReply:\n\n\`\`\`\n${text}\n\`\`\`` : "",
+  ].filter(Boolean).join("\n");
+}
+
+function renderRouteList(result: unknown): string {
+  const payload = (result && typeof result === "object") ? result as Record<string, unknown> : {};
+  const active = (payload.active && typeof payload.active === "object") ? payload.active as Record<string, unknown> : {};
+  const entries = Array.isArray(payload.entries)
+    ? payload.entries.flatMap((entry) => entry && typeof entry === "object" ? [entry as Record<string, unknown>] : [])
+    : [];
+  const activeLine = `Active: \`${String(active.backend ?? "?")}\` / \`${String(active.model ?? "?")}\``;
+  if (entries.length === 0) {
+    return `### Routes\n\n${activeLine}\n\nNo named routes configured.`;
+  }
+  const lines = entries.map((entry) => {
+    const name = String(entry.name ?? "?");
+    const backend = String(entry.backend ?? "?");
+    const model = typeof entry.model === "string" && entry.model ? ` · ${entry.model}` : "";
+    const description = typeof entry.description === "string" && entry.description ? ` · ${entry.description}` : "";
+    const aliases = Array.isArray(entry.aliases)
+      ? entry.aliases.map((alias) => String(alias)).filter(Boolean)
+      : [];
+    const aliasText = aliases.length > 0
+      ? ` · aliases: ${aliases.map((alias) => `\`${alias}\``).join(", ")}`
+      : "";
+    const advanced = entry.advanced ? " · advanced" : "";
+    return `- **${name}** · \`${backend}\`${model}${description}${aliasText}${advanced}`;
+  });
+  return `### Routes\n\n${activeLine}\n\n${lines.join("\n")}`;
 }
 
 function settingUsage(key: "theme" | "uiMode" | "showThinking" | "thinkingDetail"): string {
@@ -172,7 +246,15 @@ function parseEnumSetting(
   const value = rawValue?.trim().toLowerCase();
   if (!value) return null;
   if (key === "theme") {
-    return UI_THEMES.includes(value as UITheme) ? (value as UITheme) : null;
+    if (UI_THEMES.includes(value as UITheme)) return value as UITheme;
+    // Accept legacy theme names ("gold" → hyrule, "red" → subrosia, ...).
+    const legacyMap: Record<string, UITheme> = {
+      gold:  "hyrule",
+      red:   "subrosia",
+      blue:  "labrynna",
+      green: "labrynna",
+    };
+    return legacyMap[value] ?? null;
   }
   if (key === "uiMode") {
     return UI_MODES.includes(value as UIMode) ? (value as UIMode) : null;
@@ -360,17 +442,28 @@ const COMMANDS: Record<string, Handler> = {
 
   "/model-manager": async (_, ctx) => ctx.openModelManager?.(),
 
-  "/models": async (_, ctx) => {
+  "/models": async (args, ctx) => {
     if (!ctx.config) return;
-    const lines = ctx.config.models.map((m) => {
-      const active = m.name === ctx.config!.activeModel ? "⚔" : " ";
-      const loaded = m.loaded ? "✓" : " ";
-      const tools = m.toolsEnabled ? "🔨" : " ";
-      const summary = modelPickerDescription(m);
-      const runtime = describeLoadedModelRuntime(m);
-      return `${active} **${m.name}** · ${loaded} loaded · ${tools} tools · _${summary}_${runtime ? ` · ${runtime}` : ""}`;
-    });
-    ctx.addSystemMessage(`### Available Models\n\n${lines.join("\n")}`);
+    const subcommand = (args[0] || "").toLowerCase();
+    if (!subcommand || subcommand === "list") {
+      ctx.addSystemMessage(renderModelList(ctx.config.models, ctx.config.activeModel, "Available Models"));
+      return;
+    }
+    if (subcommand === "catalog") {
+      ctx.addSystemMessage(renderModelList(ctx.config.modelCatalog ?? ctx.config.models, ctx.config.activeModel, "Model Catalog"));
+      return;
+    }
+    if (subcommand === "loaded") {
+      const result = await ctx.sendCommand("/models", ["loaded"]);
+      ctx.addSystemMessage(renderLoadedModels(result));
+      return;
+    }
+    if (subcommand === "routes" || subcommand === "route") {
+      const result = await ctx.sendCommand("/models", args.length > 0 ? args : ["routes"]);
+      ctx.addSystemMessage(renderRouteList(result));
+      return;
+    }
+    ctx.addSystemMessage("Usage: `/models [list|catalog|loaded|routes [advanced|--all]]`");
   },
 
   "/modes": async (_, ctx) =>
@@ -467,11 +560,53 @@ const COMMANDS: Record<string, Handler> = {
       }
     }),
 
+  "/route": (args, ctx) =>
+    {
+      const subcommand = (args[0] || "").toLowerCase();
+      if (args[0] && !["list", "ls", "current", "status", "preview", "smoke", "doctor", "health"].includes(subcommand)) {
+        ctx.addSystemMessage(`Switching route to **${args[0]}**...`);
+      } else if (["smoke", "doctor", "health"].includes(subcommand)) {
+        ctx.addSystemMessage(`Probing **${args[1] || "current route"}**...`);
+      }
+      return runCmd("/route", args, ctx, (result) => {
+        const r = result as {
+          active?: unknown;
+          entries?: unknown[];
+          backend?: string;
+          model?: string;
+          route?: string;
+          resolved?: string;
+          ok?: boolean;
+        } | null;
+        if (r && "ok" in r) {
+          ctx.addSystemMessage(renderSmokeResult(result));
+        } else if (r?.backend) {
+          ctx.updateConfig({
+            backend: r.backend,
+            activeModel: r.model ?? ctx.config?.activeModel,
+          });
+          const label = r.route || args[0] || r.resolved || r.model || r.backend;
+          ctx.addSystemMessage(`Route set to **${label}** via **${r.backend}**${r.model ? ` (${r.model})` : ""}`);
+        } else if (r && (Array.isArray(r.entries) || r.active)) {
+          ctx.addSystemMessage(renderRouteList(result));
+        } else {
+          ctx.addSystemMessage("```json\n" + JSON.stringify(result, null, 2) + "\n```");
+        }
+      });
+    },
+
   "/use": (args, ctx) =>
-    runCmd("/use", args, ctx, (result) => {
+    {
+      if (args[0]) {
+        ctx.addSystemMessage(`Switching route to **${args[0]}**...`);
+      }
+      return runCmd("/use", args, ctx, (result) => {
       const r = result as {
+        active?: unknown;
+        entries?: unknown[];
         backend?: string;
         model?: string;
+        route?: string;
         resolved?: string;
         studio_node?: string;
         llamacpp_node?: string;
@@ -481,12 +616,15 @@ const COMMANDS: Record<string, Handler> = {
           backend: r.backend,
           activeModel: r.model ?? ctx.config?.activeModel,
         });
-        const label = r.resolved || args[0] || r.model || r.backend;
+        const label = r.route || r.resolved || args[0] || r.model || r.backend;
         ctx.addSystemMessage(`Using **${label}** via **${r.backend}**${r.model ? ` (${r.model})` : ""}`);
+      } else if (r && (Array.isArray(r.entries) || r.active)) {
+        ctx.addSystemMessage(renderRouteList(result));
       } else {
         ctx.addSystemMessage("```json\n" + JSON.stringify(result, null, 2) + "\n```");
       }
-    }),
+      });
+    },
 
   "/backends": (args, ctx) =>
     runCmd("/backends", args, ctx, (result) =>
@@ -497,6 +635,22 @@ const COMMANDS: Record<string, Handler> = {
     runCmd("/backend-status", args, ctx, (result) =>
       ctx.addSystemMessage(renderBackendStatus(result)),
     ),
+
+  "/smoke": async (args, ctx) => {
+    const target = args[0] || "current route";
+    ctx.addSystemMessage(`Probing **${target}**...`);
+    return runCmd("/smoke", args, ctx, (result) =>
+      ctx.addSystemMessage(renderSmokeResult(result)),
+    );
+  },
+
+  "/doctor": async (args, ctx) => {
+    const target = args[0] || "current route";
+    ctx.addSystemMessage(`Probing **${target}**...`);
+    return runCmd("/doctor", args, ctx, (result) =>
+      ctx.addSystemMessage(renderSmokeResult(result)),
+    );
+  },
 
   "/loaded": (args, ctx) =>
     runCmd("/loaded", args, ctx, (result) =>

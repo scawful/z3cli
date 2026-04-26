@@ -1,0 +1,261 @@
+{
+  "name": "vscode-z3cli",
+  "displayName": "Z3CLI Local AI",
+  "description": "Sidebar chat, slash commands, and FIM autocomplete backed by z3cli's local LM Studio / llama.cpp Zelda specialists.",
+  "version": "0.1.1",
+  "publisher": "scawful",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/scawful/z3cli.git",
+    "directory": "extensions/vscode-z3cli"
+  },
+  "engines": {
+    "vscode": ">=1.85.0"
+  },
+  "categories": [
+    "Machine Learning",
+    "Programming Languages",
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:z3cli.chat",
+    "onView:z3cli.commands",
+    "onView:z3cli.routes",
+    "onLanguage:asar",
+    "onLanguage:assembly",
+    "onLanguage:65816-assembly",
+    "onLanguage:c",
+    "onLanguage:cpp",
+    "onLanguage:typescript",
+    "onLanguage:javascript",
+    "onLanguage:python",
+    "onLanguage:markdown"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "z3cli",
+          "title": "Z3CLI",
+          "icon": "$(sparkle)"
+        }
+      ]
+    },
+    "views": {
+      "z3cli": [
+        {
+          "id": "z3cli.chat",
+          "name": "Chat",
+          "type": "webview"
+        },
+        {
+          "id": "z3cli.routes",
+          "name": "Routes"
+        },
+        {
+          "id": "z3cli.commands",
+          "name": "Commands"
+        }
+      ]
+    },
+    "commands": [
+      { "command": "z3cli.chat.open", "title": "Z3CLI: Open Chat" },
+      { "command": "z3cli.chat.send", "title": "Z3CLI: Send Selection to Chat" },
+      { "command": "z3cli.chat.clear", "title": "Z3CLI: Reset Chat History" },
+      { "command": "z3cli.route.list", "title": "Z3CLI: List Routes" },
+      { "command": "z3cli.route.switch", "title": "Z3CLI: Switch Route" },
+      { "command": "z3cli.route.smoke", "title": "Z3CLI: Smoke Route" },
+      { "command": "z3cli.model.pick", "title": "Z3CLI: Pick Model" },
+      { "command": "z3cli.model.load", "title": "Z3CLI: Load Model" },
+      { "command": "z3cli.model.unload", "title": "Z3CLI: Unload Model" },
+      { "command": "z3cli.model.loaded", "title": "Z3CLI: Show Loaded Models" },
+      { "command": "z3cli.mode.pick", "title": "Z3CLI: Pick Routing Mode" },
+      { "command": "z3cli.specialist.pick", "title": "Z3CLI: Pick Specialist" },
+      { "command": "z3cli.workspace.set", "title": "Z3CLI: Set Workspace" },
+      { "command": "z3cli.rom.set", "title": "Z3CLI: Set ROM Path" },
+      { "command": "z3cli.focus.set", "title": "Z3CLI: Focus Active File" },
+      { "command": "z3cli.focus.clear", "title": "Z3CLI: Clear Focus" },
+      { "command": "z3cli.tools.toggle", "title": "Z3CLI: Toggle Tools" },
+      { "command": "z3cli.tools.toggleWrite", "title": "Z3CLI: Toggle Tool Write" },
+      { "command": "z3cli.verifyHooks.toggle", "title": "Z3CLI: Toggle Verify Hooks" },
+      { "command": "z3cli.compact", "title": "Z3CLI: Compact Session" },
+      { "command": "z3cli.reset", "title": "Z3CLI: Reset Session" },
+      { "command": "z3cli.session.save", "title": "Z3CLI: Show Session Path" },
+      { "command": "z3cli.session.list", "title": "Z3CLI: List Sessions" },
+      { "command": "z3cli.session.resume", "title": "Z3CLI: Resume Session" },
+      { "command": "z3cli.export.training", "title": "Z3CLI: Export Training JSONL" },
+      { "command": "z3cli.fim.trigger", "title": "Z3CLI: Trigger Inline Completion" },
+      { "command": "z3cli.fim.toggle", "title": "Z3CLI: Toggle FIM Autocomplete" },
+      { "command": "z3cli.shell.run", "title": "Z3CLI: Run Persistent Shell Command" },
+      { "command": "z3cli.smoke", "title": "Z3CLI: Smoke Active Backend" },
+      { "command": "z3cli.refresh", "title": "Z3CLI: Refresh Status" },
+      { "command": "z3cli.help", "title": "Z3CLI: Help" }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "z3cli.chat.send",
+          "when": "editorHasSelection",
+          "group": "z3cli@1"
+        },
+        {
+          "command": "z3cli.fim.trigger",
+          "when": "editorTextFocus",
+          "group": "z3cli@2"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "z3cli.refresh",
+          "when": "view == z3cli.routes || view == z3cli.commands",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Z3CLI",
+      "properties": {
+        "z3cli.pythonPath": {
+          "type": "string",
+          "default": "python3",
+          "description": "Python interpreter used to launch z3cli's `--serve` mode."
+        },
+        "z3cli.module": {
+          "type": "string",
+          "default": "z3cli",
+          "description": "Python module name passed to `-m`. Use `z3cli` for editable installs and repo checkouts; use `app` only when launching with PYTHONPATH pointed at the repo's src directory."
+        },
+        "z3cli.checkoutPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to a local z3cli checkout. Empty auto-detects common locations such as ~/src/hobby/z3cli so the extension works from other workspaces without a global Python install."
+        },
+        "z3cli.serveCommand": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Override the launch command entirely (e.g. [\"z3cli\"] or [\"/path/to/venv/bin/z3cli\"]). When set, `pythonPath`/`module` are ignored."
+        },
+        "z3cli.extraArgs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Extra CLI args appended after `--serve` (e.g. --no-auto-load, --workspace ...)."
+        },
+        "z3cli.maxRestarts": {
+          "type": "number",
+          "default": 8,
+          "description": "Maximum backend restart attempts after crashes. Set to 0 for unlimited restarts."
+        },
+        "z3cli.workspace": {
+          "type": "string",
+          "default": "",
+          "description": "Workspace directory passed to z3cli. Empty means `workspaceFolders[0]`."
+        },
+        "z3cli.rom": {
+          "type": "string",
+          "default": "",
+          "description": "ROM path passed to z3cli on launch. Empty means inherit z3cli default."
+        },
+        "z3cli.studioApiBase": {
+          "type": "string",
+          "default": "http://127.0.0.1:1234/v1",
+          "description": "LM Studio OpenAI-compatible API base."
+        },
+        "z3cli.llamacppApiBase": {
+          "type": "string",
+          "default": "http://127.0.0.1:8080/v1",
+          "description": "llama.cpp OpenAI-compatible API base."
+        },
+        "z3cli.fim.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable inline FIM completions."
+        },
+        "z3cli.fim.endpoint": {
+          "type": "string",
+          "enum": ["auto", "studio", "llamacpp"],
+          "default": "auto",
+          "description": "Where to send FIM completion requests. `auto` tries studio then llamacpp."
+        },
+        "z3cli.fim.model": {
+          "type": "string",
+          "default": "navi",
+          "description": "Model alias used for FIM completions."
+        },
+        "z3cli.fim.maxTokens": {
+          "type": "number",
+          "default": 96,
+          "description": "Maximum tokens generated per completion."
+        },
+        "z3cli.fim.temperature": {
+          "type": "number",
+          "default": 0.1,
+          "description": "Sampling temperature for completions."
+        },
+        "z3cli.fim.stopTokens": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["<|endoftext|>", "<|fim_pad|>", "<|file_separator|>"],
+          "description": "Stop tokens passed to the completion endpoint."
+        },
+        "z3cli.fim.debounceMs": {
+          "type": "number",
+          "default": 150,
+          "description": "Debounce window before issuing a completion request."
+        },
+        "z3cli.fim.languages": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [
+            "asar",
+            "65816-assembly",
+            "assembly",
+            "c",
+            "cpp",
+            "typescript",
+            "javascript",
+            "python",
+            "markdown"
+          ],
+          "description": "Language IDs eligible for inline completions."
+        },
+        "z3cli.fim.contextPrefixChars": {
+          "type": "number",
+          "default": 2000,
+          "description": "Maximum characters of prefix context sent to the model."
+        },
+        "z3cli.fim.contextSuffixChars": {
+          "type": "number",
+          "default": 1000,
+          "description": "Maximum characters of suffix context sent to the model."
+        },
+        "z3cli.chat.defaultMode": {
+          "type": "string",
+          "default": "",
+          "description": "Routing mode (manual|oracle|orchestrator|broadcast) applied at startup."
+        },
+        "z3cli.chat.defaultRoute": {
+          "type": "string",
+          "default": "",
+          "description": "Route name applied at startup (e.g. oracle-pro-5090)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "watch": "node esbuild.config.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "package": "vsce package",
+    "vscode:prepublish": "node esbuild.config.mjs --production"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^2.24.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.3.0"
+  }
+}

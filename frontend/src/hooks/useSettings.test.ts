@@ -15,7 +15,7 @@ test("normalizeSettings repairs invalid persisted enum and boolean values", () =
     transcriptShowMessages: false,
   } as any);
 
-  assert.equal(settings.theme, "gold");
+  assert.equal(settings.theme, "hyrule");
   assert.equal(settings.uiMode, "chat");
   assert.equal(settings.showThinking, "transcript");
   assert.equal(settings.thinkingDetail, "preview");

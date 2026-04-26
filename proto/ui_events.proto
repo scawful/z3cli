@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package z3cli;
+
+import "common.proto";
+import "google/protobuf/timestamp.proto";
+import "inventory.proto";
+import "routes.proto";
+
+enum UiEventKind {
+  UI_EVENT_KIND_UNSPECIFIED = 0;
+  UI_EVENT_KIND_ROUTE_SELECTED = 1;
+  UI_EVENT_KIND_ROUTE_RESOLVING = 2;
+  UI_EVENT_KIND_ROUTE_HEALTHY = 3;
+  UI_EVENT_KIND_ROUTE_DEGRADED = 4;
+  UI_EVENT_KIND_ROUTE_UNAVAILABLE = 5;
+  UI_EVENT_KIND_INVENTORY_REFRESHING = 6;
+  UI_EVENT_KIND_INVENTORY_UPDATED = 7;
+  UI_EVENT_KIND_MODEL_LOADING = 8;
+  UI_EVENT_KIND_MODEL_LOADED = 9;
+  UI_EVENT_KIND_MODEL_UNLOADED = 10;
+}
+
+// UI notification payload. JSON-RPC notifications should use these fields via
+// protobuf JSON mapping.
+message UiEvent {
+  UiEventKind kind = 1;
+  string request_id = 2;
+  string route_name = 3;
+  string message = 4;
+  HealthState health = 5;
+  google.protobuf.Timestamp observed_at = 6;
+
+  oneof payload {
+    Route route = 10;
+    RouteStatus route_status = 11;
+    InventorySnapshot inventory = 12;
+  }
+}

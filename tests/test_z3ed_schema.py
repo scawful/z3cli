@@ -6,7 +6,7 @@ import json
 import unittest
 from pathlib import Path
 
-from z3cli.protocol.z3ed_schema import (
+from protocol.z3ed_schema import (
     Parameter,
     build_tool,
     load_schemas,

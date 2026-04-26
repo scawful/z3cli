@@ -7,14 +7,15 @@ import { useState, useCallback } from "react";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import { resolveThemeName, THEME_NAMES } from "../theme/index.js";
 
 export type UIMode = "chat" | "plan" | "review" | "build" | "admin";
-export type UITheme = "gold" | "green" | "red" | "blue";
+export type UITheme = (typeof THEME_NAMES)[number];
 export type ShowThinkingMode = "off" | "streamed-only" | "transcript";
 export type ThinkingDetailMode = "preview" | "full";
 
 export const UI_MODES: readonly UIMode[] = ["chat", "plan", "review", "build", "admin"];
-export const UI_THEMES: readonly UITheme[] = ["gold", "green", "red", "blue"];
+export const UI_THEMES: readonly UITheme[] = THEME_NAMES;
 export const UI_THINKING_MODES: readonly ShowThinkingMode[] = ["off", "streamed-only", "transcript"];
 export const UI_THINKING_DETAILS: readonly ThinkingDetailMode[] = ["preview", "full"];
 
@@ -44,7 +45,7 @@ export const DEFAULT_SETTINGS: UISettings = {
   showBroadcastModels: true,
   showDiagnostics: false,
   uiMode: "chat",
-  theme: "gold",
+  theme: "hyrule",
   showThinking: "transcript",
   thinkingDetail: "preview",
   collapseReasoning: true,
@@ -60,8 +61,11 @@ function isUIMode(value: unknown): value is UIMode {
   return typeof value === "string" && UI_MODES.includes(value as UIMode);
 }
 
-function isUITheme(value: unknown): value is UITheme {
-  return typeof value === "string" && UI_THEMES.includes(value as UITheme);
+// Maps both new theme names and legacy aliases ("gold" → "hyrule" etc).
+// Anything unrecognized returns the default.
+function coerceTheme(value: unknown): UITheme {
+  if (typeof value !== "string") return DEFAULT_SETTINGS.theme;
+  return resolveThemeName(value);
 }
 
 function isShowThinkingMode(value: unknown): value is ShowThinkingMode {
@@ -100,7 +104,7 @@ export function normalizeSettings(raw: Partial<UISettings> | null | undefined): 
       ? merged.showDiagnostics
       : DEFAULT_SETTINGS.showDiagnostics,
     uiMode: isUIMode(merged.uiMode) ? merged.uiMode : DEFAULT_SETTINGS.uiMode,
-    theme: isUITheme(merged.theme) ? merged.theme : DEFAULT_SETTINGS.theme,
+    theme: coerceTheme(merged.theme),
     showThinking: isShowThinkingMode(merged.showThinking)
       ? merged.showThinking
       : DEFAULT_SETTINGS.showThinking,

@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from z3cli.app.runtime import (
+from app.runtime import (
     add_attachment_context_packs,
     add_construct_context_packs,
     build_oracle_prefetch_forced_reply,
@@ -20,7 +20,7 @@ from z3cli.app.runtime import (
     resolve_message_attachments,
     resolve_message_construct_refs,
 )
-from z3cli.protocol.z3lsp_bridge import OpenDocument, Z3LspBridge
+from protocol.z3lsp_bridge import OpenDocument, Z3LspBridge
 
 
 class FakeZ3LspBridge(Z3LspBridge):
@@ -179,6 +179,30 @@ class FakeUnknownRegisterBridge(FakeOracleBridge):
         if name == "register_doc":
             return f"Unknown register: {arguments.get('query')}"
         return await super().call_tool(name, arguments)
+
+
+class FakeFailingRegisterBridge(FakeOracleBridge):
+    async def call_tool(self, name: str, arguments: dict) -> str:
+        self.calls.append((name, dict(arguments)))
+        if name == "register_doc":
+            raise RuntimeError("register table offline")
+        return await super().call_tool(name, arguments)
+
+
+class FakeFailingLabelLookupBridge(FakeOracleBridge):
+    async def call_tool(self, name: str, arguments: dict) -> str:
+        self.calls.append((name, dict(arguments)))
+        if name == "label_lookup":
+            return "Error: Unknown tool 'z3lsp_symbols'"
+        return await super().call_tool(name, arguments)
+
+
+class FakeMissingRegisterToolBridge(FakeOracleBridge):
+    def get_openai_tools(self) -> list[dict]:
+        return [
+            {"type": "function", "function": {"name": "label_lookup"}},
+            {"type": "function", "function": {"name": "disasm_at"}},
+        ]
 
 
 def write_minimal_yaze_object_header(
@@ -471,6 +495,48 @@ class RuntimeAttachmentAsyncTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(contexts[0]["tool_name"], "register_doc")
         self.assertIn("Unknown register", contexts[0]["content"])
 
+    async def test_collect_oracle_context_packs_keeps_register_tool_failures(self) -> None:
+        bridge = FakeFailingRegisterBridge()
+        model = type("M", (), {"name": "oracle-pro"})()
+
+        contexts = await collect_oracle_context_packs(
+            "What does $420B do?",
+            bridge=bridge,
+            model=model,
+        )
+
+        self.assertEqual(len(contexts), 1)
+        self.assertEqual(contexts[0]["tool_name"], "register_doc")
+        self.assertIn("register table offline", contexts[0]["content"])
+
+    async def test_collect_oracle_context_packs_drops_failed_non_register_prefetch(self) -> None:
+        bridge = FakeFailingLabelLookupBridge()
+        model = type("M", (), {"name": "oracle-pro"})()
+
+        contexts = await collect_oracle_context_packs(
+            "Use workspace_read on docs/HANDOFF_ZELDA_MODEL_WORK_20260425.md before answering.",
+            bridge=bridge,
+            model=model,
+        )
+
+        self.assertEqual(contexts, [])
+        self.assertTrue(any(name == "label_lookup" for name, _args in bridge.calls))
+
+    async def test_collect_oracle_context_packs_keeps_unavailable_planned_tools(self) -> None:
+        bridge = FakeMissingRegisterToolBridge()
+        model = type("M", (), {"name": "oracle-pro"})()
+
+        contexts = await collect_oracle_context_packs(
+            "What does $420B do?",
+            bridge=bridge,
+            model=model,
+        )
+
+        self.assertEqual(len(contexts), 1)
+        self.assertEqual(contexts[0]["tool_name"], "register_doc")
+        self.assertEqual(contexts[0]["server"], "unavailable")
+        self.assertIn("not available", contexts[0]["content"])
+
     def test_build_oracle_prefetch_session_records_keeps_register_doc_history(self) -> None:
         records = build_oracle_prefetch_session_records(
             "Explain what $420B and $420C do.",
@@ -518,6 +584,21 @@ class RuntimeAttachmentAsyncTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("couldn't find", reply.lower())
         self.assertNotIn("$4310", reply)
+
+    def test_build_oracle_prefetch_forced_reply_for_failed_register_lookup(self) -> None:
+        reply = build_oracle_prefetch_forced_reply(
+            "What does $420B do?",
+            [{
+                "tool_name": "register_doc",
+                "arguments": {"query": "$420B"},
+                "server": "oracle",
+                "label": "register_doc($420B)",
+                "content": "Error: Oracle grounding tool `register_doc` failed: offline",
+            }],
+        )
+
+        self.assertIn("couldn't retrieve", reply.lower())
+        self.assertIn("don't want to answer from memory", reply.lower())
 
     def test_build_unavailable_tool_forced_reply_for_filesystem_prompt(self) -> None:
         reply = build_unavailable_tool_forced_reply("Try filesystem tools", FakeOracleBridge())

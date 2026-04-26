@@ -14,8 +14,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from z3cli.core.rom_project import RomProject
-from z3cli.protocol.z3ed_bridge import Z3edBridge
+from core.rom_project import RomProject
+from protocol.z3ed_bridge import Z3edBridge
 
 
 def _write_fake_z3ed(
@@ -338,7 +338,7 @@ class Z3edBridgeTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(proj.mesen_socket)
             bridge = Z3edBridge(proj, yaze_bin=fake_z3ed, auto_bootstrap_mesen=False)
             await bridge.connect()
-            with patch("z3cli.core.rom_project._discover_mesen_socket", return_value=None):
+            with patch("core.rom_project._discover_mesen_socket", return_value=None):
                 result = await bridge.call_tool("mesen_memory_read", {"address": "0x7E0000"})
         self.assertIn("Error", result)
         self.assertIn("Mesen2", result)
@@ -410,7 +410,7 @@ class Z3edBridgeTests(unittest.IsolatedAsyncioTestCase):
             os.environ["FAKE_Z3ED_RECORD"] = str(z3ed_record)
             os.environ["FAKE_MESEN_LAUNCH_RECORD"] = str(launch_record)
             try:
-                with patch("z3cli.core.rom_project._discover_mesen_socket", return_value=None):
+                with patch("core.rom_project._discover_mesen_socket", return_value=None):
                     result = await bridge.call_tool("mesen_memory_read", {"address": "0x7E0000"})
             finally:
                 os.environ.pop("FAKE_Z3ED_RECORD", None)

@@ -24,7 +24,26 @@ cloud = [
 ]
 
 [project.scripts]
-z3cli = "z3cli.app.repl:run"
+z3cli = "app.repl:run"
+
+[tool.hatch.build.targets.wheel]
+packages = [
+    "src/app",
+    "src/core",
+    "src/protocol",
+    "src/services",
+]
+force-include = { "z3cli.py" = "z3cli.py" }
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/z3cli.py",
+    "/config",
+    "/README.md",
+    "/requirements.txt",
+]
 
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "function"
+pythonpath = ["src"]

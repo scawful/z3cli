@@ -5,8 +5,8 @@ from __future__ import annotations
 import os
 import unittest
 
-from z3cli.core.config import ModelConfig
-from z3cli.app.runtime import (
+from core.config import ModelConfig
+from app.runtime import (
     ORCHESTRATOR_MODE, VALID_MODES, VISIBLE_MODES,
     build_orchestrator_prompt, default_orchestrator_model, resolve_targets,
 )

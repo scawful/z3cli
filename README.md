@@ -24,6 +24,12 @@ Current implementation status and recent work: [`docs/cli-current-state.md`](doc
 
 65816 authoring and emulator workflow plan: [`docs/asm-emulator-roadmap.md`](docs/asm-emulator-roadmap.md)
 
+Service-first daemon/runtime plan: [`docs/daemon-runtime-plan.md`](docs/daemon-runtime-plan.md)
+
+Current Zelda model training handoff: [`docs/HANDOFF_ZELDA_MODEL_WORK_20260425.md`](docs/HANDOFF_ZELDA_MODEL_WORK_20260425.md)
+
+Shared agent harness contract: [`~/src/docs/guides/ai-coder/AGENT_HARNESS_CONTRACT.md`](../../docs/guides/ai-coder/AGENT_HARNESS_CONTRACT.md)
+
 ## Defaults
 
 - chat registry: `config/chat_registry.toml`
@@ -40,14 +46,17 @@ Current implementation status and recent work: [`docs/cli-current-state.md`](doc
 ## Start
 
 ```bash
+python3 -m pip install -e .
 python3 -m z3cli
 ```
 
-or after install:
+or through the installed console script:
 
 ```bash
 z3cli
 ```
+
+From a checkout without installing, use `python3 -m z3cli`.
 
 Useful variants:
 
@@ -57,14 +66,22 @@ python3 -m z3cli --model oracle
 python3 -m z3cli --model nayru
 python3 -m z3cli --tools
 python3 -m z3cli --backend llamacpp --llamacpp-model oracle-fast
+python3 -m z3cli route list
+python3 -m z3cli route list advanced
+python3 -m z3cli route smoke oracle-pro-ssh
+python3 -m z3cli models catalog
+python3 -m z3cli models loaded
 z3ui --no-auto-start-server --no-auto-load --model oracle
 ```
 
-`z3cli` and `z3ui` now keep the main Oracle contract intentionally small:
+`z3cli` and `z3ui` are operator-first. The canonical Oracle names stay stable,
+but useful local variants are surfaced instead of hidden behind a tiny public
+picker contract:
 
 - `oracle-fast` -> `8B corrective Oracle · q4km` pinned daily local model
+- `oracle-qwen35-9b` -> `9B Oracle Qwen3.5 z3cli candidate · q4km`
 - `oracle` -> reserved mainline slot hidden until installed
-- `oracle-pro` -> `14B Oracle-Pro · q4km` current local pro lane
+- `oracle-pro` -> `14B Oracle-Pro v8 · q4km` current critical-safe local pro lane
 - `oracle-mythic` -> `27B switchhook Oracle · q4km` manual heavy model
 
 Inside the normal chat flow, Oracle-family models now do hidden per-turn task
@@ -74,19 +91,15 @@ existing `Shift+Tab` chat mode can infer a rough Oracle task shape
 evidence such as register docs, symbol lookups, and one nearby disassembly
 slice when the prompt strongly implies them.
 
-Everything else stays available in the catalog / alternate tabs:
+The wider local bench is also available directly when installed:
 
 - `qwen3-oracle-8b` or `oracle-q8` -> `8B corrective Oracle · q8_0`
 - `nayru` or `nayru-q8` -> `9B Qwen3.5 explainer · q8_0`
-- `farore` or `farore-q8` -> `9B Qwen3.5 debug/FIM · q8_0`
-- `farore-q4km` -> `9B Qwen3.5 debug/FIM · q4km`
-- `majora` or `majora-q4km` -> `9B Qwen3.5 architecture · q4km`
-- `hylia` or `hylia-q8` -> `9B Qwen3.5 lore/history · q8_0`
-- `hylia-q4km` -> `9B Qwen3.5 lore/history · q4km`
+- `navi` (alias `farore`/`farore-q8`) -> `9B Qwen3.5 Navi autocomplete/debug helper · q8_0`
+- `navi-q4km` (alias `farore-q4km`) -> `9B Qwen3.5 Navi autocomplete/debug helper · q4km`
 
-CLI `/models` shows that wider visible specialist bench again, while the main
-picker in `z3ui` stays focused on the primary Oracle contract. Use the model
-manager tabs in `z3ui` when you want the wider bench or base-Qwen catalog.
+CLI `/models` and the main picker in `z3ui` show the configured operator bench,
+excluding only hidden/spawn-only, rollout-gated, or unavailable entries.
 
 Host placement policy:
 
@@ -97,6 +110,9 @@ Host placement policy:
   merges, and most corrective work
 - `14B` is also local-first now, with Vast fallback when the shared desktop is
   busy, unstable, or needed for work/gaming
+- `oracle-pro` can delegate heavier work to hidden vLLM sidecars:
+  `oracle-coder-pro` for Qwen3-Coder 30B-A3B patch synthesis and
+  `oracle-reasoner-27b` for Qwen3.6 27B model/catalog/training strategy
 - `scawfulbot` and Oracle-family inference may share that box, so repeated or
   conflict-heavy workloads can be paused, throttled, or offloaded
 
@@ -167,8 +183,30 @@ them without re-exporting env vars every time:
 Shortcut:
 
 ```text
-/use vast
+/route oracle-pro-vast
 ```
+
+The hidden Oracle sidecars use vLLM-compatible OpenAI endpoints. Start them
+only when you want the heavier delegated paths:
+
+```bash
+vllm serve Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8 \
+  --served-model-name oracle-coder-pro \
+  --port 18081 \
+  --max-model-len 32768 \
+  --gpu-memory-utilization 0.90
+
+vllm serve Qwen/Qwen3.6-27B-FP8 \
+  --served-model-name oracle-reasoner-27b \
+  --port 18082 \
+  --max-model-len 32768 \
+  --reasoning-parser qwen3 \
+  --language-model-only \
+  --gpu-memory-utilization 0.90
+```
+
+The eval-first training path for these sidecars is tracked in
+[`docs/oracle-sidecar-eval-training-path-20260425.md`](docs/oracle-sidecar-eval-training-path-20260425.md).
 
 Named LM Studio nodes now work the same way for the Windows home box:
 
@@ -181,13 +219,42 @@ Named LM Studio nodes now work the same way for the Windows home box:
 Shortcut:
 
 ```text
-/use home
-/use oracle-pro
+/route oracle-pro-5090
+/route oracle-pro
 ```
 
-`/use home` now carries both the tunneled LM Studio API base and the tunneled
-`afs-hostd` control URL, so Oracle auto-load works even if you did not export
-`AFS_HOSTD_URL` before launching `z3cli`.
+`/route oracle-pro-5090` carries both the tunneled LM Studio API base and the
+tunneled `afs-hostd` control URL, so Oracle auto-load works even if you did not
+export `AFS_HOSTD_URL` before launching `z3cli`. Legacy `/use home` still maps
+to the same route.
+
+`/route list` is the operator view: it shows canonical routes such as
+`oracle-pro-5090`, `oracle-pro-ssh`, and `oracle-pro-vast` with old aliases
+collapsed. Use `/route list advanced` when you want raw registry nodes and
+model fallback targets.
+
+If local port forwarding is unavailable but SSH to `medical-mechanica` works,
+use the SSH command-proxy node instead:
+
+```text
+/route oracle-pro-ssh
+```
+
+That path talks to the Windows LM Studio OpenAI API through SSH without
+opening `ssh -L` tunnels. It expects `oracle-pro` v8 to already be loaded on
+the Windows host and returns complete responses rather than token streaming.
+Probe the route from inside `z3cli` with:
+
+```text
+/route smoke oracle-pro-ssh
+```
+
+or from a non-interactive shell:
+
+```bash
+python3 -m z3cli route smoke oracle-pro-ssh
+python3 -m z3cli --smoke home-ssh
+```
 
 The same host daemon now also exposes WSL runtime status for the Windows `5090`
 box. The training-side control script uses the same tunnel:
@@ -216,14 +283,14 @@ python3 -m z3cli --mode oracle --prompt "Explain the BG3 tile upload path" --rou
 
 Default broadcast set:
 
-- `farore`
-- `majora`
+- `navi`
 - `nayru`
+- `din`
 
 Override it like this:
 
 ```bash
-python3 -m z3cli --mode broadcast --broadcast-models farore,majora,nayru
+python3 -m z3cli --mode broadcast --broadcast-models navi,nayru,din
 ```
 
 ## Interactive Commands
@@ -231,17 +298,18 @@ python3 -m z3cli --mode broadcast --broadcast-models farore,majora,nayru
 - `/help`
 - `/status`
 - `/backend [name]`
-- `/use [target]`
+- `/route [list [advanced|--all]|target|smoke [target]|health [target]|preview <prompt>]`
+- `/use [target]` (legacy alias for `/route <target>`)
 - `/backends`
 - `/backend-status`
-- `/models`
+- `/smoke [target]`
+- `/models [list|catalog|loaded|routes [advanced|--all]]`
 - `/loaded`
 - `/servers`
 - `/model <name>`
-- `/specialist <din|farore|nayru|veran|majora|hylia>`
+- `/specialist <din|navi|nayru>`
 - `/mode <manual|oracle|orchestrator|broadcast>`
 - `/modes`
-- `/route <prompt>`
 - `/broadcast <alias1,alias2,...>`
 - `/load [name]`
 - `/unload [name|all]`
@@ -267,7 +335,7 @@ python3 -m z3cli --mode broadcast --broadcast-models farore,majora,nayru
 ## Notes
 
 - `z3cli` keeps separate history per model, so switching from `nayru` to
-  `farore` does not pollute specialist context.
+  `navi` does not pollute specialist context.
 - Sessions persist runtime state including backend, mode, workspace, ROM,
   focus file, write access, verification settings, and sticky permission rules.
 - `@path` in the prompt resolves workspace files, and the Ink frontend exposes
@@ -297,16 +365,21 @@ python3 -m z3cli --mode broadcast --broadcast-models farore,majora,nayru
   Oracle model as `8B corrective Oracle · q8_0`.
 - `oracle` is the reserved mainline slot and stays hidden until a matching local
   install exists.
-- `oracle-pro` is the current `14B Oracle-Pro · q4km` local pro lane.
+- `oracle-pro` is the current `14B Oracle-Pro v8 · q4km` critical-safe local pro lane.
 - `oracle-mythic` is the manual-only `27B switchhook Oracle · q4km` model and
   should stay an explicit opt-in, not the default local path.
 - `qwen3-oracle-14b` is a reserved local catalog slot for the current 14B
   Oracle mainline training target. It stays hidden until a matching LM Studio
   install exists.
 - `oracle-coder` remains internal and spawn-only; it is meant to be delegated
-  to by `oracle`, not selected as a normal top-level working model.
-- `farore`, `hylia`, `majora`, and `nayru` now point at the live local Qwen3.5
-  9B exports, with q4km sidecars exposed where you have them.
+  to by Oracle-family parents, not selected as a normal top-level working model.
+- `oracle-coder-pro` and `oracle-reasoner-27b` are hidden vLLM sidecars for
+  Oracle-family delegation. They stay out of the picker but appear in
+  `spawn_subagent` when the matching endpoints are configured.
+- `navi` (formerly `farore`) and `nayru` are the live local Qwen3.5 9B
+  specialists, with `navi-q4km` exposed for the lighter quant. Legacy
+  `farore` / `farore-q4km` / `farore-q8` aliases still resolve to the
+  matching navi entry for one release.
 - Legacy `oracle-main*` and `oracle-tools` names still resolve quietly for
   compatibility; `switchhook*` now resolve through `oracle-mythic`.
 - The local rollout manifest now acts mostly as a lightweight inventory note.
@@ -387,7 +460,7 @@ Current behavior:
 
 ## Protocol sync
 
-Frontend transport types are generated from `z3cli/app/ipc_schema.py`:
+Frontend transport types are generated from `src/app/ipc_schema.py`:
 
 ```bash
 cd frontend
@@ -395,7 +468,35 @@ npm run generate:protocol
 ```
 
 That keeps `AttachmentMeta` and all `chat/message` fields aligned between backend
-and `z3cli` client code.
+and `z3cli` client code. The same generator also writes
+`extensions/vscode-z3cli/src/ipc/protocol.generated.ts` and refreshes the
+extension's command catalog copy, so the VSCode extension stays in lock-step.
+
+Protobuf contracts are linted with protolint:
+
+```bash
+brew install protolint
+protolint lint proto
+python3 -m pytest -q tests/test_proto_contracts.py
+```
+
+## VSCode / Cursor / Antigravity extension
+
+`extensions/vscode-z3cli/` is a VSCode-API extension that surfaces the same
+chat, slash commands, and routes inside the editor and adds inline FIM
+autocomplete. It spawns `python -m z3cli --serve` per workspace and exchanges
+NDJSON JSON-RPC over stdio. FIM hits `/v1/completions` directly on LM Studio
+or llama.cpp; if the local server isn't loaded, the extension falls back to
+the new `complete` JSON-RPC method which auto-loads the model.
+
+```bash
+cd extensions/vscode-z3cli
+npm install
+./scripts/package-vsix.sh
+./scripts/install-vsix.sh   # installs into VSCode, Cursor, Antigravity
+```
+
+Details and settings: [`extensions/vscode-z3cli/README.md`](extensions/vscode-z3cli/README.md).
 
 ## iOS remote (SwiftUI + bridge)
 
@@ -413,4 +514,4 @@ export Z3CLI_BRIDGE_TOKEN='your-secret'
 
 Or manually: `python -m z3cli --bridge --bridge-host 0.0.0.0 --bridge-port 8765 --bridge-token "$Z3CLI_BRIDGE_TOKEN" -- --workspace ~/src/hobby/oracle-of-secrets`
 
-Clients must send `Authorization: Bearer <token>` on the WebSocket handshake. One WebSocket session proxies to one child `z3cli --serve` process (see [`z3cli/app/ws_bridge.py`](z3cli/app/ws_bridge.py)).
+Clients must send `Authorization: Bearer <token>` on the WebSocket handshake. One WebSocket session proxies to one child `z3cli --serve` process (see [`src/app/ws_bridge.py`](src/app/ws_bridge.py)).

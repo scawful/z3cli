@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 import shlex
 
-from z3cli.app.shell_session import PersistentShellSession
+from app.shell_session import PersistentShellSession
 
 
 class ShellSessionTests(unittest.IsolatedAsyncioTestCase):

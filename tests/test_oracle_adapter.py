@@ -5,8 +5,8 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from z3cli.core import config as config_mod
-from z3cli.core.tool_adapters import ADAPTER_REGISTRY, get_adapter
+from core import config as config_mod
+from core.tool_adapters import ADAPTER_REGISTRY, get_adapter
 
 
 class _TrackingBridge:
@@ -59,6 +59,7 @@ class OracleAdapterRegistrationTests(unittest.TestCase):
                 "disasm_at",
                 "cpu_state",
                 "register_doc",
+                "workspace_read",
             },
         )
 
@@ -84,8 +85,11 @@ class OracleRegistryBindingTests(unittest.TestCase):
         models, _routers = config_mod.load_registry(registry_path)
 
         self.assertEqual(models["oracle"].tool_profile, "oracle")
+        self.assertEqual(models["oracle-qwen35-9b"].tool_profile, "oracle")
         self.assertEqual(models["oracle-fast"].tool_profile, "oracle-fast")
         self.assertEqual(models["oracle-pro"].tool_profile, "oracle-pro")
+        self.assertEqual(models["oracle-pro"].model_id, "gguf/zelda/qwen3-oracle-14b-v8-q4km.gguf")
+        self.assertIn("qwen3-oracle-14b-v8", models["oracle-pro"].aliases)
         self.assertFalse(models["oracle"].deferred_tools)
 
 
@@ -139,6 +143,18 @@ class OracleAdapterRoutingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([call[0] for call in emulator.calls], ["mesen_cpu", "mesen_gamestate"])
         self.assertIn("CPU", out)
         self.assertIn("Game state", out)
+
+    async def test_workspace_read_routes_to_workspace_bridge(self) -> None:
+        workspace = _TrackingBridge("workspace", response="source contents")
+        adapter = get_adapter("oracle", {"workspace": workspace})
+        assert adapter is not None
+
+        await adapter.call_tool("workspace_read", {"path": "Oracle_main.asm", "max_lines": 40})
+
+        self.assertEqual(
+            workspace.calls,
+            [("workspace_read", {"path": "Oracle_main.asm", "max_lines": 40})],
+        )
 
 
 class OracleAdapterRegisterDocTests(unittest.IsolatedAsyncioTestCase):
