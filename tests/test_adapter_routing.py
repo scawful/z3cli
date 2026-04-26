@@ -6,7 +6,6 @@ import unittest
 from typing import Any
 
 from core.tool_adapters import get_adapter
-from core.tool_bridge import ReadOnlyBridge
 
 
 class _TrackingBridge:
@@ -128,42 +127,12 @@ class CapabilityRoutingTests(unittest.IsolatedAsyncioTestCase):
         await adapter.call_tool("read_memory", {"address": "0x7E0000"})
         self.assertEqual(len(bridge.calls), 1)
 
-    async def test_veran_patch_workflow_tools_route_to_workflow_bridge(self) -> None:
-        workflow = _TrackingBridge("workflow")
-        adapter = get_adapter("veran", {"workflow": workflow})
-        assert adapter is not None
+    def test_retired_profiles_do_not_bind_runtime_adapters(self) -> None:
+        fallback = _TrackingBridge("fallback")
 
-        await adapter.call_tool("asm_patch_test", {"patch_path": "/a/b.asm"})
-        await adapter.call_tool("hook_try", {"patch_path": "/a/hook.asm", "address": "$028000"})
-
-        self.assertEqual(
-            [call[0] for call in workflow.calls],
-            ["asm_patch_test", "hook_try"],
-        )
-
-    async def test_veran_validate_hook_uses_asm_bridge_when_file_provided(self) -> None:
-        asm = _TrackingBridge("asm")
-        reference = _TrackingBridge("reference")
-        adapter = get_adapter("veran", {"asm": asm, "reference": reference})
-        assert adapter is not None
-        # With a file -> asm bridge (z3asm_lint).
-        await adapter.call_tool("validate_hook", {"address": "$028000", "file": "/a/b.asm"})
-        self.assertEqual(asm.calls[-1][0], "z3asm_lint")
-        self.assertEqual(asm.calls[-1][1]["patch_path"], "/a/b.asm")
-        # Without a file -> reference bridge fallback.
-        await adapter.call_tool("validate_hook", {"address": "$028000"})
-        self.assertEqual(reference.calls[-1][0], "validate_hook")
-
-    async def test_veran_hook_try_is_blocked_in_read_only_mode(self) -> None:
-        workflow = _TrackingBridge("workflow")
-        adapter = get_adapter("veran", {"workflow": workflow})
-        assert adapter is not None
-
-        read_only = ReadOnlyBridge(adapter)
-        result = await read_only.call_tool("hook_try", {"patch_path": "/a/hook.asm", "address": "$028000"})
-
-        self.assertIn("blocked in read-only mode", result)
-        self.assertEqual(workflow.calls, [])
+        for profile in ("veran", "majora", "hylia"):
+            with self.subTest(profile=profile):
+                self.assertIsNone(get_adapter(profile, {"*": fallback}))
 
     async def test_din_step_trace_loops_and_collects_state(self) -> None:
         emulator = _TrackingBridge("emulator")

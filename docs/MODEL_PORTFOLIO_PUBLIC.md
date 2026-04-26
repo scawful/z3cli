@@ -59,8 +59,9 @@ developer model variants that are useful in day-to-day z3cli work.
   `oracle-fast`, `oracle-qwen35-9b`, `oracle-pro`, `din`, `nayru`, and
   `navi` when those entries are installed or available.
 - `veran`, `hylia`, and `majora` are retired from the active z3cli picker and
-  catalog. Their old adapter code may remain for legacy/custom registries, but
-  they are no longer part of the primary model family.
+  catalog and from the runtime adapter registry. Their old adapter files may
+  remain as historical reference code, but they are no longer part of the
+  primary model family.
 - `qwen3-oracle-8b` and `navi-q4km` stay available through
   `/models catalog advanced`, not the default picker.
 - `oracle-coder` stays internal and is meant to be invoked by Oracle-family parents, not selected as a top-level working model.

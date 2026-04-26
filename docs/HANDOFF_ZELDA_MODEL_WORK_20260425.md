@@ -82,9 +82,10 @@ Keep the specialist bench available internally:
 | `din` | optimization, hook contracts, patch hygiene |
 | `navi` | FIM/autocomplete, quick debug triage, z3cli workflow repair |
 
-`veran`, `hylia`, and `majora` are retired from the active z3cli catalog. The
-old adapter code can stay for compatibility with custom registries, but the
-picker/catalog surface should consolidate around `din`, `nayru`, and `navi`.
+`veran`, `hylia`, and `majora` are retired from the active z3cli catalog and
+runtime adapter registry. The old adapter code can stay as historical reference
+code, but the picker/catalog surface should consolidate around `din`, `nayru`,
+and `navi`.
 The former `farore` autocomplete model now resolves as a legacy alias for
 `navi`; keep the Farore-labeled training run on `oracle-qwen35-9b`.
 

@@ -107,5 +107,6 @@ Before relying on a new model/checkpoint:
 - Write tools (room edits, hooks, patches). Adapter stays read-only; existing
   full-surface profiles handle writes.
 - Live emulator control (step, breakpoint set). `cpu_state` reads only;
-  control surface stays with `veran` / `farore` who already do debug work.
+  control surface stays with the consolidated debug profile (`navi`) and full
+  Oracle-family tool surface.
 - New MCP servers. This plan reuses the existing capability bridges only.

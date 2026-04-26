@@ -22,19 +22,15 @@ from core.tool_adapters.base import ToolAdapter
 from core.tool_adapters.din import DinAdapter
 from core.tool_adapters.nayru import NayruAdapter
 from core.tool_adapters.farore import FaroreAdapter
-from core.tool_adapters.veran import VeranAdapter
-from core.tool_adapters.majora import MajoraAdapter
-from core.tool_adapters.hylia import HyliaAdapter
 from core.tool_adapters.oracle import OracleAdapter
 
 
+# Veran/Majora/Hylia adapter files remain in-tree as historical reference code,
+# but the runtime registry exposes only the consolidated specialist family.
 ADAPTER_REGISTRY: dict[str, type[ToolAdapter]] = {
     "din": DinAdapter,
     "nayru": NayruAdapter,
     "farore": FaroreAdapter,
-    "veran": VeranAdapter,
-    "majora": MajoraAdapter,
-    "hylia": HyliaAdapter,
     "oracle": OracleAdapter,
     "oracle-fast": OracleAdapter,
     "oracle-pro": OracleAdapter,
