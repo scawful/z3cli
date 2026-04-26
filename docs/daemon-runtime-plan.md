@@ -272,8 +272,13 @@ cmake -S src/services/router/daemon_native -B src/services/router/daemon_native/
 cmake --build src/services/router/daemon_native/build -j8
 ```
 
-The binary speaks NDJSON JSON-RPC on stdio, reuses the Python inventory sidecar for snapshots, and targets
-the same `route/list` envelope as `app.serve._route_list_payload` (`active`, `entries`, `active_route`, `routes`).
+The binary speaks NDJSON JSON-RPC on stdio and reuses the Python inventory sidecar for snapshots.
+
+It implements two route list shapes:
+
+- `route/list`: **proto-JSON** response used by clients (`activeRoute`, `routes`)
+- `route/list_envelope`: UI/debug envelope aligned with `app.serve._route_list_payload`
+  (`active`, `entries`, `active_route`, `routes`)
 
 Clangd picks up `compile_commands.json` via `src/services/router/daemon_native/.clangd` after configuring the
 build directory above.

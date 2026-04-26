@@ -547,6 +547,16 @@ json HandleRouteList(InventorySidecar& inventory,
   return payload;
 }
 
+json HandleRouteListProto(InventorySidecar& inventory,
+                          RouterState& state,
+                          std::unordered_map<std::string, CachedSnapshot>& cache) {
+  const json envelope = HandleRouteList(inventory, state, cache);
+  json payload;
+  payload["activeRoute"] = envelope.value("active_route", "");
+  payload["routes"] = envelope.value("routes", json::array());
+  return payload;
+}
+
 json HandleRouteStatus(const RouterState& state, const json& params) {
   const std::string route = params.value("route", "");
   return json{{"route", route.empty() ? state.active_route : route}, {"activeRoute", state.active_route}};
@@ -592,6 +602,10 @@ int main(int argc, char** argv) {
         continue;
       }
       if (method == "route/list") {
+        WriteLine(JsonRpcResult(id, HandleRouteListProto(inventory, state, snapshot_cache)));
+        continue;
+      }
+      if (method == "route/list_envelope") {
         WriteLine(JsonRpcResult(id, HandleRouteList(inventory, state, snapshot_cache)));
         continue;
       }
