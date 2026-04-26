@@ -51,7 +51,7 @@ from app.ipc_schema import (
 from core.config import (
     API_BASE, MCP_CONFIG_PATH, REGISTRY_PATH, ModelConfig, Z3UI_MODEL_ORDER,
     direct_model_selection_error,
-    is_z3ui_model, is_z3ui_model_entry,
+    is_advanced_model, is_z3ui_model, is_z3ui_model_entry,
     load_llamacpp_nodes, load_registry, load_studio_nodes, list_zelda_models, rollout_warnings,
 )
 from core.engine import (
@@ -173,10 +173,39 @@ def _allowed_z3ui_model_names(state: "ServeState") -> list[str]:
     ]
 
 
+def _allowed_z3ui_advanced_model_names(state: "ServeState") -> list[str]:
+    names: list[str] = []
+    for model_info in model_catalog_infos(state, include_advanced=True):
+        name = str(model_info["name"])
+        model = state.models.get(name)
+        if model is None or not model.is_local:
+            continue
+        if not is_advanced_model(model):
+            continue
+        if not bool(model_info.get("selectable", True)):
+            continue
+        if blocked_model_reason(model):
+            continue
+        names.append(name)
+    return names
+
+
+def _allowed_z3ui_command_model_names(state: "ServeState") -> list[str]:
+    allowed: list[str] = []
+    for name in [*_allowed_z3ui_model_names(state), *_allowed_z3ui_advanced_model_names(state)]:
+        if name not in allowed:
+            allowed.append(name)
+    return allowed
+
+
 def _z3ui_model_policy_error(state: "ServeState", model_name: str) -> str:
     allowed = _allowed_z3ui_model_names(state)
     if allowed:
-        return f"Model '{model_name}' is not available in z3ui. Choose one of: {', '.join(allowed)}"
+        advanced = _allowed_z3ui_advanced_model_names(state)
+        suffix = ""
+        if advanced:
+            suffix = "; advanced manual models are listed under /models catalog advanced"
+        return f"Model '{model_name}' is not available in z3ui. Choose one of: {', '.join(allowed)}{suffix}"
     fallback = ", ".join(Z3UI_MODEL_ORDER)
     return (
         f"Model '{model_name}' is not available in z3ui. "
@@ -3316,10 +3345,7 @@ async def handle_command(state: ServeState, req_id: int, params: dict) -> None:
             return
         if alias:
             state.model_alias_resolutions += 1
-        if not is_z3ui_model_entry(state.models.get(next_model)):
-            _respond(req_id, error=_z3ui_model_policy_error(state, next_model))
-            return
-        if next_model not in _allowed_z3ui_model_names(state):
+        if next_model not in _allowed_z3ui_command_model_names(state):
             _respond(req_id, error=_z3ui_model_policy_error(state, next_model))
             return
         ensure_model_available(state.models.get(next_model))

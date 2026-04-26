@@ -832,6 +832,46 @@ role = "planner"
         self.assertEqual(responses[-1], (104, {"active_model": "oracle-pro"}, None))
         self.assertEqual(state.active_model, "oracle-pro")
 
+    async def test_handle_command_model_accepts_visible_advanced_model_by_name(self) -> None:
+        state = ServeState()
+        state.active_model = "oracle"
+        navi_model_id = "gguf/zelda/farore-9b-q4km.gguf"
+        state.models = {
+            "oracle": ModelConfig(name="oracle", model_id="oracle", role="planner"),
+            "navi-q4km": ModelConfig(
+                name="navi-q4km",
+                model_id=navi_model_id,
+                role="lighter navi quant",
+                tags=["oracle", "local", "qwen35"],
+                tool_profile="farore",
+                visibility="advanced",
+                hide_if_unavailable=True,
+            ),
+        }
+
+        responses: list[tuple[int, object, str | None]] = []
+        with patch("app.shared_runtime.available_models", return_value=[
+            {"id": "oracle", "path": "oracle"},
+            {"id": navi_model_id, "path": navi_model_id},
+        ]), patch("app.shared_runtime.loaded_models", return_value=[]), patch(
+            "app.serve._refresh_focus_context"
+        ), patch(
+            "app.serve._persist_state"
+        ), patch(
+            "app.serve._schedule_ready_notification"
+        ), patch(
+            "app.serve._respond",
+            side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
+        ):
+            default_names = [str(item["name"]) for item in model_catalog_infos(state)]
+            advanced_names = [str(item["name"]) for item in model_catalog_infos(state, include_advanced=True)]
+            await handle_command(state, 105, {"cmd": "/model", "args": ["navi-q4km"]})
+
+        self.assertNotIn("navi-q4km", default_names)
+        self.assertIn("navi-q4km", advanced_names)
+        self.assertEqual(responses[-1], (105, {"active_model": "navi-q4km"}, None))
+        self.assertEqual(state.active_model, "navi-q4km")
+
     async def test_handle_command_orchestrator_resolves_legacy_alias(self) -> None:
         state = ServeState()
         state.models = {
