@@ -16,11 +16,11 @@ developer model variants that are useful in day-to-day z3cli work.
 - Heavy model:
   - `oracle-mythic` — `27B switchhook Oracle · q4km` manual-only
 - Direct local developer variants:
-  - `oracle-qwen35-9b` — `9B Oracle Qwen3.5 daily · q4km` (Farore-trained debug/tool-use overlay)
-  - `qwen3-oracle-8b` / `oracle-q8` — `8B corrective Oracle · q8_0`
-  - `nayru` / `nayru-q8` — `9B Qwen3.5 explainer · q8_0`
-  - `navi` / `navi-q8` — `9B Qwen3.5 FIM/autocomplete + quick debug · q8_0`
-  - `navi-q4km` — `9B Qwen3.5 FIM/autocomplete + quick debug · q4km`
+  - `oracle-qwen35-9b` — `Oracle daily 9B · q4km` (Farore-trained debug/tool-use overlay)
+  - `din` — `Din optimizer · Qwen3 8B`
+  - `nayru` / `nayru-q8` — `Nayru explainer · q8_0`
+  - `navi` / `navi-q8` — `Navi FIM/debug · q8`
+  - `navi-q4km` and `qwen3-oracle-8b` / `oracle-q8` — advanced catalog variants
 - Internal callable worker:
   - `oracle-coder` — internal-only code authoring worker, not a normal picker target
   - `oracle-coder-pro` — hidden Qwen3-Coder 30B-A3B FP8 vLLM sidecar for Oracle-Pro patch synthesis
@@ -55,12 +55,14 @@ developer model variants that are useful in day-to-day z3cli work.
 - `oracle-pro` is the current critical-safe local pro lane.
 - `oracle-mythic` is the explicit heavy-model opt-in and should only be loaded when that path is intentional.
 - `oracle-qwen35-9b` is the daily 9B Oracle Qwen3.5 lane — promoted from candidate after the Farore-labeled training run landed cleanly. Plain `oracle` stays reserved for the eventual 14B mainline; do not collapse the two.
-- The local specialist bench is intentionally small in z3cli:
-  `din`, `nayru`, `navi`, and `navi-q4km`.
+- The default z3cli model list is intentionally small:
+  `oracle-fast`, `oracle-qwen35-9b`, `oracle-pro`, `din`, `nayru`, and
+  `navi` when those entries are installed or available.
 - `veran`, `hylia`, and `majora` are retired from the active z3cli picker and
   catalog. Their old adapter code may remain for legacy/custom registries, but
   they are no longer part of the primary model family.
-- `qwen3-oracle-8b` stays available as an alternate direct model entry.
+- `qwen3-oracle-8b` and `navi-q4km` stay available through
+  `/models catalog advanced`, not the default picker.
 - `oracle-coder` stays internal and is meant to be invoked by Oracle-family parents, not selected as a top-level working model.
 - `oracle-coder-pro` and `oracle-reasoner-27b` are also internal-only, but they
   give Oracle-Pro heavier delegated authoring and long-context analysis lanes

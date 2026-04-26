@@ -174,11 +174,17 @@ test("buildModelManagerTabs groups oracle and qwen families separately", () => {
     sessionPath: "",
   } as any);
 
-  assert.deepEqual(tabs.map((tab) => tab.label), ["Oracle", "Bench", "Qwen"]);
-  assert.deepEqual(tabs[0]?.entries.map((entry) => entry.name), ["oracle-fast", "oracle", "oracle-pro"]);
+  assert.deepEqual(tabs.map((tab) => tab.label), ["Oracle", "Specialists", "Qwen"]);
+  assert.deepEqual(tabs[0]?.entries.map((entry) => entry.name), [
+    "oracle-fast",
+    "oracle",
+    "oracle-pro",
+    "qwen3-oracle-8b",
+    "oracle-coder",
+  ]);
   assert.equal(tabs[0]?.entries[2]?.catalogTag, "manual");
-  assert.deepEqual(tabs[1]?.entries.map((entry) => entry.name), ["qwen3-oracle-8b", "nayru", "oracle-coder"]);
-  assert.equal(tabs[1]?.entries[2]?.canActivate, false);
-  assert.equal(tabs[1]?.entries[2]?.catalogTag, "internal");
+  assert.equal(tabs[0]?.entries[4]?.canActivate, false);
+  assert.equal(tabs[0]?.entries[4]?.catalogTag, "internal");
+  assert.deepEqual(tabs[1]?.entries.map((entry) => entry.name), ["nayru"]);
   assert.deepEqual(tabs[2]?.entries.map((entry) => entry.name), ["qwen3-local-8b"]);
 });

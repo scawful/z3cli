@@ -548,27 +548,29 @@ class ModeAndAliasTests(unittest.IsolatedAsyncioTestCase):
         os.environ["ANTHROPIC_API_KEY"] = "test-key"
         try:
             state = _state()
+            state.models["navi"] = _model("navi", tool_profile="farore")
             state.models["claude-sonnet"] = _cloud_model("claude-sonnet")
 
             render_model_table(state)
 
             output = state.console.export_text().lower()
             self.assertNotIn("claude-sonnet", output)
-            self.assertIn("primary local contract", output)
+            self.assertIn("intentionally small", output)
             self.assertIn("nayru", output)
-            self.assertIn("farore", output)
+            self.assertIn("navi", output)
             self.assertIn("din", output)
         finally:
             del os.environ["ANTHROPIC_API_KEY"]
 
     def test_render_model_table_mentions_oracle_pro_manual_alias(self) -> None:
         state = _state()
+        state.models["oracle-pro"] = _model("oracle-pro", role="pro oracle")
 
         render_model_table(state)
 
         output = state.console.export_text().lower()
         self.assertIn("oracle-pro", output)
-        self.assertIn("manual-only", output)
+        self.assertIn("models catalog advanced", output)
 
     def test_get_engine_uses_cloud_provider_for_cloud_models(self) -> None:
         os.environ["ANTHROPIC_API_KEY"] = "test-key"

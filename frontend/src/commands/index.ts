@@ -142,14 +142,21 @@ function renderModelList(models: ModelInfo[], activeModel: string | undefined, t
     return `### ${title}\n\nNo models available.`;
   }
   const lines = models.map((m) => {
-    const active = m.name === activeModel ? "⚔" : " ";
-    const loaded = m.loaded ? "✓" : " ";
-    const tools = m.toolsEnabled ? "🔨" : " ";
+    const active = m.name === activeModel ? "⚔ " : "";
+    const loaded = m.loaded ? " · loaded" : "";
+    const tools = m.toolsEnabled ? " · tools" : "";
     const summary = modelPickerDescription(m);
     const runtime = describeLoadedModelRuntime(m);
-    return `${active} **${m.name}** · ${loaded} loaded · ${tools} tools · _${summary}_${runtime ? ` · ${runtime}` : ""}`;
+    return `- ${active}**${m.name}**${loaded}${tools}${summary ? ` — _${summary}_` : ""}${runtime ? ` · ${runtime}` : ""}`;
   });
   return `### ${title}\n\n${lines.join("\n")}`;
+}
+
+function modelPayloadEntries(result: unknown): ModelInfo[] {
+  const payload = result && typeof result === "object" ? result as Record<string, unknown> : {};
+  return Array.isArray(payload.models)
+    ? payload.models.flatMap((entry) => entry && typeof entry === "object" ? [entry as ModelInfo] : [])
+    : [];
 }
 
 function renderBackendStatus(result: unknown): string {
@@ -450,6 +457,12 @@ const COMMANDS: Record<string, Handler> = {
       return;
     }
     if (subcommand === "catalog") {
+      const advanced = args.slice(1).some((arg) => ["advanced", "--all", "all"].includes(arg.toLowerCase()));
+      if (advanced) {
+        const result = await ctx.sendCommand("/models", args);
+        ctx.addSystemMessage(renderModelList(modelPayloadEntries(result), ctx.config.activeModel, "Advanced Model Catalog"));
+        return;
+      }
       ctx.addSystemMessage(renderModelList(ctx.config.modelCatalog ?? ctx.config.models, ctx.config.activeModel, "Model Catalog"));
       return;
     }

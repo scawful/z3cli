@@ -430,41 +430,43 @@ def preview_targets(state: AppState, prompt: str) -> list[ModelConfig]:
 
 def render_model_table(state: AppState, models: list[dict[str, Any]] | None = None, *, title: str = "Zelda Models") -> None:
     from rich.table import Table
-    table = Table(title=title)
-    table.add_column("Active")
-    table.add_column("Alias")
-    table.add_column("Provider")
-    table.add_column("Loaded")
-    table.add_column("Mem")
-    table.add_column("Estimate")
-    table.add_column("Status")
-    table.add_column("Available")
-    table.add_column("Role")
-    table.add_column("Description")
-    table.add_column("Model ID")
+    table = Table(title=title, show_lines=False)
+    table.add_column("", no_wrap=True)
+    table.add_column("Model", no_wrap=True)
+    table.add_column("Provider", no_wrap=True)
+    table.add_column("Loaded", no_wrap=True)
+    table.add_column("Use")
+    table.add_column("Runtime")
     for model in models if models is not None else visible_model_infos(state):
+        runtime = " · ".join(
+            part
+            for part in (
+                _format_loaded_status(model),
+                _format_loaded_estimate(model),
+                _format_memory_bytes(int(model.get("size_bytes", 0) or 0)),
+            )
+            if part and part != "-"
+        )
         table.add_row(
             "*" if model["name"] == state.active_model else "",
             str(model["name"]),
             str(model["provider"]),
             "yes" if model["loaded"] else "no",
-            _format_memory_bytes(int(model.get("size_bytes", 0) or 0)),
-            _format_loaded_estimate(model),
-            _format_loaded_status(model),
-            "yes" if model["available"] else "no",
-            str(model["role"]),
-            str(model.get("description", "")),
-            str(model["model_id"]),
+            _compact_model_text(str(model.get("description") or model.get("role") or ""), 54),
+            runtime or ("available" if model.get("available") else "unavailable"),
         )
     state.console.print(table)
     state.console.print(
-        "Primary local contract: [bold]oracle-fast[/bold] is the real 8B corrective Oracle. "
-        "[bold]oracle[/bold] stays reserved for the future default mainline and remains hidden until installed."
+        "Default list is intentionally small: Oracle lanes plus [bold]din[/bold], [bold]nayru[/bold], and [bold]navi[/bold]. "
+        "Use [bold]models catalog advanced[/bold] for quants, raw fallbacks, and manual heavy lanes."
     )
-    state.console.print(
-        "CLI /models and the z3ui picker surface the configured operator bench instead of hiding useful local variants. "
-        "[bold]oracle-pro[/bold] is the current 14B pro lane, while [bold]oracle-mythic[/bold] remains manual-only."
-    )
+
+
+def _compact_model_text(value: str, limit: int) -> str:
+    normalized = " ".join(value.split())
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: max(0, limit - 1)].rstrip() + "…"
 
 
 def _format_memory_bytes(size_bytes: int) -> str:
@@ -1234,7 +1236,12 @@ async def handle_command(state: AppState, line: str) -> bool:
             render_model_table(state)
             return True
         if subcommand == "catalog":
-            render_model_table(state, model_catalog_infos(state), title="Model Catalog")
+            include_advanced, error = route_list_include_advanced(parts[2:])
+            if error:
+                state.console.print("Usage: /models catalog [advanced|--all]", markup=False)
+                return True
+            title = "Advanced Model Catalog" if include_advanced else "Model Catalog"
+            render_model_table(state, model_catalog_infos(state, include_advanced=include_advanced), title=title)
             return True
         if subcommand == "loaded":
             await list_loaded_api(state)
@@ -1246,7 +1253,7 @@ async def handle_command(state: AppState, line: str) -> bool:
                 return True
             print_route_targets(state, include_advanced=include_advanced)
             return True
-        state.console.print("Usage: /models [list|catalog|loaded|routes [advanced|--all]]", markup=False)
+        state.console.print("Usage: /models [list|catalog [advanced|--all]|loaded|routes [advanced|--all]]", markup=False)
         return True
 
     if command == "/loaded":
@@ -2114,7 +2121,12 @@ async def run_control_cli_command(state: AppState, command_args: list[str]) -> i
             render_model_table(state)
             return 0
         if subcommand == "catalog":
-            render_model_table(state, model_catalog_infos(state), title="Model Catalog")
+            include_advanced, error = route_list_include_advanced(args[1:])
+            if error:
+                state.console.print("Usage: z3cli models catalog [advanced|--all]", markup=False)
+                return 2
+            title = "Advanced Model Catalog" if include_advanced else "Model Catalog"
+            render_model_table(state, model_catalog_infos(state, include_advanced=include_advanced), title=title)
             return 0
         if subcommand == "loaded":
             await list_loaded_api(state)
@@ -2126,7 +2138,7 @@ async def run_control_cli_command(state: AppState, command_args: list[str]) -> i
                 return 2
             print_route_targets(state, include_advanced=include_advanced)
             return 0
-        state.console.print("Usage: z3cli models [list|catalog|loaded|routes [advanced|--all]]", markup=False)
+        state.console.print("Usage: z3cli models [list|catalog [advanced|--all]|loaded|routes [advanced|--all]]", markup=False)
         return 2
 
     return None

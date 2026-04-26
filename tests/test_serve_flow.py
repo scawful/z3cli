@@ -22,6 +22,7 @@ from app.serve import (
     run_budgeted_chat_request,
     serve_main,
 )
+from app.shared_runtime import model_catalog_infos
 from core.config import LlamaCppNodeConfig, ModelConfig, StudioNodeConfig
 from core.engine import CompactionEvent, DoneEvent, TextEvent, ThinkingEvent, ToolCallEvent, ToolResultEvent
 from core.subagent import (
@@ -244,7 +245,7 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(
                 names,
-                ["oracle", "oracle-fast", "din", "navi", "nayru"],
+                ["oracle-fast", "oracle", "din", "nayru", "navi"],
             )
             self.assertNotIn("avatar-debugger", names)
             self.assertNotIn("claude-sonnet", names)
@@ -309,7 +310,7 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
         ):
             params = build_ready_params(state)
 
-        self.assertEqual([str(item["name"]) for item in params["models"]], ["oracle", "oracle-fast", "oracle-pro"])
+        self.assertEqual([str(item["name"]) for item in params["models"]], ["oracle-fast", "oracle", "oracle-pro"])
 
     def test_build_ready_params_hides_unavailable_local_models(self) -> None:
         state = ServeState()
@@ -334,7 +335,7 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
         ]), patch("app.shared_runtime.loaded_models", return_value=[]):
             params = build_ready_params(state)
 
-        self.assertEqual([str(item["name"]) for item in params["models"]], ["oracle", "oracle-fast", "oracle-pro"])
+        self.assertEqual([str(item["name"]) for item in params["models"]], ["oracle-fast", "oracle", "oracle-pro"])
 
     def test_build_ready_params_keeps_active_specialist_visible_in_primary_picker(self) -> None:
         state = ServeState()
@@ -351,7 +352,7 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
         ):
             params = build_ready_params(state)
 
-        self.assertEqual([str(item["name"]) for item in params["models"]], ["oracle", "oracle-fast", "nayru"])
+        self.assertEqual([str(item["name"]) for item in params["models"]], ["oracle-fast", "oracle", "nayru"])
 
     def test_build_ready_params_surfaces_hidden_14b_slot_from_quantized_available_key(self) -> None:
         state = ServeState()
@@ -379,11 +380,15 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             [str(item["name"]) for item in params["model_catalog"]],
+            ["oracle"],
+        )
+        self.assertEqual(
+            [str(item["name"]) for item in model_catalog_infos(state, include_advanced=True)],
             ["oracle", "qwen3-oracle-14b"],
         )
         self.assertEqual([str(item["name"]) for item in params["models"]], ["oracle"])
 
-    def test_build_ready_params_exposes_model_catalog_for_manager_only_entries(self) -> None:
+    def test_build_ready_params_hides_internal_spawn_only_entries_from_catalog(self) -> None:
         state = ServeState()
         state.models = {
             "oracle": ModelConfig(name="oracle", model_id="oracle", role="planner", tools_enabled=True),
@@ -419,11 +424,9 @@ class ServeFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([str(item["name"]) for item in params["models"]], ["oracle", "oracle-pro"])
         self.assertEqual(
             [str(item["name"]) for item in catalog],
-            ["oracle", "oracle-coder", "oracle-pro"],
+            ["oracle", "oracle-pro"],
         )
-        coder_entry = next(item for item in catalog if str(item["name"]) == "oracle-coder")
         oracle_pro_entry = next(item for item in catalog if str(item["name"]) == "oracle-pro")
-        self.assertEqual(coder_entry.get("selectable"), False)
         self.assertEqual(oracle_pro_entry.get("selectable"), True)
 
     def test_build_ready_params_includes_tagged_local_z3ui_models(self) -> None:

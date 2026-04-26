@@ -28,9 +28,11 @@ from core.config import (
     StudioNodeConfig,
     UI_HIDDEN_ZELDA_MODEL_TAGS,
     direct_model_selection_error,
+    is_advanced_model,
+    is_hidden_model,
+    is_spawn_only_model,
     is_zelda_model,
     is_z3ui_model_entry,
-    list_visible_zelda_models,
     z3ui_model_sort_key,
 )
 from core.engine import ChatEngine
@@ -1247,74 +1249,39 @@ def loaded_model_runtime_infos(state: Any) -> list[dict[str, Any]]:
 
 
 def visible_model_infos(state: Any) -> list[dict[str, Any]]:
-    _runtime_infos, loaded_lookup, available_lookup, inventory_ok = _studio_runtime_inventory(state)
-    visible: dict[str, Any] = {}
-    for model in state.models.values():
-        if model.is_cloud:
-            if not _model_has_runtime_presence(model, loaded_lookup, available_lookup, inventory_ok):
-                continue
-            visible[model.name] = model
-            continue
-        if not is_zelda_model(model):
-            continue
-        if direct_model_selection_error(model) is not None:
-            continue
-        tags_lower = {tag.lower() for tag in model.tags}
-        if UI_HIDDEN_ZELDA_MODEL_TAGS & tags_lower:
-            continue
-        if not _model_has_runtime_presence(model, loaded_lookup, available_lookup, inventory_ok):
-            continue
-        visible[model.name] = model
+    return model_catalog_infos(state, include_advanced=False)
 
+
+def _is_catalog_visible_model(model: Any, *, include_advanced: bool) -> bool:
+    if is_hidden_model(model) or is_spawn_only_model(model):
+        return False
+    if direct_model_selection_error(model) is not None:
+        return False
+    if is_advanced_model(model) and not include_advanced:
+        return False
+    tags_lower = {str(tag).lower() for tag in getattr(model, "tags", [])}
+    if UI_HIDDEN_ZELDA_MODEL_TAGS & tags_lower:
+        return False
+    return True
+
+
+def _sorted_model_infos(
+    models: list[Any],
+    loaded_lookup: dict[str, dict[str, Any]],
+    available_lookup: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
     infos: list[dict[str, Any]] = []
-    for model in sorted(
-        visible.values(),
-        key=lambda item: (
-            0 if item.is_cloud else 1,
-            z3ui_model_sort_key(item.name) if not item.is_cloud else (len(_PRIMARY_MODEL_NAMES), item.name),
-        ),
-    ):
+    for model in sorted(models, key=lambda item: z3ui_model_sort_key(item.name)):
         infos.append(_build_model_runtime_info(model, loaded_lookup, available_lookup))
     return infos
 
 
-def primary_model_infos(state: Any) -> list[dict[str, Any]]:
-    return z3ui_model_infos(state)
-
-
-def model_catalog_infos(state: Any) -> list[dict[str, Any]]:
-    _runtime_infos, loaded_lookup, available_lookup, inventory_ok = _studio_runtime_inventory(state)
-    catalog: dict[str, Any] = {}
-    for model in state.models.values():
-        if model.is_cloud:
-            if _model_has_runtime_presence(model, loaded_lookup, available_lookup, inventory_ok):
-                catalog[model.name] = model
-            continue
-        if not is_zelda_model(model):
-            continue
-        tags_lower = {tag.lower() for tag in model.tags}
-        if UI_HIDDEN_ZELDA_MODEL_TAGS & tags_lower:
-            continue
-        if not _model_has_runtime_presence(model, loaded_lookup, available_lookup, inventory_ok):
-            continue
-        catalog[model.name] = model
-
-    active_model = state.models.get(getattr(state, "active_model", ""))
-    if (
-        active_model is not None
-        and (active_model.is_cloud or is_zelda_model(active_model))
-        and _model_has_runtime_presence(active_model, loaded_lookup, available_lookup, inventory_ok)
-    ):
-        catalog[active_model.name] = active_model
-
-    infos: list[dict[str, Any]] = []
-    for model in sorted(catalog.values(), key=lambda item: item.name):
-        infos.append(_build_model_runtime_info(model, loaded_lookup, available_lookup))
-    return infos
-
-
-def z3ui_model_infos(state: Any) -> list[dict[str, Any]]:
-    _runtime_infos, loaded_lookup, available_lookup, inventory_ok = _studio_runtime_inventory(state)
+def _primary_catalog_models(
+    state: Any,
+    loaded_lookup: dict[str, dict[str, Any]],
+    available_lookup: dict[str, dict[str, Any]],
+    inventory_ok: bool,
+) -> dict[str, Any]:
     visible: dict[str, Any] = {}
     for model in state.models.values():
         if not is_z3ui_model_entry(model):
@@ -1327,10 +1294,49 @@ def z3ui_model_infos(state: Any) -> list[dict[str, Any]]:
             continue
         visible[model.name] = model
 
-    infos: list[dict[str, Any]] = []
-    for model in sorted(visible.values(), key=lambda item: z3ui_model_sort_key(item.name)):
-        infos.append(_build_model_runtime_info(model, loaded_lookup, available_lookup))
-    return infos
+    return visible
+
+
+def primary_model_infos(state: Any) -> list[dict[str, Any]]:
+    return z3ui_model_infos(state)
+
+
+def model_catalog_infos(state: Any, *, include_advanced: bool = False) -> list[dict[str, Any]]:
+    _runtime_infos, loaded_lookup, available_lookup, inventory_ok = _studio_runtime_inventory(state)
+    if not include_advanced:
+        catalog = _primary_catalog_models(state, loaded_lookup, available_lookup, inventory_ok)
+        return _sorted_model_infos(list(catalog.values()), loaded_lookup, available_lookup)
+
+    catalog: dict[str, Any] = {}
+    for model in state.models.values():
+        if not _is_catalog_visible_model(model, include_advanced=True):
+            continue
+        if model.is_cloud:
+            if _model_has_runtime_presence(model, loaded_lookup, available_lookup, inventory_ok):
+                catalog[model.name] = model
+            continue
+        if not is_zelda_model(model):
+            continue
+        if not _model_has_runtime_presence(model, loaded_lookup, available_lookup, inventory_ok):
+            continue
+        catalog[model.name] = model
+
+    active_model = state.models.get(getattr(state, "active_model", ""))
+    if (
+        active_model is not None
+        and _is_catalog_visible_model(active_model, include_advanced=True)
+        and (active_model.is_cloud or is_zelda_model(active_model))
+        and _model_has_runtime_presence(active_model, loaded_lookup, available_lookup, inventory_ok)
+    ):
+        catalog[active_model.name] = active_model
+
+    return _sorted_model_infos(list(catalog.values()), loaded_lookup, available_lookup)
+
+
+def z3ui_model_infos(state: Any) -> list[dict[str, Any]]:
+    _runtime_infos, loaded_lookup, available_lookup, inventory_ok = _studio_runtime_inventory(state)
+    visible = _primary_catalog_models(state, loaded_lookup, available_lookup, inventory_ok)
+    return _sorted_model_infos(list(visible.values()), loaded_lookup, available_lookup)
 
 
 async def ensure_shell(state: Any) -> PersistentShellSession:

@@ -12,24 +12,22 @@ const ORACLE_MODEL_ORDER = [
   "oracle",
   "oracle-pro",
   "qwen3-oracle-14b",
-] as const;
-const BENCH_MODEL_ORDER = [
   "qwen3-oracle-8b",
+] as const;
+const SPECIALIST_MODEL_ORDER = [
   "din",
   "nayru",
   "navi",
-  "navi-q4km",
-  "oracle-coder",
 ] as const;
 const QWEN_MODEL_ORDER = [
   "qwen3-local-8b",
   "qwen3-local-14b",
 ] as const;
 const CLOUD_MODEL_ORDER = ["claude-sonnet", "claude-opus", "gpt-4o"] as const;
-const FAMILY_ORDER = ["oracle", "bench", "qwen", "cloud", "resident", "other"] as const;
+const FAMILY_ORDER = ["oracle", "specialist", "qwen", "cloud", "resident", "other"] as const;
 const FAMILY_LABELS = {
   oracle: "Oracle",
-  bench: "Bench",
+  specialist: "Specialists",
   qwen: "Qwen",
   cloud: "Cloud",
   resident: "Resident",
@@ -41,14 +39,12 @@ const ORACLE_MODELS = new Set<string>([
   "oracle-fast",
   "oracle-qwen35-9b",
   "qwen3-oracle-14b",
-]);
-const BENCH_MODELS = new Set<string>([
   "qwen3-oracle-8b",
+]);
+const SPECIALIST_MODELS = new Set<string>([
   "din",
   "nayru",
   "navi",
-  "navi-q4km",
-  "oracle-coder",
 ]);
 
 type ModelManagerFamily = typeof FAMILY_ORDER[number];
@@ -94,8 +90,8 @@ function inferModelManagerFamily(model: ModelInfo): ModelManagerFamily {
   if (model.provider && model.provider !== "studio" && model.provider !== "llamacpp" && model.provider !== "ollama") {
     return "cloud";
   }
-  if (BENCH_MODELS.has(name)) {
-    return "bench";
+  if (SPECIALIST_MODELS.has(name)) {
+    return "specialist";
   }
   if (ORACLE_MODELS.has(name) || name.startsWith("oracle")) {
     return "oracle";
@@ -115,8 +111,8 @@ function familyModelRank(family: ModelManagerFamily, name: string): number {
   if (family === "oracle") {
     return ORACLE_MODEL_ORDER.indexOf(lowered as (typeof ORACLE_MODEL_ORDER)[number]);
   }
-  if (family === "bench") {
-    return BENCH_MODEL_ORDER.indexOf(lowered as (typeof BENCH_MODEL_ORDER)[number]);
+  if (family === "specialist") {
+    return SPECIALIST_MODEL_ORDER.indexOf(lowered as (typeof SPECIALIST_MODEL_ORDER)[number]);
   }
   if (family === "qwen") {
     return QWEN_MODEL_ORDER.indexOf(lowered as (typeof QWEN_MODEL_ORDER)[number]);

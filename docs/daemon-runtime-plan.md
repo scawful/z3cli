@@ -66,6 +66,7 @@ Model catalog commands stay model-oriented:
 /models
 /models loaded
 /models catalog
+/models catalog advanced
 /models routes
 /models routes advanced
 /models load <model>
@@ -80,10 +81,10 @@ Backcompat aliases stay available but should not be the canonical docs/UI path:
 /use vast      -> /route oracle-pro-vast
 ```
 
-`/route list` should stay operator-focused and canonical. Internal registry
-nodes, model fallback names, and legacy aliases belong behind
-`/route list advanced` so normal route selection does not become a dump of the
-whole model registry.
+`/models` and `/route list` should stay operator-focused and canonical.
+Internal registry nodes, model fallback names, quant variants, and legacy
+aliases belong behind `catalog advanced` / `routes advanced` so normal
+selection does not become a dump of the whole model registry.
 
 ## Implementation Style
 

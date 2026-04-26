@@ -3014,10 +3014,19 @@ async def _loaded_models_payload(state: ServeState) -> dict[str, object]:
 
 
 def _models_payload(state: ServeState, *, catalog: bool = False) -> dict[str, object]:
-    source = model_catalog_infos(state) if catalog else primary_model_infos(state)
+    source = model_catalog_infos(state, include_advanced=False) if catalog else primary_model_infos(state)
     return {
         "models": [_ready_model_payload(state, model) for model in source],
         "catalog": catalog,
+    }
+
+
+def _models_catalog_payload(state: ServeState, *, include_advanced: bool = False) -> dict[str, object]:
+    source = model_catalog_infos(state, include_advanced=include_advanced)
+    return {
+        "models": [_ready_model_payload(state, model) for model in source],
+        "catalog": True,
+        "advanced": include_advanced,
     }
 
 
@@ -3272,7 +3281,11 @@ async def handle_command(state: ServeState, req_id: int, params: dict) -> None:
             _respond(req_id, result=_models_payload(state))
             return
         if subcommand == "catalog":
-            _respond(req_id, result=_models_payload(state, catalog=True))
+            include_advanced, error = route_list_include_advanced(args[1:])
+            if error:
+                _respond(req_id, error="Usage: /models catalog [advanced|--all]")
+                return
+            _respond(req_id, result=_models_catalog_payload(state, include_advanced=include_advanced))
             return
         if subcommand == "loaded":
             _respond(req_id, result=await _loaded_models_payload(state))
@@ -3284,7 +3297,7 @@ async def handle_command(state: ServeState, req_id: int, params: dict) -> None:
                 return
             _respond(req_id, result=_route_list_payload(state, include_advanced=include_advanced))
             return
-        _respond(req_id, error="Usage: /models [list|catalog|loaded|routes [advanced|--all]]")
+        _respond(req_id, error="Usage: /models [list|catalog [advanced|--all]|loaded|routes [advanced|--all]]")
         return
 
     if cmd == "/model":

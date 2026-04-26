@@ -91,15 +91,18 @@ existing `Shift+Tab` chat mode can infer a rough Oracle task shape
 evidence such as register docs, symbol lookups, and one nearby disassembly
 slice when the prompt strongly implies them.
 
-The wider local bench is also available directly when installed:
+The default local picker is intentionally small:
 
-- `qwen3-oracle-8b` or `oracle-q8` -> `8B corrective Oracle · q8_0`
-- `nayru` or `nayru-q8` -> `9B Qwen3.5 explainer · q8_0`
-- `navi` (alias `farore`/`farore-q8`) -> `9B Qwen3.5 Navi autocomplete/debug helper · q8_0`
-- `navi-q4km` (alias `farore-q4km`) -> `9B Qwen3.5 Navi autocomplete/debug helper · q4km`
+- `oracle-fast` -> `Oracle-Fast 8B · q4km`
+- `oracle-qwen35-9b` -> `Oracle daily 9B · q4km`
+- `oracle-pro` -> `Oracle-Pro 14B · q4km`
+- `din` -> `Din optimizer · Qwen3 8B`
+- `nayru` or `nayru-q8` -> `Nayru explainer · q8_0`
+- `navi` (alias `farore`/`farore-q8`) -> `Navi FIM/debug · q8`
 
-CLI `/models` and the main picker in `z3ui` show the configured operator bench,
-excluding only hidden/spawn-only, rollout-gated, or unavailable entries.
+CLI `/models` and the main picker in `z3ui` show this operator list by
+default. Use `models catalog advanced` for raw Qwen fallbacks, quant variants
+such as `navi-q4km`, cloud planners, and manual heavy lanes.
 
 Host placement policy:
 
@@ -303,7 +306,7 @@ python3 -m z3cli --mode broadcast --broadcast-models navi,nayru,din
 - `/backends`
 - `/backend-status`
 - `/smoke [target]`
-- `/models [list|catalog|loaded|routes [advanced|--all]]`
+- `/models [list|catalog [advanced|--all]|loaded|routes [advanced|--all]]`
 - `/loaded`
 - `/servers`
 - `/model <name>`
@@ -377,7 +380,8 @@ python3 -m z3cli --mode broadcast --broadcast-models navi,nayru,din
   Oracle-family delegation. They stay out of the picker but appear in
   `spawn_subagent` when the matching endpoints are configured.
 - `navi` (formerly `farore`) and `nayru` are the live local Qwen3.5 9B
-  specialists, with `navi-q4km` exposed for the lighter quant. Legacy
+  specialists. `navi-q4km` remains available through the advanced catalog for
+  lighter quant testing. Legacy
   `farore` / `farore-q4km` / `farore-q8` aliases still resolve to the
   matching navi entry for one release.
 - Legacy `oracle-main*` and `oracle-tools` names still resolve quietly for

@@ -94,15 +94,13 @@ Z3UI_MODEL_TAGS = {
     "z3ui",
 }
 Z3UI_MODEL_ORDER = (
-    "oracle",
-    "oracle-qwen35-9b",
     "oracle-fast",
+    "oracle-qwen35-9b",
+    "oracle",
     "oracle-pro",
-    "qwen3-oracle-8b",
     "din",
-    "navi",
-    "navi-q4km",
     "nayru",
+    "navi",
 )
 _Z3UI_MODEL_ORDER_INDEX = {
     name: index for index, name in enumerate(Z3UI_MODEL_ORDER)
@@ -331,6 +329,10 @@ def is_hidden_model(model: ModelConfig | None) -> bool:
     return model_visibility(model) in {"hidden", "internal"}
 
 
+def is_advanced_model(model: ModelConfig | None) -> bool:
+    return model_visibility(model) == "advanced"
+
+
 def is_spawn_only_model(model: ModelConfig | None) -> bool:
     if model is None:
         return False
@@ -508,9 +510,12 @@ def list_visible_zelda_models(
     models: dict[str, ModelConfig],
     *,
     include_legacy: bool = False,
+    include_advanced: bool = False,
 ) -> dict[str, ModelConfig]:
     visible: dict[str, ModelConfig] = {}
     for name, model in list_zelda_models(models, include_legacy=include_legacy).items():
+        if is_advanced_model(model) and not include_advanced:
+            continue
         tags_lower = {tag.lower() for tag in model.tags}
         if UI_HIDDEN_ZELDA_MODEL_TAGS & tags_lower:
             continue
@@ -530,7 +535,7 @@ def is_z3ui_model(name: str) -> bool:
 def is_z3ui_model_entry(model: ModelConfig | None) -> bool:
     if model is None or not model.is_local:
         return False
-    if is_hidden_model(model) or is_spawn_only_model(model):
+    if is_hidden_model(model) or is_spawn_only_model(model) or is_advanced_model(model):
         return False
     if is_z3ui_model(model.name):
         return True
