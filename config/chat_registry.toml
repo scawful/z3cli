@@ -11,10 +11,10 @@
 [[models]]
 name = "din"
 provider = "studio"
-model_id = "qwen/qwen3-8b"
+model_id = "gguf/lmstudio/din-v4.gguf"
 role = "generation, optimization, refactoring"
-description = "Din optimizer · Qwen3 8B"
-tags = ["oracle", "local", "daily", "qwen3"]
+description = "Din optimizer · installed v4"
+tags = ["oracle", "local", "daily", "specialist"]
 tool_profile = "din"
 hide_if_unavailable = true
 options = { temperature = 0.2, max_tokens = 1536 }
@@ -32,10 +32,10 @@ After gathering enough evidence:
 [[models]]
 name = "nayru"
 provider = "studio"
-model_id = "gguf/zelda/nayru-9b-q8_0.gguf"
+model_id = "gguf/lmstudio/nayru-v9-q8_0.gguf"
 role = "explanation, analysis, documentation, teaching"
-description = "Nayru explainer · q8_0"
-tags = ["oracle", "local", "daily", "qwen35"]
+description = "Nayru explainer · installed v9 q8_0"
+tags = ["oracle", "local", "daily", "specialist"]
 tool_profile = "nayru"
 aliases = ["nayru-q8"]
 hide_if_unavailable = true
@@ -51,10 +51,10 @@ If code is requested, provide it directly. Keep explanations precise, patient, a
 [[models]]
 name = "navi"
 provider = "studio"
-model_id = "gguf/zelda/farore-9b-q8_0.gguf"
+model_id = "gguf/lmstudio/farore-v5-q8_0.gguf"
 role = "FIM, autocomplete, quick debug triage, and z3cli workflow repair"
-description = "Navi FIM/debug · q8"
-tags = ["oracle", "local", "provisional", "qwen35"]
+description = "Navi FIM/debug · installed Farore v5 q8"
+tags = ["oracle", "local", "daily", "specialist"]
 tool_profile = "farore"
 aliases = ["navi-q8", "farore", "farore-q8"]
 hide_if_unavailable = true
@@ -87,10 +87,10 @@ Keep the same tool-first debug and autocomplete behavior as the main Navi model,
 [[models]]
 name = "oracle"
 provider = "studio"
-model_id = "qwen3-oracle-14b-v1"
+model_id = "gguf/zelda/qwen3-oracle-14b-v8-q4km.gguf"
 tool_profile = "oracle"
-role = "future 14B oracle mainline for grounded local Zelda work"
-description = "14B Oracle mainline · training label"
+role = "grounded 14B oracle mainline for local Zelda work"
+description = "Oracle 14B v8 · q4km"
 tags = ["oracle", "tools", "asm", "local", "primary"]
 domain = "adaptive"
 mode = "adaptive"
@@ -99,8 +99,10 @@ thinking_tier = "medium"
 aliases = [
   "oracle-main-14b",
   "oracle-main-14b-v1",
+  "oracle-main-14b-v8",
   "oracle-14b",
   "qwen3-oracle-14b",
+  "qwen3-oracle-14b-v8",
 ]
 deferred_tools = false
 native_tools = false
@@ -120,6 +122,7 @@ model_id = "gguf/zelda/oracle-qwen35-9b-v1-q4km.gguf"
 tool_profile = "oracle"
 lmstudio_load = { context_length = 12288, parallel = 1, gpu = "0.80", ttl = 900 }
 hide_if_unavailable = true
+visibility = "advanced"
 role = "Daily 9B Oracle Qwen3.5 lane (Farore-trained debug/tool-use overlay)"
 description = "Oracle daily 9B · q4km"
 tags = ["oracle", "tools", "asm", "local", "qwen35", "z3ui"]
@@ -142,6 +145,7 @@ model_id = "gguf/zelda/qwen3-oracle-14b-v8-q4km.gguf"
 tool_profile = "oracle-pro"
 lmstudio_load = { context_length = 16384, parallel = 1, gpu = "0.80", ttl = 900 }
 hide_if_unavailable = true
+visibility = "advanced"
 role = "critical-safe 14B oracle-pro v8 lane for grounded local Zelda work"
 description = "Oracle-Pro 14B · q4km"
 tags = ["oracle", "tools", "asm", "local", "oracle-pro"]
@@ -216,6 +220,7 @@ aliases = [
   "oracle-tools",
 ]
 hide_if_unavailable = true
+visibility = "advanced"
 options = { temperature = 0.2, max_tokens = 1024 }
 system_prompt = """You are Oracle-Fast, the lower-latency routing option for routine Zelda questions.
 

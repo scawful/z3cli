@@ -6,7 +6,7 @@ models plus Zelda tool servers.
 It is built to feel closer to a lightweight Claude Code session than a one-shot
 prompt helper:
 
-- interactive REPL
+- Ink terminal UI (`z3cli` and `z3ui` launch the same surface)
 - quick model switching
 - routing modes for Zelda specialists
 - optional MCP tool calling
@@ -58,9 +58,12 @@ or through the installed console script:
 
 ```bash
 z3cli
+z3ui
 ```
 
-From a checkout without installing, use `python3 -m z3cli`.
+From a checkout without installing, use `python3 -m z3cli`. Plain `z3cli`
+launches the Ink UI. The Python backend still owns JSON-RPC serve mode and
+scriptable control commands.
 
 Useful variants:
 
@@ -78,15 +81,19 @@ python3 -m z3cli models loaded
 z3ui --no-auto-start-server --no-auto-load --model oracle
 ```
 
-`z3cli` and `z3ui` are operator-first. The canonical Oracle names stay stable,
-but useful local variants are surfaced instead of hidden behind a tiny public
-picker contract:
+Use `python3 -m z3cli --serve` for the backend protocol used by Ink, VSCode,
+and the bridge. Use `python3 -m z3cli --legacy-repl` only when debugging the
+old Python REPL directly.
 
-- `oracle-fast` -> `8B corrective Oracle · q4km` pinned daily local model
-- `oracle-qwen35-9b` -> `9B Oracle Qwen3.5 z3cli candidate · q4km`
-- `oracle` -> reserved mainline slot hidden until installed
-- `oracle-pro` -> `14B Oracle-Pro v8 · q4km` current critical-safe local pro lane
-- `oracle-mythic` -> `27B switchhook Oracle · q4km` manual heavy model
+`z3cli` and `z3ui` are operator-first. The canonical Oracle names stay stable,
+and the default picker only shows installed local lanes from this contract:
+
+- `oracle` -> `14B Oracle v8 · q4km` installed local default
+- `din` -> installed Din optimizer v4
+- `nayru` or `nayru-q8` -> installed Nayru explainer v9 q8_0
+- `navi` (alias `farore`/`farore-q8`) -> installed Navi FIM/debug lane backed by Farore v5 q8
+- `oracle-pro` -> advanced/manual alias for the installed Oracle-Pro v8 lane
+- `oracle-fast`, `oracle-qwen35-9b`, and `oracle-mythic` -> configured lanes that stay hidden until their matching local artifacts are installed
 
 Inside the normal chat flow, Oracle-family models now do hidden per-turn task
 routing and light context prefetch automatically. In practice that means the
@@ -97,23 +104,22 @@ slice when the prompt strongly implies them.
 
 The default local picker is intentionally small:
 
-- `oracle-fast` -> `Oracle-Fast 8B · q4km`
-- `oracle-qwen35-9b` -> `Oracle daily 9B · q4km`
-- `oracle-pro` -> `Oracle-Pro 14B · q4km`
-- `din` -> `Din optimizer · Qwen3 8B`
-- `nayru` or `nayru-q8` -> `Nayru explainer · q8_0`
-- `navi` (alias `farore`/`farore-q8`) -> `Navi FIM/debug · q8`
+- `oracle` -> `Oracle 14B v8 · q4km`
+- `din` -> `Din optimizer · installed v4`
+- `nayru` or `nayru-q8` -> `Nayru explainer · installed v9 q8_0`
+- `navi` (alias `farore`/`farore-q8`) -> `Navi FIM/debug · installed Farore v5 q8`
 
 CLI `/models` and the main picker in `z3ui` show this operator list by
-default. Use `models catalog advanced` for raw Qwen fallbacks, quant variants
-such as `navi-q4km`, cloud planners, and manual heavy lanes.
+default. Use `models catalog advanced` for explicit heavy aliases such as
+`oracle-pro`, raw Qwen fallbacks, quant variants such as `navi-q4km`, cloud
+planners, and other manual lanes.
 
 Host placement policy:
 
 - primary local host is `medical-mechanica` on Windows + WSL2 with the RTX
   `5090`
 - Mac is the control plane and fallback local machine
-- local-first applies to `oracle-fast`, `oracle-coder`, specialist `9B`, evals,
+- local-first applies to `oracle`, `oracle-coder`, specialists, evals,
   merges, and most corrective work
 - `14B` is also local-first now, with Vast fallback when the shared desktop is
   busy, unstable, or needed for work/gaming
@@ -355,10 +361,11 @@ python3 -m z3cli --mode broadcast --broadcast-models navi,nayru,din
   - user turns persist resolved game references alongside file attachments
   - room / overworld / message refs can add compact ROM-context packs before the
     model sees the prompt
-- In `--serve` mode, write-like tools pause for diff review before the model
-  continues. Accepted writes can automatically run repo-aware verification.
-- The plain REPL now supports `/verify-hooks`, `/permissions`, and the
-  persistent shell commands too, but diff review is still auto-accepted there.
+- In the Ink UI (`z3cli`/`z3ui` backed by `--serve`), write-like tools pause
+  for diff review before the model continues. Accepted writes can automatically
+  run repo-aware verification.
+- The legacy Python REPL is still available with `--legacy-repl` for debugging,
+  but it is not the default chat surface.
 - Auto-load is enabled by default. If a model is not loaded in LM Studio,
   `z3cli` will try `lms load <modelKey> --identifier <alias> --yes`.
 - `z3ui` now surfaces concurrently loaded models plus LM Studio-reported loaded
@@ -366,13 +373,14 @@ python3 -m z3cli --mode broadcast --broadcast-models navi,nayru,din
 - For fragile local LM Studio setups, `--no-auto-start-server --no-auto-load`
   keeps `z3cli` passive so it talks only to the server you started manually in
   the already-open LM Studio app.
-- `oracle-fast` is the canonical daily local Oracle entry and points at the
-  smaller `8B corrective Oracle · q4km` model.
+- `oracle` is the canonical daily local Oracle entry and points at the installed
+  `14B Oracle v8 · q4km` GGUF on the Windows host.
+- `oracle-fast` is the lower-latency corrective Oracle slot, but it stays hidden
+  until the matching local GGUF is restored.
 - `oracle-q8` and the direct `qwen3-oracle-8b` entry expose the same corrective
   Oracle model as `8B corrective Oracle · q8_0`.
-- `oracle` is the reserved mainline slot and stays hidden until a matching local
-  install exists.
-- `oracle-pro` is the current `14B Oracle-Pro v8 · q4km` critical-safe local pro lane.
+- `oracle-pro` is an advanced/manual alias for the same current `14B Oracle-Pro
+  v8 · q4km` critical-safe local lane.
 - `oracle-mythic` is the manual-only `27B switchhook Oracle · q4km` model and
   should stay an explicit opt-in, not the default local path.
 - `qwen3-oracle-14b` is a reserved local catalog slot for the current 14B
@@ -383,9 +391,9 @@ python3 -m z3cli --mode broadcast --broadcast-models navi,nayru,din
 - `oracle-coder-pro` and `oracle-reasoner-27b` are hidden vLLM sidecars for
   Oracle-family delegation. They stay out of the picker but appear in
   `spawn_subagent` when the matching endpoints are configured.
-- `navi` (formerly `farore`) and `nayru` are the live local Qwen3.5 9B
-  specialists. `navi-q4km` remains available through the advanced catalog for
-  lighter quant testing. Legacy
+- `navi` (formerly `farore`) and `nayru` are the live local specialists.
+  `navi-q4km` remains available through the advanced catalog for lighter quant
+  testing when that artifact is installed. Legacy
   `farore` / `farore-q4km` / `farore-q8` aliases still resolve to the
   matching navi entry for one release.
 - Legacy `oracle-main*` and `oracle-tools` names still resolve quietly for

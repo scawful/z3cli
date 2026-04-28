@@ -10,16 +10,16 @@ developer model variants that are useful in day-to-day z3cli work.
 ## What is exposed in this repo
 
 - Canonical models:
-  - `oracle-fast` — `8B corrective Oracle · q4km`
-  - `oracle` — reserved mainline slot hidden until installed
-  - `oracle-pro` — `14B Oracle-Pro v8 · q4km` current critical-safe local pro lane
+  - `oracle` — installed `14B Oracle v8 · q4km` local default
+  - `oracle-fast` — lower-latency corrective Oracle slot, hidden until its GGUF is restored
+  - `oracle-pro` — advanced/manual alias for the current `14B Oracle-Pro v8 · q4km` lane
 - Heavy model:
   - `oracle-mythic` — `27B switchhook Oracle · q4km` manual-only
 - Direct local developer variants:
-  - `oracle-qwen35-9b` — `Oracle daily 9B · q4km` (Farore-trained debug/tool-use overlay)
-  - `din` — `Din optimizer · Qwen3 8B`
-  - `nayru` / `nayru-q8` — `Nayru explainer · q8_0`
-  - `navi` / `navi-q8` — `Navi FIM/debug · q8`
+  - `oracle-qwen35-9b` — configured 9B Oracle Qwen3.5 lane, hidden until its GGUF is installed
+  - `din` — installed Din optimizer v4
+  - `nayru` / `nayru-q8` — installed Nayru explainer v9 q8_0
+  - `navi` / `navi-q8` — installed Navi FIM/debug lane backed by Farore v5 q8
   - `navi-q4km` and `qwen3-oracle-8b` / `oracle-q8` — advanced catalog variants
 - Internal callable worker:
   - `oracle-coder` — internal-only code authoring worker, not a normal picker target
@@ -50,20 +50,20 @@ developer model variants that are useful in day-to-day z3cli work.
 
 ## Operator One-Minute Summary
 
-- `oracle-fast` is the real pinned local Oracle model today.
-- `oracle` is the reserved mainline slot and stays hidden until LM Studio can actually load it.
-- `oracle-pro` is the current critical-safe local pro lane.
+- `oracle` is the real pinned local Oracle model today and resolves to the installed `qwen3-oracle-14b-v8-q4km` GGUF.
+- `oracle-fast` is configured but stays hidden until the corrective 8B GGUF is restored locally.
+- `oracle-pro` is an advanced/manual alias for the current critical-safe local pro lane.
 - `oracle-mythic` is the explicit heavy-model opt-in and should only be loaded when that path is intentional.
-- `oracle-qwen35-9b` is the daily 9B Oracle Qwen3.5 lane — promoted from candidate after the Farore-labeled training run landed cleanly. Plain `oracle` stays reserved for the eventual 14B mainline; do not collapse the two.
+- `oracle-qwen35-9b` stays as the configured 9B Oracle Qwen3.5 lane, but it should not appear in the normal picker until the matching GGUF exists in LM Studio.
 - The default z3cli model list is intentionally small:
-  `oracle-fast`, `oracle-qwen35-9b`, `oracle-pro`, `din`, `nayru`, and
-  `navi` when those entries are installed or available.
+  `oracle`, `din`, `nayru`, and `navi` when those entries are installed or
+  available.
 - `veran`, `hylia`, and `majora` are retired from the active z3cli picker and
   catalog and from the runtime adapter registry. Their old adapter files may
   remain as historical reference code, but they are no longer part of the
   primary model family.
-- `qwen3-oracle-8b` and `navi-q4km` stay available through
-  `/models catalog advanced`, not the default picker.
+- `oracle-pro`, `qwen3-oracle-8b`, and `navi-q4km` stay available through
+  `/models catalog advanced` when installed, not the default picker.
 - `oracle-coder` stays internal and is meant to be invoked by Oracle-family parents, not selected as a top-level working model.
 - `oracle-coder-pro` and `oracle-reasoner-27b` are also internal-only, but they
   give Oracle-Pro heavier delegated authoring and long-context analysis lanes

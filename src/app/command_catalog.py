@@ -82,8 +82,9 @@ def build_repl_help_text() -> str:
         lines.append("")
     lines.extend([
         "Model notes:",
-        "  oracle-qwen35-9b           9B Oracle Qwen3.5 z3cli candidate",
-        "  oracle-pro                  14B Oracle-Pro v8 · q4km critical-safe local pro lane",
+        "  oracle                      14B Oracle v8 · q4km installed local default",
+        "  oracle-qwen35-9b           configured 9B Oracle lane; appears when installed",
+        "  oracle-pro                  advanced/manual Oracle-Pro v8 alias",
         "                              Use /route oracle-pro-ssh when local SSH tunnels are unavailable",
         "  oracle-mythic               27B switchhook · q4km manual-heavy model",
         "                              Use /load oracle-mythic before first use when you explicitly want that path",

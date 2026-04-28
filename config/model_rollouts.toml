@@ -2,16 +2,16 @@
 enforce = false
 
 [aliases.oracle]
-note = "8B corrective Oracle · q4km"
+note = "Installed 14B Oracle v8 · q4km"
 
 [aliases.oracle-qwen35-9b]
-note = "9B Oracle Qwen3.5 daily · q4km (Farore-trained overlay)"
+note = "9B Oracle Qwen3.5 lane · hidden until the GGUF is installed"
 
 [aliases.oracle-fast]
-note = "8-9B fast Oracle · live alias"
+note = "8B fast Oracle · hidden until the corrective GGUF is restored"
 
 [aliases.oracle-pro]
-note = "14B Oracle-Pro v8 · q4km"
+note = "14B Oracle-Pro v8 · q4km advanced/manual alias for the installed Oracle v8 GGUF"
 
 [aliases.oracle-coder-pro]
 note = "Qwen3-Coder 30B-A3B · FP8 vLLM sidecar"
@@ -23,10 +23,10 @@ note = "Qwen3.6 27B · FP8 vLLM reasoner sidecar"
 note = "8B corrective Oracle · q8_0"
 
 [aliases.nayru]
-note = "9B Qwen3.5 explainer · q8_0"
+note = "Installed Nayru v9 explainer · q8_0"
 
 [aliases.navi]
-note = "9B Qwen3.5 Navi autocomplete/debug helper · q8_0"
+note = "Installed Navi autocomplete/debug helper backed by Farore v5 · q8_0"
 
 [aliases.navi-q4km]
 note = "9B Qwen3.5 Navi autocomplete/debug helper · q4km"

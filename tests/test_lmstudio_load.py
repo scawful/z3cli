@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 import base64
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -18,6 +19,29 @@ from protocol.lmstudio import (
 
 
 class LMStudioLoadTests(unittest.TestCase):
+    _ENV_KEYS = (
+        "AFS_HOSTD_URL",
+        "AFS_HOSTD_TOKEN",
+        "Z3CLI_LMSTUDIO_HOSTD_URL",
+        "Z3CLI_LMSTUDIO_HOSTD_TOKEN",
+        "Z3CLI_LMSTUDIO_REMOTE_HOST",
+        "Z3CLI_LMSTUDIO_REMOTE_ENDPOINT",
+        "Z3CLI_LMSTUDIO_REMOTE_LMS_PATH",
+    )
+
+    def setUp(self) -> None:
+        self._saved_env = {key: os.environ.get(key) for key in self._ENV_KEYS}
+        for key in self._ENV_KEYS:
+            os.environ.pop(key, None)
+        self.addCleanup(self._restore_env)
+
+    def _restore_env(self) -> None:
+        for key, value in self._saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
     def test_resolve_available_model_id_matches_trimmed_local_name(self) -> None:
         resolved = resolve_available_model_id(
             "qwen3-oracle-8b-v1-corrective2-q4km",

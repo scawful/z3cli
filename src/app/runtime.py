@@ -19,6 +19,7 @@ from core.config import (
     get_registry_aliases,
     LEGACY_ZELDA_MODEL_NAMES,
     list_zelda_models,
+    list_visible_zelda_models,
     get_domain_profiles,
     get_mode_profiles,
     get_profile_defaults,
@@ -544,7 +545,7 @@ def _legacy_oracle_alias_target(lowered_name: str) -> str:
 
 
 def _oracle_candidate_names(models: dict[str, ModelConfig]) -> tuple[str, ...]:
-    candidates = tuple(sorted(list_zelda_models(models).keys()))
+    candidates = tuple(sorted(list_visible_zelda_models(models).keys()))
     if candidates:
         return candidates
     return DEFAULT_SAFE_ORACLE_MODELS
