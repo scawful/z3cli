@@ -70,15 +70,15 @@ session, UX, shell, and write-review work.
 - `/shell-reset` restarts the shell session.
 - The shell follows workspace changes and resume state.
 
-### REPL and serve parity
+### Launch parity
 
-- The plain REPL now exposes `/verify-hooks`, `/permissions`, `/shell`,
-  `/shell-log`, and `/shell-reset`, rather than limiting those features to the
-  Ink/`--serve` path.
-- The REPL persists and restores verification settings and permission rules.
-- The REPL runs post-write verification through engine hooks, but unlike
-  `--serve`, it currently auto-accepts write diffs instead of presenting an
-  interactive accept/reject dialog.
+- Plain `z3cli` and `z3ui` now launch the same Ink terminal UI backed by
+  `z3cli --serve`.
+- The Python REPL remains available through `z3cli --legacy-repl` for debugging
+  and compatibility, but it is no longer the default interactive surface.
+- Scriptable backend/control commands still stay on the Python path:
+  `z3cli route ...`, `z3cli models ...`, `z3cli --prompt ...`, `--status`,
+  `--smoke`, and the bridge/serve entry points.
 
 ## Current Command Surface
 

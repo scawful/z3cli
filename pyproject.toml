@@ -24,7 +24,8 @@ cloud = [
 ]
 
 [project.scripts]
-z3cli = "app.repl:run"
+z3cli = "app.__main__:main"
+z3ui = "app.__main__:main"
 
 [tool.hatch.build.targets.wheel]
 packages = [
