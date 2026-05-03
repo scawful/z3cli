@@ -57,6 +57,12 @@ _LOCAL_QUANT_SUFFIX_RE = re.compile(
     r"(?:[-_](?:q\d[a-z0-9_]*|iq\d[a-z0-9_]*|bf16|fp16|fp32|f16|f32|mlx))+$",
     re.IGNORECASE,
 )
+
+
+def _skip_model_memory_estimates() -> bool:
+    return os.environ.get("Z3CLI_SKIP_MODEL_MEMORY_ESTIMATES", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 _PRIMARY_MODEL_NAMES = ("oracle", "oracle-fast", "oracle-pro")
 _USE_TARGET_ALIASES = {
     "oracle-pro-5090": "oracle-pro-home",
@@ -137,7 +143,7 @@ _TOPIC_SHIFT_FOLLOWUPS = (
     "why",
     "what about",
 )
-DEFAULT_SMOKE_PROMPT = "Reply exactly with: z3cli smoke ok"
+DEFAULT_SMOKE_PROMPT = "/no_think\nReply exactly with: z3cli smoke ok"
 
 
 def permission_rule_key(tool_name: str, server: str) -> str:
@@ -475,7 +481,7 @@ def get_backend(state: Any) -> LMStudioBackend | LlamaCppBackend:
     return LMStudioBackend(api_base=state.studio_api_base, host=state.host, port=state.port)
 
 
-def _smoke_provider_config(state: Any) -> tuple[str, str, str, str, str]:
+def _smoke_provider_config(state: Any) -> tuple[str, str, str, str, str, bool]:
     target = getattr(state, "models", {}).get(getattr(state, "active_model", ""))
     if target is not None and getattr(target, "is_cloud", False):
         return (
@@ -484,6 +490,7 @@ def _smoke_provider_config(state: Any) -> tuple[str, str, str, str, str]:
             str(getattr(target, "model_id", "") or getattr(target, "name", "")),
             str(getattr(target, "name", "") or ""),
             target.resolve_api_key(),
+            bool(getattr(target, "disable_reasoning_prefill", False)),
         )
 
     if getattr(state, "backend_name", "") == "llamacpp":
@@ -498,6 +505,7 @@ def _smoke_provider_config(state: Any) -> tuple[str, str, str, str, str]:
             model_id,
             str(getattr(state, "llamacpp_node", "") or ""),
             "",
+            bool(getattr(target, "disable_reasoning_prefill", False)) if target is not None else False,
         )
 
     if target is not None:
@@ -510,6 +518,7 @@ def _smoke_provider_config(state: Any) -> tuple[str, str, str, str, str]:
         model_id,
         str(getattr(state, "studio_node", "") or ""),
         "",
+        bool(getattr(target, "disable_reasoning_prefill", False)) if target is not None else False,
     )
 
 
@@ -517,10 +526,10 @@ async def smoke_current_route(
     state: Any,
     *,
     prompt: str = DEFAULT_SMOKE_PROMPT,
-    max_tokens: int = 32,
+    max_tokens: int = 256,
     timeout_s: float = 30.0,
 ) -> dict[str, Any]:
-    provider_name, api_base, model_id, node, api_key = _smoke_provider_config(state)
+    provider_name, api_base, model_id, node, api_key, disable_reasoning_prefill = _smoke_provider_config(state)
     result: dict[str, Any] = {
         "ok": False,
         "matched": False,
@@ -550,11 +559,12 @@ async def smoke_current_route(
             CompletionRequest(
                 model_id=model_id,
                 messages=[{"role": "user", "content": prompt}],
-                system="You are a z3cli route smoke test. Reply only with: z3cli smoke ok",
+                system="/no_think\nYou are a z3cli route smoke test. Reply only with: z3cli smoke ok",
                 temperature=0.0,
                 max_tokens=max_tokens,
                 stream=False,
                 prompt_cache=False,
+                disable_reasoning_prefill=disable_reasoning_prefill,
             )
         ):
             if chunk.content is not None:
@@ -1099,7 +1109,7 @@ def _studio_runtime_inventory(
             continue
         runtime_info = normalize_loaded_model_entry(entry, available_lookup=available_lookup)
         model_key = str(runtime_info.get("model_key", "") or runtime_info.get("identifier", ""))
-        if model_key:
+        if model_key and not _skip_model_memory_estimates():
             try:
                 runtime_info.update(estimate_model_memory(
                     state.host,

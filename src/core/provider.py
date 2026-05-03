@@ -74,6 +74,10 @@ class CompletionRequest:
     # Provider-specific hint: enable prompt caching (Anthropic) for
     # system prompt + tool list. No-op for other providers.
     prompt_cache: bool = True
+    # Qwen3/Qwen3.5 hard non-thinking switch for OpenAI-compatible chat
+    # templates that support assistant prefill continuation. This avoids
+    # generating hidden reasoning tokens when a model profile opts out.
+    disable_reasoning_prefill: bool = False
 
 
 @dataclass
@@ -310,6 +314,10 @@ class LocalProvider:
                 msgs[0] = {**msgs[0], "content": request.system}
             else:
                 msgs.insert(0, {"role": "system", "content": request.system})
+        if request.disable_reasoning_prefill:
+            prefill = "<think>\n\n</think>\n\n"
+            if not msgs or msgs[-1].get("role") != "assistant" or msgs[-1].get("content") != prefill:
+                msgs.append({"role": "assistant", "content": prefill})
         return msgs
 
 

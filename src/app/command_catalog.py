@@ -83,6 +83,7 @@ def build_repl_help_text() -> str:
     lines.extend([
         "Model notes:",
         "  oracle                      14B Oracle v8 · q4km installed local default",
+        "  oracle-9b-router            9B Oracle v5 guarded by the 14B teacher-router policy",
         "  oracle-qwen35-9b           configured 9B Oracle lane; appears when installed",
         "  oracle-pro                  advanced/manual Oracle-Pro v8 alias",
         "                              Use /route oracle-pro-ssh when local SSH tunnels are unavailable",

@@ -105,6 +105,22 @@ class OracleAdapterRoutingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(symbols.calls, [("z3lsp_symbols", {"query": "$0088EC"})])
         self.assertEqual(emulator.calls, [])
 
+    async def test_label_lookup_accepts_common_model_argument_aliases(self) -> None:
+        symbols = _TrackingBridge("symbols", response="symbol hit")
+        adapter = get_adapter("oracle", {"symbols": symbols})
+        assert adapter is not None
+
+        await adapter.call_tool("label_lookup", {"target": "Underworld_LoadSongBankIfNeeded"})
+        await adapter.call_tool("label_lookup", {"address": "$00FFD5"})
+
+        self.assertEqual(
+            symbols.calls,
+            [
+                ("z3lsp_symbols", {"query": "Underworld_LoadSongBankIfNeeded"}),
+                ("z3lsp_symbols", {"query": "$00FFD5"}),
+            ],
+        )
+
     async def test_grep_disasm_fans_out_to_two_symbols_calls(self) -> None:
         symbols = _TrackingBridge("symbols")
         adapter = get_adapter("oracle", {"symbols": symbols})
@@ -115,6 +131,21 @@ class OracleAdapterRoutingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             [call[0] for call in symbols.calls],
             ["z3lsp_symbols", "z3lsp_references"],
+        )
+
+    async def test_grep_disasm_accepts_pattern_alias(self) -> None:
+        symbols = _TrackingBridge("symbols")
+        adapter = get_adapter("oracle", {"symbols": symbols})
+        assert adapter is not None
+
+        await adapter.call_tool("grep_disasm", {"pattern": "Sprite_CheckIfActive"})
+
+        self.assertEqual(
+            symbols.calls,
+            [
+                ("z3lsp_symbols", {"query": "Sprite_CheckIfActive"}),
+                ("z3lsp_references", {"symbol": "Sprite_CheckIfActive"}),
+            ],
         )
 
     async def test_rom_read_and_disasm_route_to_emulator(self) -> None:
@@ -130,6 +161,52 @@ class OracleAdapterRoutingTests(unittest.IsolatedAsyncioTestCase):
             [
                 ("mesen_memory_read", {"address": "$00A000", "length": 4}),
                 ("mesen_disasm", {"address": "$00A000", "count": 8}),
+            ],
+        )
+
+    async def test_rom_read_and_disasm_accept_length_aliases(self) -> None:
+        emulator = _TrackingBridge("emulator")
+        adapter = get_adapter("oracle", {"emulator": emulator})
+        assert adapter is not None
+
+        await adapter.call_tool("rom_read", {"address": "$7E0800", "bytes": "8"})
+        await adapter.call_tool("disasm_at", {"address": "$02A3B0", "size": "12"})
+        await adapter.call_tool("disasm_at", {"addr": "$0088EC", "instruction_count": "10"})
+
+        self.assertEqual(
+            emulator.calls,
+            [
+                ("mesen_memory_read", {"address": "$7E0800", "length": 8}),
+                ("mesen_disasm", {"address": "$02A3B0", "count": 12}),
+                ("mesen_disasm", {"address": "$0088EC", "count": 10}),
+            ],
+        )
+
+    async def test_common_value_aliases_route_for_salvaged_bare_calls(self) -> None:
+        symbols = _TrackingBridge("symbols")
+        workspace = _TrackingBridge("workspace")
+        adapter = get_adapter("oracle", {"symbols": symbols, "workspace": workspace})
+        assert adapter is not None
+
+        await adapter.call_tool("label_lookup", {"value": "Underworld_LoadSongBankIfNeeded"})
+        await adapter.call_tool("grep_disasm", {"value": "Sprite_CheckIfActive"})
+        await adapter.call_tool("workspace_read", {"value": "docs/HANDOFF_ZELDA_MODEL_WORK_20260425.md"})
+
+        self.assertEqual(
+            symbols.calls,
+            [
+                ("z3lsp_symbols", {"query": "Underworld_LoadSongBankIfNeeded"}),
+                ("z3lsp_symbols", {"query": "Sprite_CheckIfActive"}),
+                ("z3lsp_references", {"symbol": "Sprite_CheckIfActive"}),
+            ],
+        )
+        self.assertEqual(
+            workspace.calls,
+            [
+                (
+                    "workspace_read",
+                    {"path": "docs/HANDOFF_ZELDA_MODEL_WORK_20260425.md"},
+                ),
             ],
         )
 

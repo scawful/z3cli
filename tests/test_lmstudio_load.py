@@ -138,10 +138,11 @@ allow_auto_load = false
 
         backend = LMStudioBackend(api_base="http://127.0.0.1:1234/v1", host="127.0.0.1", port=1234)
 
-        with patch.object(backend, "_openai_model_entries", return_value=[]), patch(
-            "app.backends.ensure_model_loaded",
-            return_value=target.name,
-        ) as ensure:
+        with patch("app.backends.loaded_models", return_value=[]), patch.object(
+            backend,
+            "_openai_model_entries",
+            return_value=[],
+        ), patch("app.backends.ensure_model_loaded", return_value=target.name) as ensure:
             request_name = backend.resolve_request_model(target, auto_load=True)
 
         self.assertEqual(request_name, target.name)
@@ -158,6 +159,26 @@ allow_auto_load = false
             gpu="0.80",
             ttl=900,
         )
+
+    def test_backend_prefers_loaded_identifier_before_available_model_id(self) -> None:
+        target = ModelConfig(
+            name="oracle-9b-router",
+            model_id="gguf/zelda/oracle-9b-candidate-v5-q4km.gguf",
+            provider="studio",
+        )
+        backend = LMStudioBackend(api_base="http://127.0.0.1:1234/v1", host="127.0.0.1", port=1234)
+
+        with patch("app.backends.loaded_models", return_value=[{
+            "identifier": "oracle-9b-router",
+            "modelKey": "gguf/zelda/oracle-9b-candidate-v5-q4km.gguf",
+        }]), patch.object(backend, "_openai_model_entries") as api_entries, patch(
+            "app.backends.ensure_model_loaded",
+        ) as ensure:
+            request_name = backend.resolve_request_model(target, auto_load=False)
+
+        self.assertEqual(request_name, "oracle-9b-router")
+        api_entries.assert_not_called()
+        ensure.assert_not_called()
 
     def test_ensure_model_loaded_rejects_background_load_for_manual_only_model(self) -> None:
         with patch("protocol.lmstudio.loaded_models", return_value=[]), patch(
@@ -294,6 +315,25 @@ allow_auto_load = false
         self.assertEqual(status, {"running": True, "port": 2234})
         run_lms.assert_not_called()
 
+    def test_server_status_falls_back_to_api_for_windows_hostd_refusal(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {"AFS_HOSTD_URL": "http://127.0.0.1:8765"},
+            clear=False,
+        ), patch(
+            "protocol.lmstudio._hostd_request_json",
+            side_effect=RuntimeError(
+                "afs-hostd request failed: [WinError 10061] No connection could be made because the target machine actively refused it"
+            ),
+        ), patch(
+            "protocol.lmstudio._api_endpoint_running",
+            return_value=True,
+        ), patch("protocol.lmstudio.run_lms") as run_lms:
+            status = server_status("127.0.0.1", 2234)
+
+        self.assertEqual(status, {"running": True, "port": 2234})
+        run_lms.assert_not_called()
+
     def test_ensure_model_loaded_falls_back_to_loaded_api_model_when_afs_hostd_is_refused(self) -> None:
         with patch.dict(
             "os.environ",
@@ -412,7 +452,7 @@ allow_auto_load = false
             model_id="gguf/zelda/qwen3-oracle-14b-v8-q4km.gguf",
         )
 
-        with patch.object(backend, "_openai_model_entries", return_value=[{
+        with patch("app.backends.loaded_models", return_value=[]), patch.object(backend, "_openai_model_entries", return_value=[{
             "identifier": "gguf/lmstudio/qwen3-oracle-14b-v8-q4km.gguf",
             "modelKey": "gguf/lmstudio/qwen3-oracle-14b-v8-q4km.gguf",
         }]), patch("app.backends.ensure_model_loaded") as ensure:

@@ -46,8 +46,8 @@ DEFAULT_WORKSPACE = Path("/Users/scawful/src/hobby/oracle-of-secrets")
 DEFAULT_ROM = Path("/Users/scawful/src/hobby/oracle-of-secrets/Roms/oos168.sfc")
 DEFAULT_BROADCAST_MODELS = ["navi", "din", "nayru"]
 DEFAULT_LLAMACPP_MODEL = os.environ.get("LLAMACPP_MODEL", "oracle-fast")
-DEFAULT_SAFE_STARTUP_MODELS = ("oracle-fast", "oracle-qwen35-9b", "nayru", "din", "navi")
-DEFAULT_SAFE_ORACLE_MODELS = ("oracle", "oracle-qwen35-9b", "oracle-fast", "nayru", "din", "navi")
+DEFAULT_SAFE_STARTUP_MODELS = ("oracle-fast", "oracle-9b-router", "oracle-qwen35-9b", "nayru", "din", "navi")
+DEFAULT_SAFE_ORACLE_MODELS = ("oracle", "oracle-9b-router", "oracle-qwen35-9b", "oracle-fast", "nayru", "din", "navi")
 EFFORT_RANK = {
     "high": 0,
     "medium": 1,
@@ -98,7 +98,7 @@ HIGH_EFFORT_KEYWORDS = (
 ORACLE_CODER_ALIAS = "oracle-coder"
 ORACLE_CODER_PRO_ALIAS = "oracle-coder-pro"
 ORACLE_REASONER_27B_ALIAS = "oracle-reasoner-27b"
-ORACLE_FAMILY_MODELS = {"oracle", "oracle-qwen35-9b", "oracle-fast", "oracle-pro"}
+ORACLE_FAMILY_MODELS = {"oracle", "oracle-9b-router", "oracle-qwen35-9b", "oracle-fast", "oracle-pro"}
 ORACLE_CODER_CANDIDATES = (ORACLE_CODER_PRO_ALIAS, ORACLE_CODER_ALIAS)
 ORACLE_FAST_CODER_CANDIDATES = (ORACLE_CODER_ALIAS, ORACLE_CODER_PRO_ALIAS)
 ORACLE_CODER_AUTHOR_KEYWORDS = (
@@ -212,6 +212,16 @@ _SPRITE_CATALOG_SECTION_KINDS = {
     "NPCs": "sprite",
     "Objects": "object",
 }
+ORACLE_COMPACT_TOOL_NAMES = (
+    "label_lookup",
+    "grep_disasm",
+    "rom_read",
+    "disasm_at",
+    "cpu_state",
+    "register_doc",
+    "workspace_read",
+)
+_ORACLE_COMPACT_TOOL_NAME_SET = frozenset(ORACLE_COMPACT_TOOL_NAMES)
 _CONSTRUCT_KIND_ALIASES = {
     "door": "entrance",
     "dungeon-room": "room",
@@ -708,6 +718,68 @@ def _extract_oracle_register_queries(prompt: str, *, limit: int = 0) -> list[str
     return results
 
 
+def extract_explicit_oracle_tool_request(prompt: str) -> str:
+    """Return the first compact Oracle tool the user explicitly named."""
+    text = str(prompt or "")
+    if not text.strip():
+        return ""
+    matches: list[tuple[int, str]] = []
+    lowered = text.lower()
+    for tool_name in ORACLE_COMPACT_TOOL_NAMES:
+        pattern = rf"(?<![A-Za-z0-9_]){re.escape(tool_name)}(?![A-Za-z0-9_])"
+        match = re.search(pattern, lowered)
+        if match:
+            matches.append((match.start(), tool_name))
+    if not matches:
+        return ""
+    matches.sort(key=lambda item: item[0])
+    return matches[0][1]
+
+
+def _extract_oracle_tool_symbol_queries(prompt: str, *, limit: int = 0) -> list[str]:
+    results: list[str] = []
+    seen: set[str] = set()
+    candidates = extract_lsp_symbol_queries(
+        prompt,
+        limit=max(limit + len(ORACLE_COMPACT_TOOL_NAMES) + 4, 12),
+    )
+    for query in candidates:
+        normalized = str(query or "").strip()
+        if not normalized:
+            continue
+        if normalized.lower() in _ORACLE_COMPACT_TOOL_NAME_SET:
+            continue
+        key = normalized.upper()
+        if key in seen:
+            continue
+        seen.add(key)
+        results.append(normalized)
+        if limit > 0 and len(results) >= limit:
+            break
+    return results
+
+
+def _suggest_explicit_oracle_tool_arguments(prompt: str, tool_name: str) -> dict[str, Any]:
+    addresses = _extract_hex_address_queries(prompt, limit=1)
+    symbols = _extract_oracle_tool_symbol_queries(prompt, limit=1)
+
+    if tool_name == "label_lookup":
+        query = addresses[0] if addresses else (symbols[0] if symbols else "")
+        return {"query": query} if query else {}
+    if tool_name == "grep_disasm":
+        query = symbols[0] if symbols else (addresses[0] if addresses else "")
+        return {"query": query} if query else {}
+    if tool_name == "register_doc":
+        register_queries = _extract_oracle_register_queries(prompt, limit=1)
+        query = register_queries[0] if register_queries else (addresses[0] if addresses else (symbols[0] if symbols else ""))
+        return {"query": query} if query else {}
+    if tool_name == "disasm_at":
+        return {"address": addresses[0], "count": 10} if addresses else {}
+    if tool_name == "rom_read":
+        return {"address": addresses[0], "length": 16} if addresses else {}
+    return {}
+
+
 def prompt_requires_oracle_register_grounding(prompt: str) -> bool:
     return bool(_extract_oracle_register_queries(prompt, limit=1))
 
@@ -784,6 +856,8 @@ async def collect_oracle_context_packs(
     max_calls: int = 4,
 ) -> list[dict[str, Any]]:
     if bridge is None or not _is_oracle_family_model(model):
+        return []
+    if extract_explicit_oracle_tool_request(prompt):
         return []
 
     available_tools: set[str] = set()
@@ -983,7 +1057,9 @@ def build_oracle_answer_after_grounding_prompt(prompt: str) -> str:
     return "\n".join([
         "You already have at least one grounded Oracle tool result for this turn.",
         "Unless the user explicitly asked for an exhaustive investigation, answer from the current evidence instead of calling more tools.",
+        "Do not emit another `<tool_call>` block in this follow-up; answer in plain text from the tool result.",
         "Do not expand into ROM reads, emulator state, or extra cross-references just to be thorough.",
+        "If the tool result is a file or registry dump, answer the user's specific lookup from that text; for model registry lookups include both the requested model name and its `model_id` value.",
         "If the evidence is partial, say what it establishes and name the next tool you would use only if the user wants deeper follow-up.",
     ])
 
@@ -1341,9 +1417,18 @@ def build_tool_use_prompt(
         lines.extend([
             "This model uses manual XML tool calls instead of native API tool schemas.",
             "When you need a tool, emit exactly one XML block with no markdown fences: <tool_call>{\"name\":\"tool_name\",\"arguments\":{...}}</tool_call>",
-            "Do not invent tool names. If you do not already know the exact tool name, start with `tool_search`.",
+            (
+                "Do not invent tool names. If you do not already know the exact tool name, "
+                "start with `tool_search`."
+                if deferred_tools
+                else "Do not invent tool names. Use only exact tool names from the current tool catalog; if no listed tool fits, say the evidence could not be retrieved."
+            ),
             "After a tool result returns, answer from that evidence or emit the next XML tool call.",
-            "If a tool errors or `tool_search` returns no matches, do not answer from memory. Refine the query or say that the evidence could not be retrieved.",
+            (
+                "If a tool errors or `tool_search` returns no matches, do not answer from memory. Refine the query or say that the evidence could not be retrieved."
+                if deferred_tools
+                else "If a tool errors, do not try unlisted aliases. Answer only what that error supports, or say that the evidence could not be retrieved."
+            ),
         ])
 
     if deferred_tools:
@@ -1359,6 +1444,14 @@ def build_tool_use_prompt(
         lines.extend([
             "For demonstrations and quick triage, prefer `inspect_room`, `list_sprites`, `check_diagnostics`, or `scenario_run` before raw live-emulator state calls.",
             "If a live emulator socket is unavailable, say that briefly and pivot to a ROM or workflow tool instead of repeatedly calling `read_state`.",
+        ])
+    elif tool_profile.startswith("oracle"):
+        lines.extend([
+            "The compact Oracle tool catalog is: `label_lookup`, `grep_disasm`, `rom_read`, `disasm_at`, `cpu_state`, `register_doc`, and `workspace_read`.",
+            "Do not call unlisted aliases such as `read_state`, `read_memory`, `mesen_socket`, `z3ed_read`, `yaze_read`, `z3lsp_symbols`, `afs_read`, or `tool_search` unless that exact tool is present in the current catalog.",
+            "For Oracle adapter tools, preserve the user's exact symbol/register/address text in the tool arguments when possible.",
+            "If the user asks for `grep_disasm` on a symbol like MDMAEN, pass that exact symbol as `query` or `pattern` instead of rewriting it to an equivalent numeric register.",
+            "For `rom_read` and `disasm_at`, include the requested byte/instruction count in the arguments.",
         ])
 
     return "\n".join(lines)
@@ -1377,7 +1470,8 @@ def build_tool_bias_prompt(
         return ""
 
     prompt_lower = prompt.lower()
-    if not any(keyword in prompt_lower for keyword in TOOL_FIRST_KEYWORDS):
+    explicit_oracle_tool = extract_explicit_oracle_tool_request(prompt) if tool_profile.startswith("oracle") else ""
+    if not any(keyword in prompt_lower for keyword in TOOL_FIRST_KEYWORDS) and not explicit_oracle_tool:
         return ""
 
     lines = [
@@ -1386,9 +1480,25 @@ def build_tool_bias_prompt(
         "Do not narrate what you are about to inspect; inspect it first, then summarize the result.",
     ]
 
+    if explicit_oracle_tool:
+        lines.extend([
+            f"The user explicitly named `{explicit_oracle_tool}`; call that exact tool first.",
+            "Do not substitute a similar tool and do not answer from Oracle preloaded context.",
+        ])
+        if not native_tools:
+            suggested_arguments = _suggest_explicit_oracle_tool_arguments(prompt, explicit_oracle_tool)
+            tool_call = json.dumps(
+                {"name": explicit_oracle_tool, "arguments": suggested_arguments},
+                separators=(",", ":"),
+            )
+            lines.append(f"For this turn, emit this first XML tool call before any prose: <tool_call>{tool_call}</tool_call>")
+
     if not native_tools:
         lines.append("Emit the tool call as a single <tool_call>{...}</tool_call> block instead of prose.")
-        lines.append("If the exact tool name is not already known, start with `tool_search` rather than inventing one.")
+        if deferred_tools:
+            lines.append("If the exact tool name is not already known, start with `tool_search` rather than inventing one.")
+        else:
+            lines.append("Use only exact tool names from the current tool catalog; do not invent aliases.")
 
     if deferred_tools:
         lines.append("If the relevant tool is hidden, call `tool_search` before any longer response.")
@@ -1537,9 +1647,9 @@ def load_focus_file(
 
 def _attachment_label(workspace: Path, path: Path) -> str:
     try:
-        return str(path.relative_to(workspace))
+        return path.relative_to(workspace).as_posix()
     except ValueError:
-        return str(path)
+        return path.as_posix()
 
 
 def _extract_model_size_billions(model: ModelConfig | None) -> float:
@@ -1745,9 +1855,9 @@ def _catalog_match_keys(entry: dict[str, str]) -> set[str]:
 
 def _display_relative_path(root: Path, target: Path) -> str:
     try:
-        return os.path.relpath(target, root)
+        return Path(os.path.relpath(target, root)).as_posix()
     except Exception:
-        return str(target)
+        return target.as_posix()
 
 
 def _extract_c_string_entries(array_body: str) -> list[str]:
@@ -2017,7 +2127,7 @@ def _load_workspace_object_id_metadata(workspace: str) -> dict[str, dict[str, An
         except Exception:
             handler_text = ""
         if handler_text:
-            source = str(handler_path.relative_to(root))
+            source = handler_path.relative_to(root).as_posix()
             upsert(
                 0x31,
                 "Custom track object",
@@ -2056,20 +2166,20 @@ def _load_workspace_object_id_metadata(workspace: str) -> dict[str, dict[str, An
             0x31,
             "Custom track object",
             notes=("Subtype is encoded in the dungeon object size field for Goron Mines track authoring.",),
-            source=str(tracks_path.relative_to(root)),
+            source=tracks_path.relative_to(root).as_posix(),
         )
 
     yaze_path = root / _OBJECT_METADATA_FILES["yaze"]
     if yaze_path.is_file():
         note = "Custom objects 0x31/0x32 do not render in Yaze and are drawn by runtime handlers instead."
-        source = str(yaze_path.relative_to(root))
+        source = yaze_path.relative_to(root).as_posix()
         upsert(0x31, "Custom track object", notes=(note,), source=source)
         upsert(0x32, "Custom decor object", notes=(note,), source=source)
 
     water_path = root / _OBJECT_METADATA_FILES["water"]
-    water_source = str(water_path.relative_to(root)) if water_path.is_file() else ""
+    water_source = water_path.relative_to(root).as_posix() if water_path.is_file() else ""
     water_script_path = root / _OBJECT_METADATA_FILES["water_script"]
-    water_script_source = str(water_script_path.relative_to(root)) if water_script_path.is_file() else ""
+    water_script_source = water_script_path.relative_to(root).as_posix() if water_script_path.is_file() else ""
     common_sources = tuple(source for source in (water_source, water_script_source) if source)
     if common_sources:
         upsert(
@@ -2189,7 +2299,7 @@ def _iter_documented_object_lines(root: Path) -> list[tuple[str, str]]:
             text = path.read_text(encoding="utf-8")
         except Exception:
             continue
-        rel_path = str(path.relative_to(root))
+        rel_path = path.relative_to(root).as_posix()
         for raw_line in text.splitlines():
             if "0x" not in raw_line.lower():
                 continue

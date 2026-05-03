@@ -11,6 +11,7 @@ developer model variants that are useful in day-to-day z3cli work.
 
 - Canonical models:
   - `oracle` — installed `14B Oracle v8 · q4km` local default
+  - `oracle-9b-router` — fast `oracle-9b-candidate-v5` lane with a 14B teacher-router runtime guard
   - `oracle-fast` — lower-latency corrective Oracle slot, hidden until its GGUF is restored
   - `oracle-pro` — advanced/manual alias for the current `14B Oracle-Pro v8 · q4km` lane
 - Heavy model:
@@ -51,6 +52,9 @@ developer model variants that are useful in day-to-day z3cli work.
 ## Operator One-Minute Summary
 
 - `oracle` is the real pinned local Oracle model today and resolves to the installed `qwen3-oracle-14b-v8-q4km` GGUF.
+- `oracle-9b-router` is the practical fast-lane candidate: it keeps 9B v5 as
+  the runtime model and injects teacher-router guardrails for known weak spots
+  selected from the 14B v8 eval evidence.
 - `oracle-fast` is configured but stays hidden until the corrective 8B GGUF is restored locally.
 - `oracle-pro` is an advanced/manual alias for the current critical-safe local pro lane.
 - `oracle-mythic` is the explicit heavy-model opt-in and should only be loaded when that path is intentional.

@@ -276,7 +276,13 @@ class Z3LspBridge:
     def _uri_to_path(self, uri: str) -> Path:
         parsed = urlparse(uri)
         if parsed.scheme == "file":
-            return Path(unquote(parsed.path)).resolve()
+            raw_path = unquote(parsed.path)
+            if os.name == "nt":
+                if parsed.netloc and parsed.netloc.lower() not in {"", "localhost"}:
+                    return Path(f"//{parsed.netloc}{raw_path}").resolve()
+                if len(raw_path) >= 3 and raw_path[0] == "/" and raw_path[2] == ":":
+                    raw_path = raw_path[1:]
+            return Path(raw_path).resolve()
         return Path(uri).expanduser().resolve()
 
     def _exit_message(self, prefix: str) -> str:
@@ -392,9 +398,9 @@ class Z3LspBridge:
     @staticmethod
     def _relative_label(path: Path, workspace: Path) -> str:
         try:
-            return str(path.relative_to(workspace))
+            return path.relative_to(workspace).as_posix()
         except ValueError:
-            return str(path)
+            return path.as_posix()
 
     @staticmethod
     def _truncate_inline(text: str, max_chars: int = 160) -> str:

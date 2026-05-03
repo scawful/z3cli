@@ -11,7 +11,10 @@ from core.engine import (
     TextEvent,
     ThinkingEvent,
     ToolResultEvent,
+    ToolCallEvent,
     _extract_xml_tool_calls,
+    _grounded_fallback_answer_from_history,
+    _repair_grounding_tool_call_arguments,
     summarize_tool_result_for_history,
 )
 from app.runtime import (
@@ -79,6 +82,12 @@ class ToolGuidancePromptTests(unittest.TestCase):
         self.assertIn("inspect_room", prompt)
         self.assertIn("read_state", prompt)
 
+    def test_oracle_tool_prompt_preserves_exact_symbol_arguments(self) -> None:
+        prompt = build_tool_use_prompt(True, "oracle")
+        self.assertIn("MDMAEN", prompt)
+        self.assertIn("exact symbol", prompt)
+        self.assertIn("requested byte/instruction count", prompt)
+
     def test_tool_bias_prompt_pushes_tool_first_for_debug_requests(self) -> None:
         prompt = build_tool_bias_prompt(
             "inspect this asm file and check diagnostics",
@@ -110,6 +119,20 @@ class ToolGuidancePromptTests(unittest.TestCase):
         self.assertIn("Do not invent tool names", prompt)
         self.assertIn("do not answer from memory", prompt.lower())
 
+    def test_oracle_xml_tool_prompt_does_not_offer_missing_tool_search(self) -> None:
+        prompt = build_tool_use_prompt(
+            True,
+            "oracle",
+            deferred_tools=False,
+            native_tools=False,
+        )
+
+        self.assertIn("compact Oracle tool catalog", prompt)
+        self.assertIn("workspace_read", prompt)
+        self.assertIn("Use only exact tool names", prompt)
+        self.assertIn("Do not call unlisted aliases", prompt)
+        self.assertNotIn("start with `tool_search`", prompt)
+
     def test_tool_bias_prompt_mentions_xml_tool_block_when_native_tools_disabled(self) -> None:
         prompt = build_tool_bias_prompt(
             "inspect this file",
@@ -119,6 +142,99 @@ class ToolGuidancePromptTests(unittest.TestCase):
             native_tools=False,
         )
         self.assertIn("<tool_call>", prompt)
+
+    def test_oracle_tool_bias_prompt_for_exact_compact_tool_request(self) -> None:
+        prompt = build_tool_bias_prompt(
+            "Use grep_disasm for Sprite_CheckIfActive before answering.",
+            True,
+            "oracle",
+            deferred_tools=False,
+            native_tools=False,
+        )
+
+        self.assertIn("explicitly named `grep_disasm`", prompt)
+        self.assertIn("Do not substitute a similar tool", prompt)
+        self.assertIn(
+            '<tool_call>{"name":"grep_disasm","arguments":{"query":"Sprite_CheckIfActive"}}</tool_call>',
+            prompt,
+        )
+
+    def test_oracle_tool_bias_prompt_triggers_on_exact_tool_without_other_keywords(self) -> None:
+        prompt = build_tool_bias_prompt(
+            "label_lookup $00FFD5",
+            True,
+            "oracle",
+            deferred_tools=False,
+            native_tools=False,
+        )
+
+        self.assertIn("explicitly named `label_lookup`", prompt)
+        self.assertIn('<tool_call>{"name":"label_lookup","arguments":{"query":"$00FFD5"}}</tool_call>', prompt)
+
+    def test_repair_grounding_tool_call_arguments_recovers_empty_args_from_prompt(self) -> None:
+        self.assertEqual(
+            _repair_grounding_tool_call_arguments(
+                "label_lookup",
+                "{}",
+                "Call label_lookup for Underworld_LoadSongBankIfNeeded before answering.",
+            ),
+            '{"query":"Underworld_LoadSongBankIfNeeded"}',
+        )
+        self.assertEqual(
+            _repair_grounding_tool_call_arguments(
+                "rom_read",
+                "{}",
+                "Use rom_read to read 8 bytes at $7E0800 before discussing state.",
+            ),
+            '{"address":"$7E0800","length":8}',
+        )
+        self.assertEqual(
+            _repair_grounding_tool_call_arguments(
+                "disasm_at",
+                "{}",
+                "Use disasm_at at $02A3B0 for 12 instructions before commenting.",
+            ),
+            '{"address":"$02A3B0","count":12}',
+        )
+
+    def test_repair_grounding_tool_call_arguments_recovers_missing_address_from_partial_args(self) -> None:
+        self.assertEqual(
+            _repair_grounding_tool_call_arguments(
+                "rom_read",
+                '{"value":"6","length":6}',
+                "Read 6 bytes at $02A3B0 with rom_read, then say whether the hook site bytes are available.",
+            ),
+            '{"value":"6","length":6,"address":"$02A3B0"}',
+        )
+        self.assertEqual(
+            _repair_grounding_tool_call_arguments(
+                "disasm_at",
+                '{"value":"12","count":12}',
+                "Use disasm_at at $02A3B0 for 12 instructions before commenting.",
+            ),
+            '{"value":"12","count":12,"address":"$02A3B0"}',
+        )
+
+    def test_grounded_fallback_answer_extracts_model_id_from_registry_result(self) -> None:
+        answer = _grounded_fallback_answer_from_history(
+            "Open config/chat_registry.toml with workspace_read and tell me which configured model id belongs to oracle-qwen35-9b.",
+            [
+                {
+                    "role": "tool",
+                    "content": "\n".join([
+                        '119 | name = "oracle-qwen35-9b"',
+                        '120 | provider = "studio"',
+                        '121 | model_id = "gguf/zelda/oracle-qwen35-9b-v1-q4km.gguf"',
+                        '122 | tool_profile = "oracle"',
+                    ]),
+                },
+            ],
+        )
+
+        self.assertEqual(
+            answer,
+            "The configured model id for `oracle-qwen35-9b` is `gguf/zelda/oracle-qwen35-9b-v1-q4km.gguf`.",
+        )
 
     def test_history_summary_compacts_list_subagents_blob(self) -> None:
         result = summarize_tool_result_for_history(
@@ -282,6 +398,32 @@ class ToolThenAnswerProvider:
             return
         yield CompletionChunk(content=ContentDelta(text="grounded answer"))
         yield CompletionChunk(usage=UsageInfo(prompt_tokens=2, completion_tokens=1))
+
+    async def check_connection(self) -> bool:
+        return True
+
+    async def close(self) -> None:
+        pass
+
+
+class EmptyArgsGroundingProvider:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    @property
+    def name(self) -> str:
+        return "local"
+
+    async def stream(
+        self,
+        request: CompletionRequest,
+    ) -> AsyncGenerator[CompletionChunk, None]:
+        del request
+        self.calls += 1
+        if self.calls == 1:
+            yield CompletionChunk(tool_calls=[ToolCallDelta(id="tc-1", name="label_lookup", arguments="{}")])
+            return
+        yield CompletionChunk(content=ContentDelta(text="after repair"))
 
     async def check_connection(self) -> bool:
         return True
@@ -622,6 +764,29 @@ class Qwen3ParsingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(done), 1)
         self.assertEqual(engine.messages[-1]["content"], "Use DMA init.")
 
+    async def test_disable_reasoning_prefill_drops_stray_reasoning_from_text(self) -> None:
+        provider = MockProvider([[
+            CompletionChunk(content=ContentDelta(reasoning="hidden chain", text="Use DMA init.")),
+            CompletionChunk(usage=UsageInfo(prompt_tokens=7, completion_tokens=3)),
+        ]])
+        engine = ChatEngine(provider=provider)
+
+        events = [
+            event
+            async for event in engine.chat(
+                "why?",
+                "qwen3",
+                disable_reasoning_prefill=True,
+            )
+        ]
+
+        text = "".join(event.text for event in events if isinstance(event, TextEvent))
+        thinking = "".join(event.text for event in events if isinstance(event, ThinkingEvent))
+
+        self.assertEqual(text, "Use DMA init.")
+        self.assertEqual(thinking, "")
+        self.assertEqual(engine.messages[-1]["content"], "Use DMA init.")
+
     def test_extract_xml_tool_calls_parses_qwen3_tool_call_blocks(self) -> None:
         calls = _extract_xml_tool_calls(
             '<tool_call>{"name":"echo","arguments":{"text":"hi"}}</tool_call>'
@@ -630,6 +795,175 @@ class Qwen3ParsingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0]["name"], "echo")
         self.assertEqual(calls[0]["arguments"], '{"text": "hi"}')
+
+    def test_extract_xml_tool_calls_repairs_unquoted_argument_keys(self) -> None:
+        calls = _extract_xml_tool_calls(
+            '<tool_call>{"name":"workspace_read","arguments":{ path: "config/chat_registry.toml" }}</tool_call>'
+        )
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["name"], "workspace_read")
+        self.assertEqual(calls[0]["arguments"], '{"path": "config/chat_registry.toml"}')
+
+    def test_extract_xml_tool_calls_repairs_args_equals_syntax(self) -> None:
+        calls = _extract_xml_tool_calls(
+            '<tool_call>{"name":"rom_read" args={"address":"$7E0800","bytes":8}}</tool_call>'
+        )
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["name"], "rom_read")
+        self.assertEqual(calls[0]["arguments"], '{"address": "$7E0800", "bytes": 8}')
+
+    def test_extract_xml_tool_calls_repairs_missing_comma_and_final_brace(self) -> None:
+        calls = _extract_xml_tool_calls(
+            '<tool_call>{"name":"rom_read" arguments={"address":"$7E0800","bytes":8}</tool_call>'
+        )
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["name"], "rom_read")
+        self.assertEqual(calls[0]["arguments"], '{"address": "$7E0800", "bytes": 8}')
+
+    def test_extract_xml_tool_calls_repairs_bare_equals_argument_pairs(self) -> None:
+        calls = _extract_xml_tool_calls(
+            '<tool_call>{"name":"label_lookup" arguments={ query="Underworld_LoadSongBankIfNeeded", }</tool_call>'
+        )
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["name"], "label_lookup")
+        self.assertEqual(calls[0]["arguments"], '{"query": "Underworld_LoadSongBankIfNeeded"}')
+
+    def test_extract_xml_tool_calls_accepts_tool_and_args_fields(self) -> None:
+        calls = _extract_xml_tool_calls(
+            '<tool_call>{"tool":"grep_disasm","args":{"query":"Sprite_CheckIfActive"}}</tool_call>'
+        )
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["name"], "grep_disasm")
+        self.assertEqual(calls[0]["arguments"], '{"query": "Sprite_CheckIfActive"}')
+
+    def test_extract_xml_tool_calls_parses_bare_grounding_call_prefix(self) -> None:
+        calls = _extract_xml_tool_calls(
+            "label_lookup(Underworld_LoadSongBankIfNeeded) reported no definition"
+        )
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["name"], "label_lookup")
+        self.assertEqual(calls[0]["arguments"], '{"query": "Underworld_LoadSongBankIfNeeded"}')
+
+    def test_extract_xml_tool_calls_keeps_disasm_instruction_count_alias(self) -> None:
+        calls = _extract_xml_tool_calls(
+            '<tool_call>{"name":"disasm_at" arguments={ address:"$0088EC", instruction_count:10 }</tool_call>'
+        )
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["name"], "disasm_at")
+        self.assertEqual(calls[0]["arguments"], '{"address": "$0088EC", "instruction_count": 10}')
+
+    def test_extract_xml_tool_calls_repairs_escaped_structural_argument_quotes(self) -> None:
+        calls = _extract_xml_tool_calls(
+            '<tool_call>{"name":"rom_read","arguments":{"address\\":\\"$7E0800\\",\\"size\\":8}}</tool_call>'
+        )
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["name"], "rom_read")
+        self.assertEqual(calls[0]["arguments"], '{"address": "$7E0800", "size": 8}')
+
+    def test_extract_xml_tool_calls_salvages_name_from_malformed_arguments(self) -> None:
+        calls = _extract_xml_tool_calls(
+            '<tool_call>{"name":"cpu_state","arguments":{"reason\\":\\"freeze\\"}}</tool_call>'
+        )
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["name"], "cpu_state")
+        self.assertEqual(calls[0]["arguments"], '{"reason": "freeze"}')
+
+    def test_extract_xml_tool_calls_accepts_inline_argument_keys(self) -> None:
+        calls = _extract_xml_tool_calls(
+            '<tool_call>{"name":"tool_name":"disasm_at", address="$008164", lines=3 }</tool_call>'
+        )
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["name"], "disasm_at")
+        self.assertEqual(calls[0]["arguments"], '{"address": "$008164", "lines": 3}')
+
+    def test_extract_xml_tool_calls_parses_function_style_label_lookup(self) -> None:
+        calls = _extract_xml_tool_calls(
+            "<tool_call><function=label_lookup><query>Underworld_LoadSongBankIfNeeded</query></function></tool_call>"
+        )
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["name"], "label_lookup")
+        self.assertEqual(calls[0]["arguments"], '{"query": "Underworld_LoadSongBankIfNeeded"}')
+
+    def test_extract_xml_tool_calls_parses_function_style_address_attrs(self) -> None:
+        calls = _extract_xml_tool_calls(
+            '<tool_call><function=rom_read><address="$02A3B0" length="6"></address></function></tool_call>'
+        )
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["name"], "rom_read")
+        self.assertEqual(calls[0]["arguments"], '{"address": "$02A3B0", "length": "6"}')
+
+    def test_extract_xml_tool_calls_parses_unclosed_function_style_disasm(self) -> None:
+        calls = _extract_xml_tool_calls(
+            "<tool_call><function=disasm_at><address>$02A3B0><instructions>12</instructions></address></tool_call>"
+        )
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["name"], "disasm_at")
+        self.assertEqual(calls[0]["arguments"], '{"address": "$02A3B0", "count": "12"}')
+
+    def test_extract_xml_tool_calls_salvages_unclosed_json_tool_call(self) -> None:
+        calls = _extract_xml_tool_calls('<tool_call>{"name": "cpu_state"}{}</result>')
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["name"], "cpu_state")
+        self.assertEqual(calls[0]["arguments"], "{}")
+
+    def test_extract_xml_tool_calls_parses_json_name_with_xml_parameters(self) -> None:
+        calls = _extract_xml_tool_calls(
+            '<tool_call>{"name":"grep_disasm"} <parameters><pattern="MDMAEN"></parameters></tool_call>'
+        )
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["name"], "grep_disasm")
+        self.assertEqual(calls[0]["arguments"], '{"pattern": "MDMAEN"}')
+
+    def test_extract_xml_tool_calls_parses_parameter_value_tag(self) -> None:
+        calls = _extract_xml_tool_calls(
+            '<tool_call><function=workspace_read><parameter=path>config/chat_registry.toml</function></tool_call>'
+        )
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["name"], "workspace_read")
+        self.assertEqual(calls[0]["arguments"], '{"path": "config/chat_registry.toml"}')
+
+    def test_extract_xml_tool_calls_parses_arg_value_json_object(self) -> None:
+        calls = _extract_xml_tool_calls(
+            '<tool_call>{"name":"workspace_read"}<arg_value>{"path":"config/chat_registry.toml"}</arg_value></tool_call>'
+        )
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["name"], "workspace_read")
+        self.assertEqual(calls[0]["arguments"], '{"path": "config/chat_registry.toml"}')
+
+    def test_extract_xml_tool_calls_parses_self_closing_arg_json_object(self) -> None:
+        calls = _extract_xml_tool_calls(
+            '<tool_call>{tool="label_lookup"}<arg>{"query":"Underworld_LoadSongBankIfNeeded"}/></tool_call>'
+        )
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["name"], "label_lookup")
+        self.assertEqual(calls[0]["arguments"], '{"query": "Underworld_LoadSongBankIfNeeded"}')
+
+    def test_extract_xml_tool_calls_unwraps_argos_json_object(self) -> None:
+        calls = _extract_xml_tool_calls(
+            '<tool_call><function=grep_disasm><argos>{"pattern":"MDMAEN","limit":3}</argos></function></tool_call>'
+        )
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["name"], "grep_disasm")
+        self.assertEqual(calls[0]["arguments"], '{"pattern": "MDMAEN", "limit": 3}')
 
     def test_extract_xml_tool_calls_parses_shorthand_tool_call_blocks(self) -> None:
         calls = _extract_xml_tool_calls('tool_search{"query":"read context"}')
@@ -698,6 +1032,23 @@ class Qwen3ParsingTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Answer from the grounded evidence now.", provider.requests[1].system)
         self.assertTrue(any(isinstance(event, TextEvent) and event.text == "grounded answer" for event in events))
         self.assertTrue(any(isinstance(event, DoneEvent) for event in events))
+
+    async def test_empty_grounding_tool_arguments_are_repaired_before_execution(self) -> None:
+        provider = EmptyArgsGroundingProvider()
+        engine = ChatEngine(provider=provider, bridge=GroundingBridge())
+
+        events = [
+            event async for event in engine.chat(
+                "Call label_lookup for Underworld_LoadSongBankIfNeeded before answering.",
+                "oracle-9b-router",
+                use_tools=True,
+            )
+        ]
+
+        calls = [event for event in events if isinstance(event, ToolCallEvent)]
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0].arguments, '{"query":"Underworld_LoadSongBankIfNeeded"}')
+        self.assertTrue(any(isinstance(event, TextEvent) and event.text == "after repair" for event in events))
 
     async def test_manual_xml_tool_calls_need_explicit_execution_gate(self) -> None:
         provider = ManualXmlToolProvider()

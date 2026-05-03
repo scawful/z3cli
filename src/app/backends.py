@@ -14,7 +14,9 @@ from protocol.lmstudio import (
     available_models_async,
     estimate_model_memory_async,
     ensure_model_loaded,
+    loaded_models,
     loaded_models_async,
+    loaded_request_name,
     normalize_loaded_model_entry,
     resolve_available_model_id,
     server_status_async,
@@ -163,6 +165,13 @@ class LMStudioBackend:
         *,
         manual_load: bool = False,
     ) -> str:
+        try:
+            request_name = loaded_request_name(target.name, target.model_id, loaded_models(self.host, self.port))
+            if request_name:
+                return request_name
+        except Exception:
+            pass
+
         api_entries = self._openai_model_entries()
         if api_entries:
             api_model_id = resolve_available_model_id(target.model_id, api_entries)

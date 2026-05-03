@@ -50,6 +50,34 @@ class Z3cliOraclePromotionEvalTests(unittest.TestCase):
         self.assertTrue(scored["passed"])
         self.assertEqual(scored["tool_calls_observed"], ["workspace_read"])
 
+    def test_score_response_treats_mdmaen_address_as_argument_alias(self) -> None:
+        row = {
+            "id": "dma_refs",
+            "messages": [{"role": "user", "content": "Use grep_disasm for MDMAEN."}],
+            "expect": {
+                "tool_required": True,
+                "expected_tools_any": ["grep_disasm"],
+                "expected_args_contain": ["MDMAEN"],
+            },
+        }
+        observed = promotion_eval.ObservedResponse(
+            id="dma_refs",
+            prompt="Use grep_disasm for MDMAEN.",
+            tool_calls=[
+                {
+                    "name": "grep_disasm",
+                    "arguments": {"query": r"^\s*LD\w*\s+\$420B"},
+                    "server": "oracle",
+                }
+            ],
+            final_text="MDMAEN maps to $420B.",
+            end_status="success",
+        )
+
+        scored = promotion_eval.score_response(row, observed)
+
+        self.assertTrue(scored["passed"])
+
     def test_score_session_excludes_oracle_prefetch_records_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             session = Path(tmp) / "session.jsonl"

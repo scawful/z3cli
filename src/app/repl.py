@@ -28,6 +28,7 @@ from core.engine import (
     ChatEngine, DoneEvent, ErrorEvent, TextEvent, ThinkingEvent,
     ToolCallEvent, ToolResultEvent, summarize_tool_result_for_history,
 )
+from core.oracle_teacher_router import build_teacher_router_system_prompt
 from protocol.lmstudio import ensure_server, server_status, total_loaded_model_bytes
 from app.runtime import (
     DEFAULT_ACTIVE_MODEL, DEFAULT_BROADCAST_MODELS, DEFAULT_LLAMACPP_MODEL, DEFAULT_ROM,
@@ -653,6 +654,7 @@ async def stream_response(
         ),
         build_oracle_coder_prompt(target, route_prompt, state.models),
         *resolve_oracle_profile_system_prompts(route_prompt),
+        build_teacher_router_system_prompt(route_prompt, target.teacher_router),
         target.system_prompt,
     )
 
@@ -689,7 +691,7 @@ async def stream_response(
 
     # For local models with tool profiles, truncate large tool results
     # to avoid flooding the context window.  4000 chars ~= 1000 tokens.
-    max_tool_result = 4000 if target.tool_profile and target.tool_profile != "*" else 0
+    max_tool_result = 12000 if target.tool_profile and target.tool_profile != "*" else 0
     answer_after_grounding_system = (
         build_oracle_answer_after_grounding_prompt(route_prompt)
         if target.name in ORACLE_FAMILY_MODELS
@@ -704,6 +706,7 @@ async def stream_response(
         max_tokens=target.max_tokens or state.max_tokens,
         use_tools=use_native_tools,
         thinking=use_thinking,
+        disable_reasoning_prefill=target.disable_reasoning_prefill,
         max_tool_result=max_tool_result,
         answer_after_first_grounding=bool(answer_after_grounding_system),
         answer_after_grounding_system=answer_after_grounding_system,

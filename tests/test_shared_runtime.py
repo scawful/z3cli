@@ -7,6 +7,7 @@ from app.shared_runtime import (
     apply_use_target,
     available_route_targets,
     available_use_targets,
+    loaded_model_runtime_infos,
     maybe_reset_engine_for_topic_shift,
     restore_runtime_state,
     smoke_current_route,
@@ -105,6 +106,20 @@ class _SmokeProvider:
 
 
 class SharedRuntimeTests(unittest.TestCase):
+    def test_loaded_model_runtime_infos_can_skip_memory_estimates(self) -> None:
+        state = _State()
+        with patch.dict(os.environ, {"Z3CLI_SKIP_MODEL_MEMORY_ESTIMATES": "1"}, clear=False), patch(
+            "app.shared_runtime.available_models",
+            return_value=[],
+        ), patch(
+            "app.shared_runtime.loaded_models",
+            return_value=[{"identifier": "oracle-9b-router", "modelKey": "gguf/zelda/oracle-9b-candidate-v5-q4km.gguf"}],
+        ), patch("app.shared_runtime.estimate_model_memory") as estimate:
+            infos = loaded_model_runtime_infos(state)
+
+        self.assertEqual(infos[0]["identifier"], "oracle-9b-router")
+        estimate.assert_not_called()
+
     def test_restore_unknown_active_model_warns_and_preserves_current_model(self) -> None:
         state = _State()
 
@@ -307,6 +322,9 @@ class SharedRuntimeSmokeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(provider.closed)
         self.assertIsNotNone(provider.request)
         self.assertEqual(provider.request.model_id, "gguf/zelda/qwen3-oracle-14b-v8-q4km.gguf")
+        self.assertIn("/no_think", provider.request.system)
+        self.assertTrue(provider.request.messages[0]["content"].startswith("/no_think"))
+        self.assertEqual(provider.request.max_tokens, 256)
         self.assertEqual(create.call_args.kwargs["api_base"], "ssh://medical-mechanica/127.0.0.1:1234/v1")
 
 

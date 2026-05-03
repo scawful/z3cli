@@ -131,6 +131,10 @@ Model notes:
 - `oracle-pro` now points at the critical-safe local `14B Oracle-Pro v8 · q4km`
   artifact, exported and indexed on the Windows LM Studio host as
   `gguf/zelda/qwen3-oracle-14b-v8-q4km.gguf`.
+- `oracle-9b-router` is the selectable fast path for `oracle-9b-candidate-v5`
+  with the 14B teacher-router guard injected at runtime. It still uses the 9B
+  model for the request; the router layer currently supplies eval-derived
+  guardrails rather than running a full two-model proxy.
 - `oracle-mythic` is the manual-only heavy-model alias for the older 27B
   switchhook lane.
 - `oracle-coder` remains internal and spawn-only. It should appear only in

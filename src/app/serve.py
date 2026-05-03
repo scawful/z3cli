@@ -62,6 +62,7 @@ from core.compaction import (
     CompactionPolicy, ConversationCompactor, ProviderSummarizer,
 )
 from core.fim import build_fim_prompt
+from core.oracle_teacher_router import build_teacher_router_system_prompt
 from core.provider import LocalProvider, Provider, create_provider
 from core.subagent import (
     SubagentConfig, SubagentContext, SubagentDoneEvent, SubagentErrorEvent,
@@ -457,6 +458,8 @@ def _ensure_tool_evidence_anchor(content: str, tool_results: list[tuple[str, str
 
 def _sanitize_assistant_content(content: str, *, tool_results: list[tuple[str, str]] | None = None) -> str:
     tool_results = tool_results or []
+    content = re.sub(r"<tool_call>\s*.*?\s*</tool_call>", "", content, flags=re.DOTALL)
+    content = re.sub(r"<tool_call>\s*.*$", "", content, flags=re.DOTALL)
     paragraphs = [part.strip() for part in re.split(r"\n\s*\n", content) if part.strip()]
     if not paragraphs:
         return content.strip()
@@ -2138,7 +2141,7 @@ async def handle_chat(
         engine.bridge = effective_bridge
         tools_available = bool(effective_bridge and state.tools_enabled and target.tools_enabled)
         use_native_tools = bool(tools_available and target.native_tools)
-        max_tool_result = 4000 if target.tool_profile and target.tool_profile != "*" else 0
+        max_tool_result = 12000 if target.tool_profile and target.tool_profile != "*" else 0
         answer_after_grounding_system = (
             build_oracle_answer_after_grounding_prompt(message)
             if target.name in ORACLE_FAMILY_MODELS
@@ -2177,6 +2180,7 @@ async def handle_chat(
         if oracle_coder_prompt:
             system_parts.append(oracle_coder_prompt)
         system_parts.extend(resolve_oracle_profile_system_prompts(message))
+        system_parts.append(build_teacher_router_system_prompt(message, target.teacher_router))
         system_parts.append(target.system_prompt)
         system = merge_system_prompts(*system_parts)
         if multi_target:
@@ -2198,6 +2202,7 @@ async def handle_chat(
                 max_tokens=target.max_tokens,
                 use_tools=use_native_tools,
                 thinking=use_thinking,
+                disable_reasoning_prefill=target.disable_reasoning_prefill,
                 max_tool_result=max_tool_result,
                 prompt_cache=target.prompt_cache,
                 answer_after_first_grounding=bool(answer_after_grounding_system),
@@ -4144,10 +4149,12 @@ async def serve_main(extra_args: list[str]) -> None:
             name="serve:startup-tool-bridge",
         )
 
-    loop = asyncio.get_event_loop()
-    reader = asyncio.StreamReader()
-    protocol = asyncio.StreamReaderProtocol(reader)
-    await loop.connect_read_pipe(lambda: protocol, sys.stdin)
+    reader: asyncio.StreamReader | None = None
+    if os.name != "nt":
+        loop = asyncio.get_event_loop()
+        reader = asyncio.StreamReader()
+        protocol = asyncio.StreamReaderProtocol(reader)
+        await loop.connect_read_pipe(lambda: protocol, sys.stdin)
 
     active_chats: set[asyncio.Task[None]] = set()
     chat_tasks_by_request: dict[str, asyncio.Task[None]] = {}
@@ -4165,10 +4172,17 @@ async def serve_main(extra_args: list[str]) -> None:
         task.add_done_callback(_on_done)
 
     while True:
-        line_bytes = await reader.readline()
-        if not line_bytes:
-            break  # EOF — frontend closed
-        line = line_bytes.decode("utf-8").strip()
+        if os.name == "nt":
+            raw_line = await asyncio.to_thread(sys.stdin.readline)
+            if not raw_line:
+                break  # EOF — frontend closed
+            line = raw_line.strip()
+        else:
+            assert reader is not None
+            line_bytes = await reader.readline()
+            if not line_bytes:
+                break  # EOF — frontend closed
+            line = line_bytes.decode("utf-8").strip()
         if not line:
             continue
 

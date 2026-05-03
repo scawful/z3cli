@@ -92,6 +92,29 @@ def _format_register_entry(entry: dict) -> str:
     return "\n".join(parts)
 
 
+def _first_non_empty(arguments: dict, *keys: str) -> str:
+    for key in keys:
+        value = arguments.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return ""
+
+
+def _integer_argument(arguments: dict, *keys: str, default: int) -> int:
+    for key in keys:
+        value = arguments.get(key)
+        if value is None or value == "":
+            continue
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            continue
+    return default
+
+
 class OracleAdapter(ToolAdapter):
     """Compact read-only tool surface for the local Oracle profile."""
 
@@ -246,12 +269,17 @@ class OracleAdapter(ToolAdapter):
 
     async def _dispatch(self, name: str, arguments: dict) -> str:
         if name == "label_lookup":
+            query = _first_non_empty(
+                arguments, "query", "symbol", "target", "address", "name", "value"
+            )
             return await self._call_on(
-                "symbols", "z3lsp_symbols", {"query": arguments["query"]}
+                "symbols", "z3lsp_symbols", {"query": query}
             )
 
         if name == "grep_disasm":
-            query = arguments["query"]
+            query = _first_non_empty(
+                arguments, "query", "pattern", "symbol", "target", "text", "value"
+            )
             symbols, references = await self._call_many_on([
                 ("symbols", "z3lsp_symbols", {"query": query}),
                 ("symbols", "z3lsp_references", {"symbol": query}),
@@ -259,19 +287,38 @@ class OracleAdapter(ToolAdapter):
             return f"## Symbols\n{symbols}\n\n## References\n{references}"
 
         if name == "rom_read":
-            length = int(arguments.get("length") or 16)
+            address = _first_non_empty(arguments, "address", "addr", "value")
+            length = _integer_argument(
+                arguments,
+                "length",
+                "bytes",
+                "byte_count",
+                "size",
+                "count",
+                default=16,
+            )
             return await self._call_on(
                 "emulator",
                 "mesen_memory_read",
-                {"address": arguments["address"], "length": length},
+                {"address": address, "length": length},
             )
 
         if name == "disasm_at":
-            count = int(arguments.get("count") or 16)
+            address = _first_non_empty(arguments, "address", "addr", "value")
+            count = _integer_argument(
+                arguments,
+                "count",
+                "instructions",
+                "instruction_count",
+                "lines",
+                "size",
+                "length",
+                default=16,
+            )
             return await self._call_on(
                 "emulator",
                 "mesen_disasm",
-                {"address": arguments["address"], "count": count},
+                {"address": address, "count": count},
             )
 
         if name == "cpu_state":
@@ -285,9 +332,14 @@ class OracleAdapter(ToolAdapter):
             return self._lookup_register(arguments.get("query") or "")
 
         if name == "workspace_read":
-            payload = {"path": arguments["path"]}
-            if "max_lines" in arguments:
-                payload["max_lines"] = arguments["max_lines"]
+            payload = {
+                "path": _first_non_empty(
+                    arguments, "path", "file", "filepath", "file_path", "value"
+                )
+            }
+            max_lines = _integer_argument(arguments, "max_lines", "limit", default=0)
+            if max_lines:
+                payload["max_lines"] = max_lines
             return await self._call_on("workspace", "workspace_read", payload)
 
         return await super()._dispatch(name, arguments)

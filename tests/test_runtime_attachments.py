@@ -14,6 +14,7 @@ from app.runtime import (
     enrich_prompt_with_construct_refs,
     enrich_prompt_with_attachments,
     enrich_prompt_with_oracle_context,
+    extract_explicit_oracle_tool_request,
     extract_lsp_symbol_queries,
     plan_oracle_context_prefetch,
     resolve_lsp_context_settings,
@@ -451,6 +452,17 @@ class RuntimeAttachmentTests(unittest.TestCase):
         self.assertTrue(any(item.arguments.get("query") == "$420B" for item in calls if item.tool_name == "register_doc"))
         self.assertTrue(any(item.arguments.get("query") == "Underworld_LoadSongBankIfNeeded" for item in calls if item.tool_name == "label_lookup"))
 
+    def test_extract_explicit_oracle_tool_request_finds_named_compact_tool(self) -> None:
+        self.assertEqual(
+            extract_explicit_oracle_tool_request("Use grep_disasm for Sprite_CheckIfActive before answering."),
+            "grep_disasm",
+        )
+        self.assertEqual(
+            extract_explicit_oracle_tool_request("Run label_lookup on $00FFD5 first."),
+            "label_lookup",
+        )
+        self.assertEqual(extract_explicit_oracle_tool_request("What writes MDMAEN?"), "")
+
     def test_enrich_prompt_with_oracle_context_appends_prefetch_section(self) -> None:
         prompt = "Why does $420B not start DMA?"
         enriched = enrich_prompt_with_oracle_context(prompt, [
@@ -514,13 +526,26 @@ class RuntimeAttachmentAsyncTests(unittest.IsolatedAsyncioTestCase):
         model = type("M", (), {"name": "oracle-pro"})()
 
         contexts = await collect_oracle_context_packs(
-            "Use workspace_read on docs/HANDOFF_ZELDA_MODEL_WORK_20260425.md before answering.",
+            "Read HANDOFF_ZELDA_MODEL_WORK_20260425 before answering.",
             bridge=bridge,
             model=model,
         )
 
         self.assertEqual(contexts, [])
         self.assertTrue(any(name == "label_lookup" for name, _args in bridge.calls))
+
+    async def test_collect_oracle_context_packs_skips_prefetch_for_explicit_compact_tool(self) -> None:
+        bridge = FakeOracleBridge()
+        model = type("M", (), {"name": "oracle-pro"})()
+
+        contexts = await collect_oracle_context_packs(
+            "Use grep_disasm for Sprite_CheckIfActive before answering.",
+            bridge=bridge,
+            model=model,
+        )
+
+        self.assertEqual(contexts, [])
+        self.assertEqual(bridge.calls, [])
 
     async def test_collect_oracle_context_packs_keeps_unavailable_planned_tools(self) -> None:
         bridge = FakeMissingRegisterToolBridge()

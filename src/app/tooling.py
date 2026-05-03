@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from collections.abc import Iterable
+import os
 
 from core.config import load_mcp_servers
 from core.deferred_tools import DeferredToolBridge
@@ -12,11 +13,50 @@ from core.rom_project import RomProject
 from protocol.mcp_bridge import MCPBridge
 from core.tool_bridge import CompositeBridge, ReadOnlyBridge, ToolBridge
 from core.tool_adapters import get_adapter
+from protocol.asm_symbol_bridge import AsmSymbolBridge
 from protocol.asm_test_bridge import AsmTestBridge
+from protocol.mesen_fallback_bridge import MesenFallbackBridge
 from protocol.z3asm_bridge import Z3asmBridge
 from protocol.z3ed_bridge import Z3edBridge
 from protocol.z3lsp_bridge import Z3LspBridge, workspace_supports_z3lsp
 from protocol.workspace_context_bridge import WorkspaceContextBridge
+
+
+def _resolve_zelda_tool_workspace(workspace: Path) -> Path:
+    """Return the Zelda ASM workspace used by symbol/emulator tools.
+
+    z3cli itself is often the active chat workspace, but Oracle debugging tools
+    need the sibling Oracle ASM project. Keep workspace_read rooted at z3cli;
+    route z3lsp/z3ed-style tools at the Zelda project when available.
+    """
+    env_value = os.environ.get("Z3CLI_ZELDA_WORKSPACE", "").strip()
+    if env_value:
+        candidate = Path(env_value).expanduser()
+        if candidate.exists():
+            return candidate.resolve()
+    workspace = workspace.expanduser().resolve()
+    if workspace_supports_z3lsp(workspace):
+        return workspace
+    candidates = [
+        workspace.parent / "oracle-of-secrets",
+        workspace.parent / "Oracle-of-Secrets",
+        Path.home() / "src" / "hobby" / "oracle-of-secrets",
+        Path("/mnt/d/src/hobby/oracle-of-secrets"),
+    ]
+    for candidate in candidates:
+        if candidate.exists() and workspace_supports_z3lsp(candidate):
+            return candidate.resolve()
+    return workspace
+
+
+def _tool_names(bridge: ToolBridge | None) -> set[str]:
+    if bridge is None:
+        return set()
+    return {
+        str(tool.get("function", {}).get("name") or "")
+        for tool in bridge.get_openai_tools()
+        if isinstance(tool, dict)
+    }
 
 
 async def connect_tool_bridge(
@@ -35,7 +75,8 @@ async def connect_tool_bridge(
     bridges: list[ToolBridge] = []
     warnings: list[str] = []
 
-    project = RomProject.discover(workspace=workspace, rom_path=rom_path)
+    zelda_workspace = _resolve_zelda_tool_workspace(workspace)
+    project = RomProject.discover(workspace=zelda_workspace, rom_path=rom_path)
     mcp_bridge: MCPBridge | None = None
     workspace_bridge = WorkspaceContextBridge(workspace)
     bridges.append(workspace_bridge)
@@ -47,18 +88,37 @@ async def connect_tool_bridge(
         if mcp_bridge.tool_count > 0:
             bridges.append(mcp_bridge)
 
-    if workspace_supports_z3lsp(workspace):
-        z3lsp_bridge = Z3LspBridge(workspace=workspace)
+    symbols_connected = False
+    if workspace_supports_z3lsp(zelda_workspace):
+        z3lsp_bridge = Z3LspBridge(workspace=zelda_workspace)
         warnings.extend(await z3lsp_bridge.connect())
         if z3lsp_bridge.tool_count > 0:
             bridges.append(z3lsp_bridge)
+            symbols_connected = True
+    if not symbols_connected and workspace_supports_z3lsp(zelda_workspace):
+        bridges.append(AsmSymbolBridge(zelda_workspace))
+        warnings.append(
+            f"z3lsp unavailable; using file-backed ASM symbol search at {zelda_workspace}"
+        )
 
+    z3ed_connected = False
     if enable_z3ed:
         z3ed_bridge = Z3edBridge(project)
         z3ed_warnings = await z3ed_bridge.connect()
         warnings.extend(z3ed_warnings)
         if z3ed_bridge.tool_count > 0:
             bridges.append(z3ed_bridge)
+            z3ed_connected = bool({
+                "mesen_memory_read",
+                "mesen_disasm",
+                "mesen_cpu",
+                "mesen_gamestate",
+            } & _tool_names(z3ed_bridge))
+    if not z3ed_connected:
+        bridges.append(MesenFallbackBridge(project))
+        warnings.append(
+            "z3ed/Mesen tools unavailable; using degraded Mesen fallback bridge"
+        )
 
     # z3asm + z3disasm — surfaced only when the corresponding binaries are
     # discovered; each missing tool is noted in warnings.
@@ -118,10 +178,12 @@ def _build_capability_bridges(bridge: ToolBridge) -> dict[str, ToolBridge]:
     mcp_reference_bridge: ToolBridge | None = None
 
     for child in children:
-        if isinstance(child, Z3LspBridge):
+        if isinstance(child, (Z3LspBridge, AsmSymbolBridge)):
             symbols_bridge = child
         elif isinstance(child, Z3edBridge):
             rom_bridge = child
+            emulator_bridge = child
+        elif isinstance(child, MesenFallbackBridge):
             emulator_bridge = child
         elif isinstance(child, Z3asmBridge):
             asm_bridge = child

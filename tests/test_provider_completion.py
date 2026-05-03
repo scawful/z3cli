@@ -8,7 +8,7 @@ import unittest
 import httpx
 
 from core.fim import build_fim_prompt
-from core.provider import LocalProvider, ProviderError
+from core.provider import CompletionRequest, LocalProvider, ProviderError
 
 
 def _mock_transport(responder):
@@ -24,6 +24,20 @@ def _attach_mock(provider: LocalProvider, transport: httpx.MockTransport) -> Non
 
 
 class LocalProviderCompleteTests(unittest.IsolatedAsyncioTestCase):
+    def test_build_messages_can_append_qwen_non_thinking_prefill(self) -> None:
+        request = CompletionRequest(
+            model_id="oracle-9b-router",
+            messages=[{"role": "user", "content": "Reply exactly: z3cli smoke ok"}],
+            system="You are concise.",
+            disable_reasoning_prefill=True,
+        )
+
+        messages = LocalProvider._build_messages(request)
+
+        self.assertEqual(messages[0], {"role": "system", "content": "You are concise."})
+        self.assertEqual(messages[1], {"role": "user", "content": "Reply exactly: z3cli smoke ok"})
+        self.assertEqual(messages[2], {"role": "assistant", "content": "<think>\n\n</think>\n\n"})
+
     async def test_complete_posts_to_completions_endpoint(self) -> None:
         captured: dict[str, object] = {}
 

@@ -115,8 +115,17 @@ def _parse_arguments(value: Any) -> Any:
 def _args_text(arguments: Any) -> str:
     parsed = _parse_arguments(arguments)
     if isinstance(parsed, dict):
-        return json.dumps(parsed, sort_keys=True, ensure_ascii=False).lower()
-    return str(parsed or "").lower()
+        text = json.dumps(parsed, sort_keys=True, ensure_ascii=False).lower()
+    else:
+        text = str(parsed or "").lower()
+    # Let the gate treat common SNES register aliases as equivalent when the
+    # model preserves the exact address instead of the mnemonic.
+    compact = re.sub(r"[^0-9a-f]+", "", text)
+    if "420b" in compact:
+        text += " mdmaen"
+    if "420c" in compact:
+        text += " hdmaen"
+    return text
 
 
 def _as_str_list(value: Any) -> list[str]:
@@ -503,13 +512,27 @@ async def _start_serve(args: argparse.Namespace, run_dir: Path) -> tuple[ServeCl
 
     ready: dict[str, Any] | None = None
     deadline = asyncio.get_running_loop().time() + args.startup_timeout
-    while asyncio.get_running_loop().time() < deadline:
-        msg = await client.read_message(timeout=max(1.0, min(5.0, deadline - asyncio.get_running_loop().time())))
-        if msg.get("method") == "ready":
-            params = msg.get("params") if isinstance(msg.get("params"), dict) else {}
-            ready = params
-            break
+    try:
+        while asyncio.get_running_loop().time() < deadline:
+            try:
+                msg = await client.read_message(timeout=max(1.0, min(5.0, deadline - asyncio.get_running_loop().time())))
+            except asyncio.TimeoutError:
+                # Model auto-load and tool bridge warmup can legitimately take
+                # longer than a single poll interval. Keep waiting until the
+                # real startup deadline instead of failing at the first quiet
+                # five-second window.
+                if proc.returncode is not None:
+                    break
+                continue
+            if msg.get("method") == "ready":
+                params = msg.get("params") if isinstance(msg.get("params"), dict) else {}
+                ready = params
+                break
+    except Exception:
+        await client.close()
+        raise
     if ready is None:
+        await client.close()
         raise TimeoutError("z3cli --serve did not emit ready before startup timeout")
     return client, str(ready.get("session_path") or "")
 
@@ -523,7 +546,7 @@ async def run_live_eval(
     client, session_path = await _start_serve(args, run_dir)
     results: list[dict[str, Any]] = []
     try:
-        for row in rows:
+        for index, row in enumerate(rows):
             prompt = _prompt_from_row(row)
             observed = ObservedResponse(id=str(row["id"]), prompt=prompt, session_path=session_path)
             req_msg_id, accepted = await client.request(
@@ -551,6 +574,16 @@ async def run_live_eval(
                     observed.final_text += str(params.get("delta") or "")
                 elif method == "thinking":
                     observed.thinking += str(params.get("delta") or "")
+                elif method == "tool/permission_request":
+                    if args.auto_approve_tools:
+                        await client.request(
+                            "command",
+                            {"cmd": "tool/decision", "args": ["allow-once"]},
+                        )
+                    else:
+                        observed.errors.append(
+                            f"tool permission requested for {params.get('server', '')}:{params.get('name', '')}"
+                        )
                 elif method == "tool_call":
                     observed.tool_calls.append({
                         "name": str(params.get("name") or ""),
@@ -573,6 +606,8 @@ async def run_live_eval(
             result = score_response(row, observed)
             result["observed"] = observed.__dict__
             results.append(result)
+            if args.reset_between_rows and index < len(rows) - 1:
+                await client.request("command", {"cmd": "reset", "args": ["all"]})
     finally:
         await client.close()
     return results
@@ -653,6 +688,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--studio-node", default=os.environ.get("Z3CLI_STUDIO_NODE", ""))
     parser.add_argument("--session-dir", default="")
     parser.add_argument("--tools", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--auto-approve-tools", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument(
+        "--reset-between-rows",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Reset z3cli model conversation state between live eval rows.",
+    )
     parser.add_argument("--auto-load", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--auto-start-server", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--startup-timeout", type=float, default=90.0)

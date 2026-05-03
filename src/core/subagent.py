@@ -31,6 +31,7 @@ from core.engine import (
     ChatEngine, ChatEvent, DoneEvent, ErrorEvent, TextEvent, ThinkingEvent,
     ToolCallEvent, ToolResultEvent,
 )
+from core.oracle_teacher_router import build_teacher_router_system_prompt
 from core.provider import Provider, create_provider
 from core.tool_bridge import CompositeBridge, ToolBridge
 
@@ -427,6 +428,7 @@ class SubagentRunner:
                 native_tools=config.model.native_tools,
             ),
             *resolve_oracle_profile_system_prompts(prompt),
+            build_teacher_router_system_prompt(prompt, config.model.teacher_router),
             config.model.system_prompt,
             config.task_prompt,
         )
@@ -482,6 +484,7 @@ class SubagentRunner:
                     max_rounds=config.max_rounds,
                     thinking=config.thinking,
                     strip_thinking=config.strip_thinking,
+                    disable_reasoning_prefill=config.model.disable_reasoning_prefill,
                     max_tool_result=config.max_tool_result,
                 ):
                     await self._forward_event(sub_id, event, result, event_callback)

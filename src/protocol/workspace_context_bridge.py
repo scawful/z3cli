@@ -94,10 +94,29 @@ class WorkspaceContextBridge:
                 candidate = self.workspace / candidate
         resolved = candidate.resolve()
         if not resolved.is_relative_to(self.workspace):
+            suffix_match = self._resolve_workspace_suffix(resolved)
+            if suffix_match is not None:
+                return suffix_match
             raise ValueError(
                 f"path is outside the active workspace: {resolved} (workspace: {self.workspace})",
             )
         return resolved
+
+    def _resolve_workspace_suffix(self, path: Path) -> Path | None:
+        """Recover when a model prepends the wrong home/workspace root.
+
+        Local models sometimes ask for paths like
+        ``/Users/scawful/.z3cli/config/chat_registry.toml`` even though the
+        active workspace already contains ``config/chat_registry.toml``. Accept
+        an existing workspace-relative suffix rather than failing the read.
+        """
+        parts = path.parts
+        for length in range(min(4, len(parts)), 1, -1):
+            suffix = Path(*parts[-length:])
+            candidate = (self.workspace / suffix).resolve()
+            if candidate.exists() and candidate.is_relative_to(self.workspace):
+                return candidate
+        return None
 
     def _display_path(self, path: Path) -> str:
         try:

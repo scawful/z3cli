@@ -191,7 +191,8 @@ Use the real z3cli session gate before promoting `oracle-qwen35-9b`:
 ```bash
 python3 scripts/run_z3cli_oracle_promotion_eval.py \
   --prompt-pack /Users/scawful/src/training/evals/oracle_z3cli_promotion_holdout_v1.jsonl \
-  --model oracle-qwen35-9b \
+  --model oracle-9b-router \
+  --mode manual \
   --workspace /Users/scawful/src/hobby/z3cli \
   --out reports/oracle-promotion-evals/oracle_qwen35_9b_promotion.jsonl
 ```
@@ -203,6 +204,16 @@ when every row passes. For already-captured chat sessions, use `--session
 runtime prefetch does not hide a missing model-emitted tool call.
 
 Details live in `docs/oracle-z3cli-promotion-eval-gate.md`.
+
+Windows note: keep the eval workspace pointed at `D:\src\hobby\z3cli` and set
+`Z3CLI_ZELDA_WORKSPACE=D:\src\hobby\oracle-of-secrets` for Zelda tools. Use the
+wrapper in `scripts/windows_oracle_9b_eval.ps1` so LM Studio loading, direct API
+fallback, and serve-readiness settings stay consistent. On 2026-05-02 local /
+2026-05-03 UTC, `oracle-9b-router` passed the full compact z3cli seed gate
+12/12 and the targeted previously failing rows 3/3 after runtime hardening.
+Treat it as seed-gate green, but do not promote it to the plain `oracle` slot
+until a fresh hard gate also covers live Mesen2 state, ASAR compile repair,
+65816 width/bank/JSR/JSL traps, and Oracle-vs-vanilla evidence boundaries.
 
 ## Dataset And Training Policy
 

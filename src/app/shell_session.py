@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import pty
 import re
 import shlex
 import time
@@ -35,7 +34,7 @@ class PersistentShellSession:
         scrollback_limit: int = 50,
     ) -> None:
         self.cwd = cwd.expanduser().resolve()
-        self.shell = shell or os.environ.get("SHELL") or "/bin/zsh"
+        self.shell = shell or os.environ.get("SHELL") or os.environ.get("COMSPEC") or "/bin/zsh"
         self._proc: asyncio.subprocess.Process | None = None
         self._master_fd: int | None = None
         self._lock = asyncio.Lock()
@@ -50,10 +49,18 @@ class PersistentShellSession:
         return list(self._scrollback)
 
     async def ensure_started(self) -> None:
+        # Windows has no stdlib termios/PTY support. The JSON-RPC backend still
+        # imports this module on Windows for model/eval runs, so keep import
+        # side effects portable and use one-shot subprocesses for shell commands
+        # there instead of failing at import time.
+        if os.name == "nt":
+            return
         if self.active:
             return
         if self._proc is not None or self._master_fd is not None:
             await self.close()
+
+        import pty
 
         master_fd, slave_fd = pty.openpty()
         env = dict(os.environ)
@@ -130,6 +137,12 @@ class PersistentShellSession:
         timeout_s: float,
         record: bool,
     ) -> ShellRunResult:
+        if os.name == "nt":
+            return await self._run_windows_internal(
+                command,
+                timeout_s=timeout_s,
+                record=record,
+            )
         await self.ensure_started()
         marker = f"__Z3CLI_SHELL_{uuid.uuid4().hex}__"
         wrapped = (
@@ -167,15 +180,130 @@ class PersistentShellSession:
         await self._drain_output()
         return result
 
+    async def _run_windows_internal(
+        self,
+        command: str,
+        *,
+        timeout_s: float,
+        record: bool,
+    ) -> ShellRunResult:
+        started = time.perf_counter()
+        builtin_result = self._run_windows_builtin(command, started_at=started)
+        if builtin_result is not None:
+            if record:
+                self._scrollback.append(builtin_result)
+            return builtin_result
+
+        proc = await asyncio.create_subprocess_shell(
+            command,
+            cwd=str(self.cwd),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        try:
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
+        except asyncio.TimeoutError:
+            proc.kill()
+            stdout, _ = await proc.communicate()
+            output = stdout.decode("utf-8", errors="replace") if stdout else ""
+            result = ShellRunResult(
+                command=command,
+                output=self._sanitize(output).strip(),
+                exit_code=124,
+                cwd=str(self.cwd),
+                duration_ms=int((time.perf_counter() - started) * 1000),
+            )
+            if record:
+                self._scrollback.append(result)
+            return result
+
+        output = stdout.decode("utf-8", errors="replace") if stdout else ""
+        result = ShellRunResult(
+            command=command,
+            output=self._sanitize(output).strip(),
+            exit_code=int(proc.returncode or 0),
+            cwd=str(self.cwd),
+            duration_ms=int((time.perf_counter() - started) * 1000),
+        )
+        if record:
+            self._scrollback.append(result)
+        return result
+
+    def _run_windows_builtin(self, command: str, *, started_at: float) -> ShellRunResult | None:
+        stripped = command.strip()
+        lowered = stripped.lower()
+        if lowered in {"pwd", "cd"}:
+            return ShellRunResult(
+                command=command,
+                output=str(self.cwd),
+                exit_code=0,
+                cwd=str(self.cwd),
+                duration_ms=int((time.perf_counter() - started_at) * 1000),
+            )
+        if not (lowered.startswith("cd ") or lowered.startswith("chdir ")):
+            return None
+
+        try:
+            parts = shlex.split(stripped)
+        except ValueError:
+            parts = stripped.split(maxsplit=1)
+        if len(parts) < 2:
+            return None
+        args = parts[1:]
+        if args and args[0].lower() == "/d":
+            args = args[1:]
+        if len(args) != 1:
+            return None
+
+        target = Path(args[0]).expanduser()
+        if not target.is_absolute():
+            target = self.cwd / target
+        try:
+            resolved = target.resolve()
+        except OSError:
+            resolved = target.absolute()
+        if not resolved.exists() or not resolved.is_dir():
+            return ShellRunResult(
+                command=command,
+                output=f"The system cannot find the path specified: {target}",
+                exit_code=1,
+                cwd=str(self.cwd),
+                duration_ms=int((time.perf_counter() - started_at) * 1000),
+            )
+
+        self.cwd = resolved
+        return ShellRunResult(
+            command=command,
+            output="",
+            exit_code=0,
+            cwd=str(self.cwd),
+            duration_ms=int((time.perf_counter() - started_at) * 1000),
+        )
+
     async def run(self, command: str, timeout_s: float = 30.0) -> ShellRunResult:
         async with self._lock:
             return await self._run_internal(command, timeout_s=timeout_s, record=True)
 
     async def chdir(self, path: Path) -> ShellRunResult:
+        if os.name == "nt":
+            started = time.perf_counter()
+            resolved = path.expanduser().resolve()
+            self.cwd = resolved
+            result = ShellRunResult(
+                command=f"cd {resolved}",
+                output="",
+                exit_code=0,
+                cwd=str(resolved),
+                duration_ms=int((time.perf_counter() - started) * 1000),
+            )
+            self._scrollback.append(result)
+            return result
         quoted = shlex.quote(str(path.expanduser().resolve()))
         return await self.run(f"cd {quoted}")
 
     async def close(self) -> None:
+        if os.name == "nt":
+            return
         proc = self._proc
         fd = self._master_fd
         self._proc = None

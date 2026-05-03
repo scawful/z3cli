@@ -89,6 +89,7 @@ old Python REPL directly.
 and the default picker only shows installed local lanes from this contract:
 
 - `oracle` -> `14B Oracle v8 · q4km` installed local default
+- `oracle-9b-router` -> fast Oracle 9B v5 lane with the 14B teacher-router guard
 - `din` -> installed Din optimizer v4
 - `nayru` or `nayru-q8` -> installed Nayru explainer v9 q8_0
 - `navi` (alias `farore`/`farore-q8`) -> installed Navi FIM/debug lane backed by Farore v5 q8
@@ -105,6 +106,7 @@ slice when the prompt strongly implies them.
 The default local picker is intentionally small:
 
 - `oracle` -> `Oracle 14B v8 · q4km`
+- `oracle-9b-router` -> `Oracle 9B v5 + 14B teacher-router guard · q4km`
 - `din` -> `Din optimizer · installed v4`
 - `nayru` or `nayru-q8` -> `Nayru explainer · installed v9 q8_0`
 - `navi` (alias `farore`/`farore-q8`) -> `Navi FIM/debug · installed Farore v5 q8`
@@ -375,6 +377,10 @@ python3 -m z3cli --mode broadcast --broadcast-models navi,nayru,din
   the already-open LM Studio app.
 - `oracle` is the canonical daily local Oracle entry and points at the installed
   `14B Oracle v8 · q4km` GGUF on the Windows host.
+- `oracle-9b-router` points at the `oracle-9b-candidate-v5` Q4_K_M GGUF and
+  injects the 14B teacher-router guard for eval-proven weak spots such as
+  song-bank blackout, hook-stub displaced logic, JSR/JSL return contracts, and
+  ASAR compile-hard repairs.
 - `oracle-fast` is the lower-latency corrective Oracle slot, but it stays hidden
   until the matching local GGUF is restored.
 - `oracle-q8` and the direct `qwen3-oracle-8b` entry expose the same corrective

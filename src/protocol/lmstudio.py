@@ -86,6 +86,8 @@ def _hostd_fallback_allowed(exc: Exception) -> bool:
             hint in detail
             for hint in (
                 "connection refused",
+                "actively refused",
+                "winerror 10061",
                 "timed out",
                 "connection reset",
                 "network is unreachable",

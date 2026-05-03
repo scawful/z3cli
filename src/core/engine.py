@@ -190,20 +190,602 @@ class _ThinkingParser:
 
 
 _THINK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
-_TOOL_CALL_RE = re.compile(
-    r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL,
+_TOOL_CALL_BLOCK_RE = re.compile(
+    r"<tool_call>\s*(.*?)\s*</tool_call>", re.DOTALL,
+)
+_UNCLOSED_TOOL_CALL_BLOCK_RE = re.compile(
+    r"<tool_call>\s*(.*?)(?:</result>\s*)?$", re.DOTALL,
 )
 _SHORTHAND_TOOL_CALL_RE = re.compile(
     r"^\s*([A-Za-z_][A-Za-z0-9_-]*)\s*(\(\s*\{.*\}\s*\)|\{.*\})\s*$",
     re.DOTALL,
 )
+_BARE_TOOL_CALL_RE = re.compile(
+    r"^\s*([A-Za-z_][A-Za-z0-9_-]*)\s*\(\s*([^(){}\n]{1,512}?)\s*\)"
+    r"\s*(?:$|[\.:;\n]|reported\b|returned\b|->|=>)",
+    re.DOTALL,
+)
 _PROVIDER_STATUS_RE = re.compile(r"\b(?:API|Anthropic API)\s+(\d{3})\b")
-_GROUNDING_TOOL_NAMES = {"register_doc", "label_lookup", "grep_disasm", "disasm_at", "rom_read"}
+_GROUNDING_TOOL_NAMES = {
+    "register_doc",
+    "label_lookup",
+    "grep_disasm",
+    "disasm_at",
+    "rom_read",
+    "cpu_state",
+    "workspace_read",
+}
+_GROUNDING_HEX_ADDRESS_RE = re.compile(r"(?:\$[0-9A-Fa-f]{2,6}|0x[0-9A-Fa-f]{2,6})")
+_GROUNDING_QUERY_VALUE_RE = r"(?P<value>\$[0-9A-Fa-f]{2,6}|0x[0-9A-Fa-f]{2,6}|[A-Za-z_][A-Za-z0-9_]*)"
+_GROUNDING_QUERY_STOPWORDS = {
+    "address",
+    "answer",
+    "before",
+    "bytes",
+    "call",
+    "claim",
+    "disassembly",
+    "discussing",
+    "first",
+    "for",
+    "instructions",
+    "making",
+    "read",
+    "search",
+    "state",
+    "summarize",
+    "symbol",
+    "the",
+    "then",
+    "tool",
+    "use",
+    "writers",
+}
+_UNQUOTED_JSON_KEY_RE = re.compile(r'([{\s,])([A-Za-z_][A-Za-z0-9_-]*)\s*:')
+_TRAILING_JSON_COMMA_RE = re.compile(r",\s*([}\]])")
+_TOOL_NAME_FALLBACK_RE = re.compile(
+    r'"(?:name|tool_name)"\s*:\s*"(?:(?:name|tool_name)"\s*:\s*)?'
+    r'"?([A-Za-z_][A-Za-z0-9_-]*)"?'
+)
+_FUNCTION_STYLE_TOOL_RE = re.compile(
+    r"<function=([A-Za-z_][A-Za-z0-9_-]*)>(.*)",
+    re.DOTALL,
+)
+_XML_ARG_RE = re.compile(
+    r"<([A-Za-z_][A-Za-z0-9_-]*)>\s*([^<]+?)\s*</\1>",
+    re.DOTALL,
+)
+_XML_ATTR_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_-]*)\s*=\s*\"([^\"]+)\"")
+_XML_PARAMETER_VALUE_RE = re.compile(
+    r"<parameter=([A-Za-z_][A-Za-z0-9_-]*)>\s*([^<]+)",
+    re.DOTALL,
+)
+_XML_GENERIC_JSON_ARG_RE = re.compile(
+    r"<(?:arg|arg_value|args|arguments|parameters)>\s*(\{.*?\})\s*(?:</(?:arg|arg_value|args|arguments|parameters)>|/?>)",
+    re.DOTALL,
+)
+_XML_GENERIC_KV_ARG_RE = re.compile(
+    r"<(?:arg_key|arg|arg_value)>\s*([^<]+?)\s*</(?:arg_key|arg|arg_value)>",
+    re.DOTALL,
+)
+_XML_ADDRESS_VALUE_RE = re.compile(r"<address>\s*([^<>\s]+)\s*>?", re.DOTALL)
+_XML_ADDRESS_ATTR_RE = re.compile(r"<address\s*=\s*\"([^\"]+)\"", re.DOTALL)
 
 
 def _strip_think_blocks(text: str) -> str:
     """Remove ``<think>...</think>`` blocks from text for history storage."""
     return _THINK_RE.sub("", text).lstrip()
+
+
+def _repair_tool_call_jsonish(raw: str) -> str:
+    """Apply small, local-model-specific repairs to XML tool-call JSON."""
+    repaired = raw.strip()
+    # Common Qwen slip: {"name": "tool_name":"rom_read", ...}
+    repaired = re.sub(
+        r'("name"\s*:\s*)"tool_name"\s*:\s*',
+        r"\1",
+        repaired,
+    )
+    # Common Qwen slips: {"name":"rom_read" args={...}} or args={...}.
+    repaired = re.sub(
+        r'(?<=[}\]"\d])\s+("(?:args|arguments)"\s*:)',
+        r", \1",
+        repaired,
+    )
+    repaired = re.sub(r'(?<=[}\]"\d])\s+(?:args|arguments)\s*=', r', "arguments": ', repaired)
+    repaired = re.sub(r'([,{]\s*)(?:args|arguments)\s*=', r'\1"arguments": ', repaired)
+    # Another Qwen slip escapes structural quotes inside the arguments object,
+    # e.g. {"arguments":{"address\":\"$7E0800\",\"size\":8}}.
+    repaired = repaired.replace(r"\"", '"')
+    # Small relaxation for bare keys (`{ path: "..." }`) and `key=value`.
+    repaired = re.sub(r'([{\s,])([A-Za-z_][A-Za-z0-9_-]*)\s*=', r'\1"\2":', repaired)
+    repaired = _UNQUOTED_JSON_KEY_RE.sub(r'\1"\2":', repaired)
+    repaired = _TRAILING_JSON_COMMA_RE.sub(r"\1", repaired)
+    return repaired
+
+
+def _append_missing_jsonish_closers(raw: str) -> str:
+    """Append missing object/array closers for truncated tool-call JSON-ish.
+
+    Local 9B lanes often emit a valid-looking object but drop the final
+    closing brace after an ``arguments={...}`` block. Keep this intentionally
+    small: only append closers when the delimiter stack is otherwise balanced
+    and we are not inside a string.
+    """
+    text = raw.strip()
+    if not text:
+        return text
+    stack: list[str] = []
+    in_string = False
+    escape = False
+    for ch in text:
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch in "{[":
+            stack.append(ch)
+        elif ch in "}]":
+            if not stack:
+                return text
+            opener = stack.pop()
+            if (opener, ch) not in {("{", "}"), ("[", "]")}:
+                return text
+    if in_string or not stack:
+        return text
+    closers = "".join("}" if opener == "{" else "]" for opener in reversed(stack))
+    return text + closers
+
+
+def _json_object_prefix(raw: str) -> dict | None:
+    """Decode the first JSON object from *raw*, ignoring extra trailing text."""
+    decoder = json.JSONDecoder()
+    try:
+        parsed, _ = decoder.raw_decode(raw.strip())
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _loads_jsonish_object(raw: str) -> dict:
+    candidates: list[str] = []
+    for base in [raw, _repair_tool_call_jsonish(raw)]:
+        for candidate in [base, _append_missing_jsonish_closers(base)]:
+            if candidate not in candidates:
+                candidates.append(candidate)
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            parsed = _json_object_prefix(candidate)
+        if isinstance(parsed, dict):
+            return parsed
+    raise json.JSONDecodeError("invalid JSON-ish object", raw, 0)
+
+
+def _coerce_arguments_object(value: object) -> dict[str, object]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = _loads_jsonish_object(value)
+        except json.JSONDecodeError:
+            return {"value": value.strip()}
+        return parsed
+    return {}
+
+
+def _normalise_tool_arguments_object(arguments: dict[str, object]) -> dict[str, object]:
+    normalised = dict(arguments)
+    for key in ("arg", "args", "argos", "arguments", "parameters", "input"):
+        value = normalised.pop(key, None)
+        if value in (None, ""):
+            continue
+        if isinstance(value, dict):
+            normalised.update(value)
+            continue
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                continue
+            try:
+                parsed = _loads_jsonish_object(text)
+            except json.JSONDecodeError:
+                normalised.setdefault("value", text)
+            else:
+                normalised.update(parsed)
+    return normalised
+
+
+def _normalise_tool_call_object(parsed: dict, raw: str) -> dict:
+    name = _first_present(parsed, "name", "tool_name", "tool", "function")
+    args = _first_present(parsed, "arguments", "args", "parameters", "input")
+    arguments = _coerce_arguments_object(args)
+
+    inline_args = {
+        key: value
+        for key, value in parsed.items()
+        if key
+        not in {
+            "id",
+            "name",
+            "tool_name",
+            "tool",
+            "function",
+            "type",
+            "arguments",
+            "args",
+            "parameters",
+            "input",
+        }
+    }
+    arguments.update(inline_args)
+    arguments.update(_parse_xmlish_tool_arguments(raw))
+    arguments = _normalise_tool_arguments_object(arguments)
+
+    out = dict(parsed)
+    if name:
+        out["name"] = name
+    if arguments:
+        out["arguments"] = arguments
+    elif "arguments" not in out:
+        out["arguments"] = {}
+    return out
+
+
+def _first_present(mapping: dict, *keys: str) -> object:
+    for key in keys:
+        value = mapping.get(key)
+        if value not in (None, ""):
+            return value
+    return ""
+
+
+def _loads_tool_call_json(raw: str) -> dict:
+    try:
+        parsed = _loads_jsonish_object(raw)
+    except json.JSONDecodeError:
+            parsed = None
+    if isinstance(parsed, dict):
+        return _normalise_tool_call_object(parsed, raw)
+
+    # Last-resort salvage: if the model clearly named a tool but mangled the
+    # arguments, execute the tool with `{}` rather than leaving the XML block
+    # as final prose. This is especially helpful for no-argument tools such as
+    # `cpu_state`.
+    match = _TOOL_NAME_FALLBACK_RE.search(raw)
+    if match is not None:
+        return {"name": match.group(1), "arguments": {}}
+    return {}
+
+
+def _normalise_function_style_key(key: str) -> str:
+    return {
+        "instructions": "count",
+        "instruction_count": "count",
+        "lines": "count",
+        "bytes": "length",
+        "byte_count": "length",
+    }.get(key, key)
+
+
+def _parse_xmlish_tool_arguments(body: str) -> dict[str, object]:
+    args: dict[str, object] = {}
+
+    def merge_jsonish(value: str) -> bool:
+        try:
+            parsed = _loads_jsonish_object(value.strip())
+        except json.JSONDecodeError:
+            return False
+        args.update(parsed)
+        return True
+
+    address_attr = _XML_ADDRESS_ATTR_RE.search(body)
+    if address_attr is not None:
+        args["address"] = address_attr.group(1).strip()
+    address_value = _XML_ADDRESS_VALUE_RE.search(body)
+    if address_value is not None:
+        args.setdefault("address", address_value.group(1).strip())
+
+    for value in _XML_GENERIC_JSON_ARG_RE.findall(body):
+        merge_jsonish(value)
+    for value in _XML_GENERIC_KV_ARG_RE.findall(body):
+        text = value.strip()
+        if not text:
+            continue
+        if merge_jsonish(text):
+            continue
+        for key, attr_value in _XML_ATTR_RE.findall(text):
+            args[_normalise_function_style_key(key)] = attr_value.strip()
+
+    for key, value in _XML_ATTR_RE.findall(body):
+        normalised_key = _normalise_function_style_key(key)
+        if normalised_key in {"name", "tool", "tool_name", "function"}:
+            continue
+        args[normalised_key] = value.strip()
+    for key, value in _XML_PARAMETER_VALUE_RE.findall(body):
+        normalised_key = _normalise_function_style_key(key)
+        args[normalised_key] = value.strip()
+    for key, value in _XML_ARG_RE.findall(body):
+        normalised_key = _normalise_function_style_key(key)
+        if normalised_key in {"arg", "arg_value", "arg_key", "args", "arguments", "parameters"}:
+            continue
+        args[normalised_key] = value.strip()
+
+    return args
+
+
+def _parse_function_style_tool_call(raw: str) -> dict:
+    match = _FUNCTION_STYLE_TOOL_RE.search(raw.strip())
+    if match is None:
+        return {}
+    name = match.group(1).strip()
+    args = _normalise_tool_arguments_object(_parse_xmlish_tool_arguments(match.group(2)))
+    return {"name": name, "arguments": args}
+
+
+def _default_bare_argument_key(tool_name: str) -> str:
+    return {
+        "workspace_read": "path",
+        "label_lookup": "query",
+        "grep_disasm": "query",
+        "register_doc": "query",
+        "rom_read": "address",
+        "disasm_at": "address",
+    }.get(tool_name, "query")
+
+
+def _parse_bare_tool_call(text: str) -> dict:
+    match = _BARE_TOOL_CALL_RE.match(text.strip())
+    if match is None:
+        return {}
+    name = match.group(1).strip()
+    if name not in _GROUNDING_TOOL_NAMES:
+        return {}
+    body = match.group(2).strip()
+    if not body:
+        return {}
+    try:
+        args = _loads_jsonish_object("{" + body + "}")
+    except json.JSONDecodeError:
+        parts = [part.strip() for part in body.split(",") if part.strip()]
+        args = {_default_bare_argument_key(name): parts[0]} if parts else {}
+        if len(parts) > 1:
+            if name == "rom_read":
+                args["length"] = parts[1]
+            elif name == "disasm_at":
+                args["count"] = parts[1]
+    return {"name": name, "arguments": args}
+
+
+def _latest_user_prompt(messages: list[dict]) -> str:
+    for message in reversed(messages):
+        if message.get("role") != "user":
+            continue
+        content = message.get("content", "")
+        if isinstance(content, str):
+            return content
+        return str(content or "")
+    return ""
+
+
+def _argument_value_present(args: dict, keys: tuple[str, ...]) -> bool:
+    for key in keys:
+        value = args.get(key)
+        if str(value or "").strip():
+            return True
+    return False
+
+
+def _argument_address_present(args: dict) -> bool:
+    for key in ("address", "addr"):
+        value = str(args.get(key) or "").strip()
+        if value:
+            return True
+    value = str(args.get("value") or "").strip()
+    if not value:
+        return False
+    if _GROUNDING_HEX_ADDRESS_RE.search(value):
+        return True
+    return bool(re.fullmatch(r"[0-9A-Fa-f]{4,6}", value))
+
+
+def _first_prompt_hex_address(prompt: str) -> str:
+    match = _GROUNDING_HEX_ADDRESS_RE.search(prompt)
+    return str(match.group(0) or "") if match else ""
+
+
+def _valid_prompt_query_candidate(value: str) -> bool:
+    candidate = str(value or "").strip().strip("`'\".,:;!?)]}")
+    if not candidate:
+        return False
+    lowered = candidate.lower()
+    if lowered in _GROUNDING_TOOL_NAMES or lowered in _GROUNDING_QUERY_STOPWORDS:
+        return False
+    return True
+
+
+def _extract_prompt_query_for_tool(prompt: str, tool_name: str) -> str:
+    text = str(prompt or "")
+    if not text.strip():
+        return ""
+
+    connector_patterns = (
+        r"to\s+search\s+for",
+        r"search\s+for",
+        r"look\s+up",
+        r"lookup",
+        r"for",
+        r"on",
+        r"at",
+    )
+    for connector in connector_patterns:
+        pattern = rf"\b{re.escape(tool_name)}\b[^\n]{{0,120}}?\b{connector}\b\s+{_GROUNDING_QUERY_VALUE_RE}"
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            candidate = str(match.group("value") or "").strip()
+            if _valid_prompt_query_candidate(candidate):
+                return candidate
+
+    address = _first_prompt_hex_address(text)
+    if address:
+        return address
+
+    for candidate in re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", text):
+        value = str(candidate or "").strip()
+        if "_" not in value and not (len(value) >= 3 and value.upper() == value):
+            continue
+        if _valid_prompt_query_candidate(value):
+            return value
+    return ""
+
+
+def _extract_prompt_count(prompt: str, unit: str) -> int | None:
+    pattern = rf"\b(\d{{1,3}})\s+{re.escape(unit)}s?\b"
+    match = re.search(pattern, str(prompt or ""), re.IGNORECASE)
+    if not match:
+        return None
+    try:
+        return int(str(match.group(1)))
+    except ValueError:
+        return None
+
+
+def _repair_grounding_tool_call_arguments(tool_name: str, arguments: str, prompt: str) -> str:
+    """Fill obvious missing grounding-tool args from the user's explicit request.
+
+    Some local models correctly choose the requested compact Oracle tool but
+    occasionally emit `{}` for the arguments. When the prompt itself contains a
+    single explicit symbol/address/count, recover those values before the tool
+    event is recorded or executed.
+    """
+    name = str(tool_name or "").strip()
+    if name not in _GROUNDING_TOOL_NAMES:
+        return arguments
+    try:
+        parsed = json.loads(arguments or "{}")
+    except (json.JSONDecodeError, TypeError):
+        return arguments
+    if not isinstance(parsed, dict):
+        return arguments
+    args = dict(parsed)
+
+    if name in {"label_lookup", "grep_disasm", "register_doc"}:
+        if not _argument_value_present(args, ("query", "symbol", "target", "address", "pattern", "value")):
+            query = _extract_prompt_query_for_tool(prompt, name)
+            if query:
+                args["query"] = query
+    elif name == "rom_read":
+        if not _argument_address_present(args):
+            address = _first_prompt_hex_address(prompt)
+            if address:
+                args["address"] = address
+        if not _argument_value_present(args, ("length", "bytes", "byte_count", "size", "count")):
+            byte_count = _extract_prompt_count(prompt, "byte")
+            if byte_count is not None:
+                args["length"] = byte_count
+    elif name == "disasm_at":
+        if not _argument_address_present(args):
+            address = _first_prompt_hex_address(prompt)
+            if address:
+                args["address"] = address
+        if not _argument_value_present(args, ("count", "instructions", "instruction_count", "lines", "size", "length")):
+            instruction_count = _extract_prompt_count(prompt, "instruction")
+            if instruction_count is not None:
+                args["count"] = instruction_count
+    elif name == "workspace_read":
+        if not _argument_value_present(args, ("path", "file", "filepath", "file_path", "value")):
+            match = re.search(r"\b(?:workspace_read|open|read)\b[^\n]{0,80}?\b([A-Za-z0-9_./\\-]+\.[A-Za-z0-9_]+)\b", prompt, re.IGNORECASE)
+            if match:
+                args["path"] = str(match.group(1) or "")
+
+    if args == parsed:
+        return arguments
+    return json.dumps(args, separators=(",", ":"))
+
+
+def _repair_tool_call_arguments_from_prompt(tc: dict, prompt: str) -> dict:
+    repaired = dict(tc)
+    arguments = repaired.get("arguments")
+    if not isinstance(arguments, str):
+        return repaired
+    repaired["arguments"] = _repair_grounding_tool_call_arguments(
+        str(repaired.get("name", "") or ""),
+        arguments,
+        prompt,
+    )
+    return repaired
+
+
+def _content_has_plain_answer(text: str) -> bool:
+    without_tool_blocks = _TOOL_CALL_BLOCK_RE.sub("", str(text or ""))
+    without_tool_blocks = _UNCLOSED_TOOL_CALL_BLOCK_RE.sub("", without_tool_blocks)
+    return bool(without_tool_blocks.strip())
+
+
+def _grounded_fallback_answer_from_history(prompt: str, messages: list[dict]) -> str:
+    """Return a deterministic answer for narrow file/registry lookups.
+
+    This is only used after a grounding tool has already run and a local model
+    emits an empty/tool-call-only follow-up despite tools being disabled for the
+    answer round.
+    """
+    prompt_text = str(prompt or "")
+    if "model id" not in prompt_text.lower():
+        return ""
+
+    target_match = re.search(
+        r"\b(?:belongs\s+to|for)\s+`?([A-Za-z0-9_.:-]+)`?",
+        prompt_text,
+        re.IGNORECASE,
+    )
+    if not target_match:
+        return ""
+    target = str(target_match.group(1) or "").strip().strip("`'\".,:;!?)]}")
+    if not target:
+        return ""
+
+    tool_content = ""
+    for message in reversed(messages):
+        if message.get("role") != "tool":
+            continue
+        content = message.get("content", "")
+        tool_content = content if isinstance(content, str) else str(content or "")
+        if tool_content.strip():
+            break
+    if not tool_content:
+        return ""
+
+    entry_match = re.search(
+        rf"name\s*=\s*\"{re.escape(target)}\"(?P<body>.*?)(?:\n\s*(?:\d+\s*\|\s*)?\[\[models\]\]|\Z)",
+        tool_content,
+        re.DOTALL,
+    )
+    if not entry_match:
+        return ""
+    model_match = re.search(r"model_id\s*=\s*\"([^\"]+)\"", str(entry_match.group("body") or ""))
+    if not model_match:
+        return ""
+    model_id = str(model_match.group(1) or "").strip()
+    if not model_id:
+        return ""
+    return f"The configured model id for `{target}` is `{model_id}`."
+
+
+def _tool_call_blocks(text: str) -> list[str]:
+    blocks = [match.group(1) for match in _TOOL_CALL_BLOCK_RE.finditer(text)]
+    if blocks:
+        return blocks
+    # A frequent local-model slip is to emit `<tool_call>{...}</result>` or
+    # never close the tool_call tag. Salvage one block from the whole tail.
+    match = _UNCLOSED_TOOL_CALL_BLOCK_RE.search(text.strip())
+    return [match.group(1)] if match is not None else []
 
 
 def _extract_xml_tool_calls(text: str) -> list[dict]:
@@ -213,9 +795,11 @@ def _extract_xml_tool_calls(text: str) -> list[dict]:
     empty list if no valid tool calls are found.
     """
     result = []
-    for match in _TOOL_CALL_RE.finditer(text):
+    for raw_block in _tool_call_blocks(text):
         try:
-            call = json.loads(match.group(1))
+            call = _parse_function_style_tool_call(raw_block)
+            if not call:
+                call = _loads_tool_call_json(raw_block)
             name = call.get("name", "")
             args = call.get("arguments", {})
             if name:
@@ -229,6 +813,14 @@ def _extract_xml_tool_calls(text: str) -> list[dict]:
     if result:
         return result
 
+    bare_call = _parse_bare_tool_call(text)
+    if bare_call:
+        return [{
+            "id": "xml_0",
+            "name": bare_call["name"],
+            "arguments": json.dumps(bare_call["arguments"]),
+        }]
+
     shorthand = _SHORTHAND_TOOL_CALL_RE.match(text.strip())
     if shorthand is None:
         return result
@@ -237,7 +829,7 @@ def _extract_xml_tool_calls(text: str) -> list[dict]:
     if raw_args.startswith("(") and raw_args.endswith(")"):
         raw_args = raw_args[1:-1].strip()
     try:
-        args = json.loads(raw_args)
+        args = _loads_jsonish_object(raw_args)
     except json.JSONDecodeError:
         return result
     return [{
@@ -564,6 +1156,7 @@ class ChatEngine:
         strip_thinking: bool = True,
         max_tool_result: int = 0,
         prompt_cache: bool = True,
+        disable_reasoning_prefill: bool = False,
         answer_after_first_grounding: bool = False,
         answer_after_grounding_system: str = "",
         allow_manual_tool_calls: bool | None = None,
@@ -619,6 +1212,7 @@ class ChatEngine:
                 use_xml_thinking=use_xml_thinking,
                 thinking=thinking,
                 prompt_cache=prompt_cache,
+                disable_reasoning_prefill=disable_reasoning_prefill,
             ):
                 yield evt
 
@@ -644,6 +1238,15 @@ class ChatEngine:
                     tool_calls = xml_calls
 
             if not tool_calls:
+                if (
+                    answer_after_first_grounding
+                    and not allow_tool_execution
+                    and not _content_has_plain_answer(history_content)
+                ):
+                    fallback = _grounded_fallback_answer_from_history(message, self.messages)
+                    if fallback:
+                        history_content = fallback
+                        yield TextEvent(fallback)
                 self.messages.append({"role": "assistant", "content": history_content})
                 yield self._build_done_event(state)
                 return
@@ -665,6 +1268,7 @@ class ChatEngine:
 
             if answer_after_first_grounding and state.last_tool_round_grounded:
                 use_tools = False
+                allow_tool_execution = False
                 round_system = _merge_system_prompt(base_system, answer_after_grounding_system)
 
             # Loop continues — model will see tool results in the next round.
@@ -744,6 +1348,7 @@ class ChatEngine:
         use_xml_thinking: bool,
         thinking: bool,
         prompt_cache: bool,
+        disable_reasoning_prefill: bool,
     ) -> AsyncGenerator[ChatEvent, None]:
         """Stream one provider completion with retry + cancellation.
 
@@ -774,6 +1379,7 @@ class ChatEngine:
             tools=tools,
             tool_choice="auto" if tools else "",
             prompt_cache=prompt_cache,
+            disable_reasoning_prefill=disable_reasoning_prefill,
         )
 
         attempt = 0
@@ -808,14 +1414,19 @@ class ChatEngine:
                         # Reasoning content (Qwen3 via LM Studio)
                         if chunk.content.reasoning:
                             raw = chunk.content.reasoning
-                            output.content += raw
-                            if parser is not None:
-                                for evt in parser.feed(raw):
-                                    if isinstance(evt, ThinkingEvent):
-                                        output.thinking_content += evt.text
-                                    yield evt
+                            if disable_reasoning_prefill:
+                                output.thinking_content += raw
+                                if thinking:
+                                    yield ThinkingEvent(raw)
                             else:
-                                yield ThinkingEvent(raw) if thinking else TextEvent(raw)
+                                output.content += raw
+                                if parser is not None:
+                                    for evt in parser.feed(raw):
+                                        if isinstance(evt, ThinkingEvent):
+                                            output.thinking_content += evt.text
+                                        yield evt
+                                else:
+                                    yield ThinkingEvent(raw) if thinking else TextEvent(raw)
 
                         # Regular text content
                         if chunk.content.text:
@@ -921,6 +1532,12 @@ class ChatEngine:
         Sets ``state.cancelled`` on user abort and ``state.done`` on a
         terminal error.
         """
+        prompt_text = _latest_user_prompt(self.messages)
+        tool_calls = [
+            _repair_tool_call_arguments_from_prompt(tc, prompt_text)
+            for tc in tool_calls
+        ]
+
         tc_list = []
         for i, tc in enumerate(tool_calls):
             tc_id = tc["id"] or f"call_{round_idx}_{i}"

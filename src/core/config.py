@@ -95,6 +95,7 @@ Z3UI_MODEL_TAGS = {
 }
 Z3UI_MODEL_ORDER = (
     "oracle-fast",
+    "oracle-9b-router",
     "oracle-qwen35-9b",
     "oracle",
     "oracle-pro",
@@ -174,6 +175,12 @@ class ModelConfig:
     spawnable_by: list[str] = field(default_factory=list)
     hide_if_unavailable: bool = False
     aliases: list[str] = field(default_factory=list)
+    teacher_router: str = ""
+    reasoning_mode: str = ""
+
+    @property
+    def disable_reasoning_prefill(self) -> bool:
+        return _normalize_domain_mode_name(self.reasoning_mode) in {"off", "none", "disabled", "disable"}
 
     @property
     def is_cloud(self) -> bool:
@@ -642,6 +649,8 @@ def load_registry(
                 for alias in (raw_model.get("aliases") or [])
                 if isinstance(alias, str) and str(alias).strip()
             ],
+            teacher_router=str(raw_model.get("teacher_router", "") or "").strip(),
+            reasoning_mode=str(raw_model.get("reasoning_mode", raw_model.get("reasoning", "")) or "").strip(),
         )
         for alias in models[name].aliases:
             alias_name = _normalize_profile_name(alias)

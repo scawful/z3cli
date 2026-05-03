@@ -1,4 +1,5 @@
 import asyncio
+import io
 import json
 import os
 import tempfile
@@ -13,6 +14,7 @@ from app.serve import (
     _run_startup_tool_bridge_warmup,
     _describe_permission_reason,
     _forward_subagent_event,
+    _sanitize_assistant_content,
     build_ready_params,
     handle_chat,
     handle_command,
@@ -978,6 +980,7 @@ role = "planner"
                 side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
             ):
                 await handle_command(state, 215, {"cmd": "/resume", "args": ["saved"]})
+            state.session.close()
 
         result = responses[-1][1]
         self.assertIsInstance(result, dict)
@@ -1422,7 +1425,7 @@ role = "planner"
         with patch("app.serve.build_ready_params", side_effect=capture_ready_build), patch(
             "app.serve._respond",
             side_effect=capture_response,
-        ), patch("app.serve._notify"):
+        ), patch("app.serve._notify"), patch("app.serve._schedule_inventory_refresh"):
             handled = await handle_route_rpc(state, 230, "route/select", {"route": "oracle-pro-5090"})
 
         self.assertTrue(handled)
@@ -1635,6 +1638,7 @@ role = "planner"
                 side_effect=lambda req_id, result=None, error=None: responses.append((req_id, result, error)),
             ):
                 await handle_command(state, 216, {"cmd": "/resume", "args": ["saved", "--strip-thinking"]})
+            state.session.close()
 
         stripped_loader.assert_called_once()
         result = responses[-1][1]
@@ -1676,11 +1680,11 @@ role = "planner"
                 broadcast_models=state.broadcast_models,
             )
 
-        with self.assertRaisesRegex(RuntimeError, "Unknown model"):
-            await handle_chat(state, 202, {"message": "hello", "model": "ghost"}, request_id="req-202")
-        self.assertEqual(state.model_lookup_failures, 1)
-        self.assertEqual(state.model_alias_resolutions, 0)
-        state.session.close()
+            with self.assertRaisesRegex(RuntimeError, "Unknown model"):
+                await handle_chat(state, 202, {"message": "hello", "model": "ghost"}, request_id="req-202")
+            self.assertEqual(state.model_lookup_failures, 1)
+            self.assertEqual(state.model_alias_resolutions, 0)
+            state.session.close()
 
     async def test_handle_chat_alias_model_and_counts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2253,6 +2257,18 @@ role = "context specialist"
             )
             state.session.close()
 
+    def test_sanitize_assistant_content_strips_manual_xml_tool_blocks(self) -> None:
+        content = (
+            '<tool_call>{"name":"workspace_read","arguments":{"path":"README.md"}}</tool_call>\n\n'
+            "Evidence: `workspace_read` -> README.md\n\n"
+            "The file confirms the local workflow."
+        )
+
+        self.assertEqual(
+            _sanitize_assistant_content(content, tool_results=[("workspace_read", "README.md")]),
+            "Evidence: `workspace_read` -> README.md\n\nThe file confirms the local workflow.",
+        )
+
     async def test_handle_chat_builds_per_target_attachment_and_focus_context(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp)
@@ -2715,8 +2731,12 @@ role = "context specialist"
 
                 self.assertIsNotNone(review_params)
                 assert review_params is not None
+                verification_commands = [
+                    str(command).replace("\\", "/").replace("'src/main.asm'", "src/main.asm")
+                    for command in review_params.get("verification_commands") or []
+                ]
                 self.assertEqual(
-                    review_params.get("verification_commands"),
+                    verification_commands,
                     [
                         "z3asm_lint src/main.asm",
                         "asm_patch_test src/main.asm --scenario sanctuary --frames 16",
@@ -2859,9 +2879,10 @@ role = "context specialist"
                 })
 
             self.assertEqual(captured["model"], "nayru")
-            self.assertIn("@src/main.asm z3lsp", captured["prompt"])
-            self.assertIn("serve pack for main.asm", captured["prompt"])
-            self.assertIn("sta $7E0010", captured["prompt"])
+            prompt = captured["prompt"].replace("\\", "/")
+            self.assertIn("@src/main.asm z3lsp", prompt)
+            self.assertIn("serve pack for main.asm", prompt)
+            self.assertIn("sta $7E0010", prompt)
             self.assertIn("Primary workspace:", captured["system_context"])
             self.assertEqual(responses[-1][2], None)
             self.assertEqual(responses[-1][1]["text"], "ok")
@@ -3030,10 +3051,11 @@ role = "context specialist"
     async def test_serve_main_chat_ack_returns_request_id_before_task_dispatch(self) -> None:
         state = ServeState()
         reader = asyncio.StreamReader()
-        reader.feed_data(_rpc_lines(
+        rpc_payload = _rpc_lines(
             {"jsonrpc": "2.0", "id": 11, "method": "chat", "params": {"message": "hello"}},
             {"jsonrpc": "2.0", "method": "shutdown"},
-        ))
+        )
+        reader.feed_data(rpc_payload)
         reader.feed_eof()
         loop = FakeServeLoop()
         order: list[str] = []
@@ -3074,6 +3096,9 @@ role = "context specialist"
         ), patch("app.serve.asyncio.get_event_loop", return_value=loop), patch(
             "app.serve.asyncio.create_task",
             side_effect=traced_create_task,
+        ), patch(
+            "app.serve.sys.stdin",
+            new=io.StringIO(rpc_payload.decode("utf-8")),
         ):
             await serve_main([])
 
@@ -3086,12 +3111,13 @@ role = "context specialist"
     async def test_serve_main_cancel_with_request_id_targets_requested_chat(self) -> None:
         state = ServeState()
         reader = asyncio.StreamReader()
-        reader.feed_data(_rpc_lines(
+        rpc_payload = _rpc_lines(
             {"jsonrpc": "2.0", "id": 21, "method": "chat", "params": {"message": "first"}},
             {"jsonrpc": "2.0", "id": 22, "method": "chat", "params": {"message": "second"}},
             {"jsonrpc": "2.0", "method": "cancel", "params": {"request_id": "req-1"}},
             {"jsonrpc": "2.0", "method": "shutdown"},
-        ))
+        )
+        reader.feed_data(rpc_payload)
         reader.feed_eof()
         loop = FakeServeLoop()
         responses: list[tuple[int, object, str | None]] = []
@@ -3123,7 +3149,10 @@ role = "context specialist"
             state,
             "mark_request_cancelled",
             wraps=state.mark_request_cancelled,
-        ) as mark_cancelled:
+        ) as mark_cancelled, patch(
+            "app.serve.sys.stdin",
+            new=io.StringIO(rpc_payload.decode("utf-8")),
+        ):
             await serve_main([])
 
         self.assertEqual(
@@ -3140,12 +3169,13 @@ role = "context specialist"
     async def test_serve_main_cancel_without_request_id_targets_latest_active(self) -> None:
         state = ServeState()
         reader = asyncio.StreamReader()
-        reader.feed_data(_rpc_lines(
+        rpc_payload = _rpc_lines(
             {"jsonrpc": "2.0", "id": 31, "method": "chat", "params": {"message": "first"}},
             {"jsonrpc": "2.0", "id": 32, "method": "chat", "params": {"message": "second"}},
             {"jsonrpc": "2.0", "method": "cancel"},
             {"jsonrpc": "2.0", "method": "shutdown"},
-        ))
+        )
+        reader.feed_data(rpc_payload)
         reader.feed_eof()
         loop = FakeServeLoop()
 
@@ -3175,7 +3205,10 @@ role = "context specialist"
             state,
             "mark_request_cancelled",
             wraps=state.mark_request_cancelled,
-        ) as mark_cancelled:
+        ) as mark_cancelled, patch(
+            "app.serve.sys.stdin",
+            new=io.StringIO(rpc_payload.decode("utf-8")),
+        ):
             await serve_main([])
 
         cancel_calls = [call.args[0] for call in mark_cancelled.call_args_list]

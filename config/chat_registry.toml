@@ -139,6 +139,38 @@ options = { temperature = 0.2, max_tokens = 1536 }
 system_prompt_path = "prompts/oracle_qwen35_9b.md"
 
 [[models]]
+name = "oracle-9b-router"
+provider = "studio"
+model_id = "gguf/zelda/oracle-9b-candidate-v5-q4km.gguf"
+tool_profile = "oracle"
+teacher_router = "oracle-9b-v5-teacher-router"
+lmstudio_load = { context_length = 12288, parallel = 1, gpu = "max", ttl = 1800 }
+native_tools = false
+hide_if_unavailable = true
+role = "Daily 9B Oracle v5 lane guarded by the 14B teacher-router policy"
+description = "Oracle 9B v5 + 14B teacher-router guard · q4km"
+tags = ["oracle", "tools", "asm", "local", "qwen35", "z3ui", "teacher-router"]
+domain = "adaptive"
+mode = "adaptive"
+effort = "medium"
+reasoning_mode = "off"
+thinking_tier = ""
+aliases = [
+  "oracle-v5-router",
+  "oracle-router",
+  "oracle-9b-v5-router",
+  "oracle-qwen35-router",
+  "oracle-qwen35-9b-router",
+]
+options = { temperature = 0.15, max_tokens = 1536 }
+system_prompt_path = "prompts/oracle_qwen35_9b.md"
+system_prompt = """You are Oracle 9B v5 inside z3cli with the 14B teacher-router guard enabled.
+
+Default to the fast 9B behavior, but obey the per-turn teacher-router system block when it appears.
+Use tools for workspace, ROM, symbol, emulator, or live-state claims.
+Do not invent symbols, addresses, file contents, tool names, or verification results."""
+
+[[models]]
 name = "oracle-pro"
 provider = "studio"
 model_id = "gguf/zelda/qwen3-oracle-14b-v8-q4km.gguf"

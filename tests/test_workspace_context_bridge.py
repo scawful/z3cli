@@ -58,3 +58,21 @@ class WorkspaceContextBridgeTests(unittest.IsolatedAsyncioTestCase):
                 outside.unlink(missing_ok=True)
 
         self.assertIn("outside the active workspace", result)
+
+    async def test_recovers_existing_workspace_suffix_from_wrong_absolute_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            (workspace / "config").mkdir()
+            (workspace / "config" / "chat_registry.toml").write_text(
+                'name = "oracle-qwen35-9b"\nmodel_id = "gguf/zelda/oracle-qwen35-9b-v1-q4km.gguf"\n',
+                encoding="utf-8",
+            )
+
+            bridge = WorkspaceContextBridge(workspace)
+            result = await bridge.call_tool(
+                "workspace_read",
+                {"path": "/Users/scawful/.z3cli/config/chat_registry.toml"},
+            )
+
+        self.assertIn("File: config/chat_registry.toml", result)
+        self.assertIn("oracle-qwen35-9b-v1-q4km", result)
