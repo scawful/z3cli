@@ -6,6 +6,7 @@ param(
   [string]$Identifier = 'oracle-9b-router',
   [string]$Workspace = 'D:\src\hobby\z3cli',
   [string]$ZeldaWorkspace = 'D:\src\hobby\oracle-of-secrets',
+  [string]$AsarPath = '',
   [string]$StudioApiBase = 'http://127.0.0.1:1234/v1',
   [int]$Port = 1234,
   [int]$ContextLength = 12288,
@@ -38,6 +39,19 @@ $env:LMSTUDIO_BASE_URL = $StudioApiBase
 $env:Z3CLI_LMSTUDIO_HOSTD_URL = 'http://127.0.0.1:1'
 # Avoid slow/hanging model-memory estimation during z3cli --serve readiness.
 $env:Z3CLI_SKIP_MODEL_MEMORY_ESTIMATES = '1'
+
+$asarCandidates = @(
+  $AsarPath,
+  'D:\src\third_party\asar-repo\build\windows-vs\asar\bin\Release\asar.exe',
+  'D:\src\hobby\yaze\build\windows-vs-z3ed\asar\asar\bin\Release\asar.exe',
+  'D:\src\Code-backup\asar\build\asar\bin\asar.exe'
+) | Where-Object { $_ -and (Test-Path $_) }
+if ($asarCandidates.Count -gt 0) {
+  $env:Z3CLI_ASAR_PATH = $asarCandidates[0]
+  Write-Host "ASAR path: $env:Z3CLI_ASAR_PATH"
+} else {
+  Write-Host 'ASAR path: not found; hard-gate rows with compile_final_asar will fail.'
+}
 
 $mesen = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -match 'Mesen|mesen' } | Select-Object -First 1
 if ($RequireMesen -and -not $mesen) {

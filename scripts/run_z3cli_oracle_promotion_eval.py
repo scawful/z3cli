@@ -15,7 +15,10 @@ import contextlib
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,6 +32,10 @@ DEFAULT_PACK = (
 )
 DEFAULT_OUT_DIR = REPO_ROOT / "reports" / "oracle-promotion-evals"
 PREFETCH_CALL_ID_PREFIX = "oracle-prefetch-"
+_ASM_FENCE_RE = re.compile(
+    r"```(?:asm|asar|65816|sfc|assembly)?\s*(.*?)```",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 @dataclass
@@ -164,6 +171,76 @@ def _check_patterns(text: str, patterns: list[str]) -> list[str]:
     return failed
 
 
+def _extract_asar_source(text: str) -> str:
+    """Return the assembler source to feed to ASAR for final-answer checks."""
+
+    raw = str(text or "").strip()
+    if not raw:
+        return ""
+    fences = [match.group(1).strip() for match in _ASM_FENCE_RE.finditer(raw)]
+    if fences:
+        return "\n\n".join(source for source in fences if source)
+    return raw
+
+
+def _compile_final_asar(text: str, config: Any) -> tuple[bool, dict[str, Any]]:
+    """Compile the final answer as a tiny ASAR patch against a scratch ROM."""
+
+    cfg = config if isinstance(config, dict) else {}
+    asar_path = str(cfg.get("asar_path") or os.environ.get("Z3CLI_ASAR_PATH") or "").strip()
+    if not asar_path:
+        asar_path = shutil.which("asar") or ""
+    if not asar_path:
+        return False, {"error": "asar executable not found; set Z3CLI_ASAR_PATH or put asar on PATH"}
+
+    source = _extract_asar_source(text)
+    if not source:
+        return False, {"error": "final answer has no assembler source"}
+
+    prelude: list[str] = []
+    lowered = source.lower()
+    if "lorom" not in lowered and "hirom" not in lowered and "sa1rom" not in lowered:
+        prelude.append(str(cfg.get("mapping") or "lorom"))
+    if "org " not in lowered:
+        prelude.append(f"org {str(cfg.get('org') or '$008000')}")
+    patch_text = "\n".join([*prelude, source, ""]).strip() + "\n"
+
+    rom_size = int(cfg.get("rom_size") or 0x400000)
+    timeout_s = float(cfg.get("timeout_s") or 10.0)
+    with tempfile.TemporaryDirectory(prefix="z3cli-asar-eval-") as tmp:
+        tmp_path = Path(tmp)
+        asm_path = tmp_path / "candidate.asm"
+        rom_path = tmp_path / "scratch.sfc"
+        asm_path.write_text(patch_text, encoding="utf-8")
+        rom_path.write_bytes(bytes([0]) * rom_size)
+        try:
+            completed = subprocess.run(
+                [
+                    asar_path,
+                    "--no-title-check",
+                    "--pause-mode=never",
+                    str(asm_path),
+                    str(rom_path),
+                ],
+                cwd=str(tmp_path),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=timeout_s,
+                check=False,
+            )
+        except Exception as exc:  # pragma: no cover - platform/tool failure detail
+            return False, {"error": f"failed to run asar: {exc}", "asar": asar_path}
+
+    output = str(completed.stdout or "").strip()
+    return completed.returncode == 0, {
+        "asar": asar_path,
+        "returncode": completed.returncode,
+        "output": output[:1200],
+        "source_preview": patch_text[:800],
+    }
+
+
 def score_response(row: dict[str, Any], observed: ObservedResponse) -> dict[str, Any]:
     expect = _expect_for(row)
     calls = observed.tool_calls
@@ -228,6 +305,12 @@ def score_response(row: dict[str, Any], observed: ObservedResponse) -> dict[str,
             require_any,
         )
 
+    require_all = _as_str_list(expect.get("require_final_contains_all"))
+    if require_all:
+        final_lower = observed.final_text.lower()
+        missing = [token for token in require_all if token.lower() not in final_lower]
+        add_check("require_final_contains_all", not missing, {"missing": missing})
+
     require_patterns = _as_str_list(expect.get("require_final_patterns"))
     if require_patterns:
         missing_patterns = _check_patterns(observed.final_text, require_patterns)
@@ -237,6 +320,29 @@ def score_response(row: dict[str, Any], observed: ObservedResponse) -> dict[str,
     if forbidden_patterns:
         found = [pattern for pattern in forbidden_patterns if not _check_patterns(observed.final_text, [pattern])]
         add_check("forbid_final_patterns", not found, {"found": found})
+
+    tool_result_text = "\n".join(str(result.get("content") or "") for result in observed.tool_results)
+    require_tool_patterns = _as_str_list(expect.get("require_tool_result_patterns"))
+    if require_tool_patterns:
+        missing_tool_patterns = _check_patterns(tool_result_text, require_tool_patterns)
+        add_check(
+            "require_tool_result_patterns",
+            not missing_tool_patterns,
+            {"missing": missing_tool_patterns},
+        )
+
+    forbidden_tool_patterns = _as_str_list(expect.get("forbid_tool_result_patterns"))
+    if forbidden_tool_patterns:
+        found_tool_patterns = [
+            pattern
+            for pattern in forbidden_tool_patterns
+            if not _check_patterns(tool_result_text, [pattern])
+        ]
+        add_check("forbid_tool_result_patterns", not found_tool_patterns, {"found": found_tool_patterns})
+
+    if expect.get("compile_final_asar"):
+        compiled, detail = _compile_final_asar(observed.final_text, expect.get("compile_final_asar"))
+        add_check("compile_final_asar", compiled, detail)
 
     if observed.errors:
         add_check("no_runtime_errors", False, observed.errors)

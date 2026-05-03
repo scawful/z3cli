@@ -214,6 +214,9 @@ fallback, and serve-readiness settings stay consistent. On 2026-05-02 local /
 Treat it as seed-gate green, but do not promote it to the plain `oracle` slot
 until a fresh hard gate also covers live Mesen2 state, ASAR compile repair,
 65816 width/bank/JSR/JSL traps, and Oracle-vs-vanilla evidence boundaries.
+That hard gate now exists at `evals/oracle_z3cli_hard_holdout_v1.jsonl`; run it
+with `scripts/windows_oracle_9b_eval.ps1 -RequireMesen` after Mesen2 is open on
+`medical-mechanica`.
 
 ## Dataset And Training Policy
 

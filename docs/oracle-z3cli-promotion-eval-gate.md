@@ -11,10 +11,11 @@ it launches `z3cli --serve`, sends chat turns, observes streamed `tool_call` /
 
 - Runner: `scripts/run_z3cli_oracle_promotion_eval.py`
 - Holdout pack: `/Users/scawful/src/training/evals/oracle_z3cli_promotion_holdout_v1.jsonl`
+- Hard holdout pack: `evals/oracle_z3cli_hard_holdout_v1.jsonl`
 - Default reports: `reports/oracle-promotion-evals/`
 
-The holdout pack is marked `holdout_do_not_train=true`. Do not mix it into SFT,
-DPO, rejection sampling, or distillation data.
+The holdout packs are marked `holdout_do_not_train=true`. Do not mix them into
+SFT, DPO, rejection sampling, or distillation data.
 
 ## Live Gate
 
@@ -62,6 +63,10 @@ only assert graceful unavailable behavior when the Mesen2 socket/process is not
 running. Use `-SkipLoad` or `-SkipServerStart` when LM Studio is already in the
 exact desired state. The wrapper refuses to overwrite an existing output path
 unless `-ForceOverwrite` is passed.
+
+The wrapper also discovers the local Windows ASAR executable and exports
+`Z3CLI_ASAR_PATH`. Override it with `-AsarPath` if the default `D:\src`
+locations move.
 
 Use `--mode manual` for candidate-specific gates. `--mode oracle` routes the
 chat target through the canonical `oracle` slot and can test the wrong model.
@@ -128,8 +133,20 @@ cases, negative no-hallucination cases, and 65816 width/bank/JSR/JSL traps.
 ## Next Hard Gate
 
 Do not train on `oracle_z3cli_promotion_holdout_v1`; keep it as the seed
-promotion holdout. For the next promotion slice, create a fresh hard pack with
-new rows in these buckets:
+promotion holdout. The fresh hard pack is now committed at
+`evals/oracle_z3cli_hard_holdout_v1.jsonl` and mirrored for the shared training
+workspace at `/Users/scawful/src/training/evals/oracle_z3cli_hard_holdout_v1.jsonl`.
+Run it on Windows with:
+
+```powershell
+Set-Location D:\src\hobby\z3cli
+.\scripts\windows_oracle_9b_eval.ps1 `
+  -PromptPack D:\src\hobby\z3cli\evals\oracle_z3cli_hard_holdout_v1.jsonl `
+  -Out reports\oracle-promotion-evals\oracle_9b_router_hard_windows_YYYYMMDD.jsonl `
+  -RequireMesen
+```
+
+This hard pack covers:
 
 1. **Live Mesen2 socket required**: run `windows_oracle_9b_eval.ps1 -RequireMesen`
    and fail fast if no Mesen/Mesen2 process is present.
@@ -137,7 +154,7 @@ new rows in these buckets:
    rows must include requested addresses/counts and must not infer unavailable
    data.
 3. **ASAR compile repair**: compile returned snippets or patches with ASAR,
-   including stack/width syntax negatives such as unsupported pseudo-ops.
+   including stack/width syntax negatives such as unsupported long `STZ`.
 4. **65816 safety traps**: accumulator/index width, bank crossings, DBR/PBR,
    stack balance, and JSR/JSL/RTS/RTL pairing.
 5. **Oracle vs vanilla boundary**: require explicit evidence before claiming an
