@@ -406,6 +406,41 @@ class ToolThenAnswerProvider:
         pass
 
 
+class StubbornToolCallerProvider:
+    """Emits a tool call, then a tool-call-only answer round, then prose."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.requests: list[CompletionRequest] = []
+
+    @property
+    def name(self) -> str:
+        return "local"
+
+    async def stream(
+        self,
+        request: CompletionRequest,
+    ) -> AsyncGenerator[CompletionChunk, None]:
+        self.requests.append(request)
+        self.calls += 1
+        if self.calls == 1:
+            yield CompletionChunk(tool_calls=[ToolCallDelta(id="tc-1", name="label_lookup", arguments='{"query":"Minecart"}')])
+            return
+        if self.calls == 2:
+            # Tools are disabled in the answer round, but the model still
+            # emits a manual XML tool call instead of answering.
+            yield CompletionChunk(content=ContentDelta(text='<tool_call>{"name":"label_lookup","arguments":{"query":"Minecart"}}</tool_call>'))
+            return
+        yield CompletionChunk(content=ContentDelta(text="prose answer after retry"))
+        yield CompletionChunk(usage=UsageInfo(prompt_tokens=2, completion_tokens=1))
+
+    async def check_connection(self) -> bool:
+        return True
+
+    async def close(self) -> None:
+        pass
+
+
 class EmptyArgsGroundingProvider:
     def __init__(self) -> None:
         self.calls = 0
@@ -1032,6 +1067,32 @@ class Qwen3ParsingTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Answer from the grounded evidence now.", provider.requests[1].system)
         self.assertTrue(any(isinstance(event, TextEvent) and event.text == "grounded answer" for event in events))
         self.assertTrue(any(isinstance(event, DoneEvent) for event in events))
+
+    async def test_answer_round_tool_call_only_output_retries_once_with_prose_instruction(self) -> None:
+        provider = StubbornToolCallerProvider()
+        engine = ChatEngine(
+            provider=provider,
+            bridge=GroundingBridge(),
+        )
+
+        events = [
+            event async for event in engine.chat(
+                "Let's take a look at the Minecart sprite.",
+                "oracle-9b-router",
+                use_tools=True,
+                answer_after_first_grounding=True,
+                answer_after_grounding_system="Answer from the grounded evidence now.",
+            )
+        ]
+
+        self.assertEqual(provider.calls, 3)
+        self.assertIsNone(provider.requests[1].tools)
+        self.assertIsNone(provider.requests[2].tools)
+        self.assertIn("Tool calls are closed for this turn.", provider.requests[2].system)
+        self.assertIn("Answer from the grounded evidence now.", provider.requests[2].system)
+        self.assertTrue(any(isinstance(event, TextEvent) and event.text == "prose answer after retry" for event in events))
+        self.assertTrue(any(isinstance(event, DoneEvent) for event in events))
+        self.assertEqual(engine.messages[-1], {"role": "assistant", "content": "prose answer after retry"})
 
     async def test_empty_grounding_tool_arguments_are_repaired_before_execution(self) -> None:
         provider = EmptyArgsGroundingProvider()

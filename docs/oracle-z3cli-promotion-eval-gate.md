@@ -164,3 +164,79 @@ The seed gate can be promoted to a regression check once the hard gate exists.
 A 9B promotion should require both gates to pass, with the 14B `oracle`/
 `oracle-pro` lane retained for harder analysis until the hard gate is also
 stable.
+
+## First Hard-Gate Results (2026-07-04, no Mesen)
+
+Both runs on `medical-mechanica` via `windows_oracle_9b_eval.ps1`, without
+`-RequireMesen` (no Mesen2 process; emulator rows degraded to
+graceful-unavailable mode):
+
+- `oracle-9b-router` (v5 + guard prompts): **1/8**
+  (`reports/oracle-promotion-evals/oracle_9b_router_hard_windows_20260704.jsonl`)
+- `oracle` (qwen3-oracle-14b-v8): **1/8**
+  (`reports/oracle-promotion-evals/oracle_14b_v8_hard_windows_20260704.jsonl`)
+
+Only `ozh_live_rom_read_exact_hook_01` passed for either model. Three separable
+causes, confirmed from `observed.final_text` and tool results:
+
+1. **Missing Mesen2** (environmental): `cpu_state` and `disasm_at` return
+   "unavailable without a live Mesen2 disassembler", so
+   `ozh_live_cpu_state_pc_flags_01`, `ozh_live_disasm_jsr_contract_01`, and
+   `ozh_hook_displaced_logic_evidence_01` cannot produce the required
+   tool-result evidence in this mode. Re-run with `-RequireMesen` once Mesen2
+   is up.
+2. **v5-only empty/truncated finals**: v5's final answers cut mid-sentence at
+   ~100-300 chars ("…Based on those bytes I should") or are fully empty; the
+   14B's finals end cleanly. This is the known v5 q4km thinking-template
+   budget-burn. Fix direction: no-think template variant of the v5 GGUF or a
+   larger/finalized post-tool completion budget in the serve path.
+3. **Shared real gaps**: neither model produced a compilable ASAR patch on
+   `ozh_asar_clear_long_wram_01` / `ozh_asar_jsr_rts_contract_01` (missing
+   `ClearOracleScratch`/`$7E0200`/`RTL`; `compile_final_asar` had no assembler
+   source; the 14B skipped tools entirely and answered in one line), and both
+   called only one of the two required tools on
+   `ozh_oracle_vanilla_boundary_songbank_01`. The tool-first system prompts
+   may be steering models away from emitting ASM on compile rows — worth a
+   prompt-calibration pass before blaming weights.
+
+Note on the `oracle-9b-router` lane: `src/core/oracle_teacher_router.py` is a
+guard-prompt shim, not a two-model proxy. The matched guards (songbank, hook
+stub, displaced) did not rescue v5 on these rows. afs-scawful's
+`oracle-teacher` chat-harness router (2026-07-03) does real two-model
+escalation; wiring that into the z3cli serve path is the escalation experiment
+this result motivates, but the identical 14B score above says escalation alone
+will not clear the hard gate without fixes to causes 1 and 3.
+
+## Runtime Fixes (2026-07-04, same day)
+
+Cause 2 (v5 empty finals) was root-caused and fixed without touching weights:
+
+1. **No-think GGUF variant.** Direct LM Studio probes showed v5 emitting its
+   whole answer inside `reasoning_content` and stopping with zero visible
+   content (`finish_reason=stop`, 77/78 tokens reasoning). Qwen3.5 ignores
+   `/no_think`. Applied the scawfulbot recipe: flipped the chat template's
+   `enable_thinking` default (generation prompt now pre-closes
+   `<think>\n\n</think>\n\n`) via `gguf.scripts.gguf_new_metadata` — a
+   metadata-only rewrite. New artifact:
+   `gguf/zelda/oracle-9b-candidate-v5-nothink-q4km.gguf` (both LM Studio
+   hosts' registries and this wrapper's default `-ModelPath` now point at it;
+   the thinking original is preserved).
+2. **Answer-round prose retry** (`src/core/engine.py`). Wire captures
+   (`lms log stream`) showed the model answering *in prose* after tool
+   results, but on harder rows it emits another `<tool_call>` in the
+   tools-disabled answer round; the engine dropped it and ended with an empty
+   final. The engine now retries that round once with an explicit
+   prose-only instruction (`_ANSWER_ROUND_PROSE_RETRY_PROMPT`) before falling
+   back. Test: `test_answer_round_tool_call_only_output_retries_once_with_prose_instruction`.
+
+Results with both fixes (no Mesen, `oracle-9b-router` = nothink v5):
+
+- Seed gate: 12/12, 11/12, 10/12 across three runs — the gate is noisy at
+  `temperature=0.15`; failures are now content/arg slop (e.g. `<invalid>`
+  passed as a disasm address, wrong row answered), never the silent
+  empty-final disease alone. Consider greedy decoding for promotion runs.
+- Hard gate: still 1/8. The remaining hard failures are (a) Mesen-live
+  evidence rows and (b) the model persistently tool-calling instead of
+  answering on content it cannot handle — it defies the prose retry too.
+  That is the model-capability lane (session-replay preference data per
+  `~/src/training` docs), not a runtime bug.

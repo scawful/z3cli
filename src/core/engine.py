@@ -101,6 +101,7 @@ class _ChatState:
     cancelled: bool = False
     done: bool = False
     last_tool_round_grounded: bool = False
+    answer_round_retried: bool = False
 
 
 @dataclass
@@ -188,6 +189,13 @@ class _ThinkingParser:
                 return length
         return 0
 
+
+_ANSWER_ROUND_PROSE_RETRY_PROMPT = (
+    "Tool calls are closed for this turn. Do not emit <tool_call> or any other "
+    "tool syntax. Answer the user's question now in plain prose using only the "
+    "tool evidence already in this conversation. If the evidence is "
+    "insufficient, say exactly what is missing instead of calling a tool."
+)
 
 _THINK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
 _TOOL_CALL_BLOCK_RE = re.compile(
@@ -1238,11 +1246,22 @@ class ChatEngine:
                     tool_calls = xml_calls
 
             if not tool_calls:
-                if (
+                answer_round_no_answer = (
                     answer_after_first_grounding
                     and not allow_tool_execution
                     and not _content_has_plain_answer(history_content)
-                ):
+                )
+                if answer_round_no_answer and not state.answer_round_retried:
+                    # The model spent its tools-disabled answer round emitting
+                    # another (suppressed) tool call. Retry once with an
+                    # explicit prose-only instruction before falling back.
+                    state.answer_round_retried = True
+                    round_system = _merge_system_prompt(
+                        _merge_system_prompt(base_system, answer_after_grounding_system),
+                        _ANSWER_ROUND_PROSE_RETRY_PROMPT,
+                    )
+                    continue
+                if answer_round_no_answer:
                     fallback = _grounded_fallback_answer_from_history(message, self.messages)
                     if fallback:
                         history_content = fallback

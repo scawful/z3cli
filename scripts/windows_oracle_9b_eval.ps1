@@ -2,7 +2,7 @@ param(
   [string]$PromptPack = 'D:\src\training\evals\oracle_z3cli_promotion_holdout_v1.jsonl',
   [string]$Out = '',
   [string]$Model = 'oracle-9b-router',
-  [string]$ModelPath = 'gguf/zelda/oracle-9b-candidate-v5-q4km.gguf',
+  [string]$ModelPath = 'gguf/zelda/oracle-9b-candidate-v5-nothink-q4km.gguf',
   [string]$Identifier = 'oracle-9b-router',
   [string]$Workspace = 'D:\src\hobby\z3cli',
   [string]$ZeldaWorkspace = 'D:\src\hobby\oracle-of-secrets',

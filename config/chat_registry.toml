@@ -141,7 +141,7 @@ system_prompt_path = "prompts/oracle_qwen35_9b.md"
 [[models]]
 name = "oracle-9b-router"
 provider = "studio"
-model_id = "gguf/zelda/oracle-9b-candidate-v5-q4km.gguf"
+model_id = "gguf/zelda/oracle-9b-candidate-v5-nothink-q4km.gguf"
 tool_profile = "oracle"
 teacher_router = "oracle-9b-v5-teacher-router"
 lmstudio_load = { context_length = 12288, parallel = 1, gpu = "max", ttl = 1800 }
