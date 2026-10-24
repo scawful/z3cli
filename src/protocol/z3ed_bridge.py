@@ -25,7 +25,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from core.rom_project import RomProject
+from core.rom_project import RomProject, mesen_socket_error
 from protocol.z3ed_schema import TranslatedTool, load_schemas
 
 
@@ -61,8 +61,8 @@ class Z3edBridge:
         self._call_timeout_s = call_timeout_s
         self._bootstrap_timeout_s = bootstrap_timeout_s
         if auto_bootstrap_mesen is None:
-            auto_bootstrap_mesen = os.environ.get("Z3CLI_MESEN_AUTO_BOOTSTRAP", "1").lower() not in {
-                "0", "false", "no", "off",
+            auto_bootstrap_mesen = os.environ.get("Z3CLI_MESEN_AUTO_BOOTSTRAP", "0").lower() in {
+                "1", "true", "yes", "on",
             }
         self._auto_bootstrap_mesen = bool(auto_bootstrap_mesen)
         self._tools: dict[str, TranslatedTool] = {}
@@ -162,13 +162,15 @@ class Z3edBridge:
         except FileNotFoundError as exc:
             return f"Error: {exc}"
 
-        # Pre-flight: mesen-* commands need a live mesen2-oos socket. If the
-        # user supplied one explicitly via arguments we defer to that; else we
-        # require RomProject to have found one. Returning a clear error here
-        # beats letting z3ed exit with an opaque "socket failed" message.
+        # Runtime tools must target a selected instance, including when the
+        # model supplies --mesen-socket directly instead of using the project.
         if tool.z3ed_name.startswith("mesen-"):
             supplied_socket = arguments.get("mesen_socket") or arguments.get("mesen-socket")
-            if not supplied_socket:
+            if supplied_socket:
+                target_error = mesen_socket_error(str(supplied_socket))
+                if target_error:
+                    return target_error
+            else:
                 bootstrap_error = await self._ensure_mesen_socket()
                 if bootstrap_error:
                     return bootstrap_error
@@ -252,20 +254,32 @@ class Z3edBridge:
         """
         current_socket = self._project.mesen_socket
         if current_socket:
+            target_error = mesen_socket_error(current_socket)
+            if target_error:
+                return target_error
             os.environ["MESEN2_SOCKET_PATH"] = current_socket
             return None
 
         self._project = self._project.refresh_mesen_socket()
         refreshed_socket = self._project.mesen_socket
         if refreshed_socket:
+            target_error = mesen_socket_error(refreshed_socket)
+            if target_error:
+                return target_error
             os.environ["MESEN2_SOCKET_PATH"] = refreshed_socket
             return None
 
         if not self._auto_bootstrap_mesen:
             return (
-                "Error: Mesen2 emulator socket not detected. Start Mesen2 "
-                "(or mesen2-oos) first, or set MESEN2_SOCKET_PATH, then retry."
+                "Error: no explicit Mesen2 runtime selected. Set MESEN2_SOCKET_PATH "
+                "to an owned instance. Automatic launch is disabled by default."
             )
+
+        instance = os.environ.get("Z3CLI_MESEN_INSTANCE", "").strip()
+        if not instance:
+            return "Error: Mesen2 auto-bootstrap requires an explicit Z3CLI_MESEN_INSTANCE."
+        if instance == "oos-rc-play":
+            return "Error: oos-rc-play is protected; select an owned Mesen2 instance."
 
         launch_script = self._project.mesen_launch_script()
         launch_rom = self._project.preferred_mesen_rom_path()
@@ -280,7 +294,6 @@ class Z3edBridge:
                 "Set --rom or Z3CLI_ROM, or start Mesen2 manually."
             )
 
-        instance = os.environ.get("Z3CLI_MESEN_INSTANCE", f"z3cli-{self._project.workspace.name}")
         owner = os.environ.get("USER", "agent")
         source = os.environ.get("Z3CLI_MESEN_SOURCE", "z3cli")
         argv = [
@@ -292,7 +305,7 @@ class Z3edBridge:
             "--rom", str(launch_rom),
             "--reuse",
         ]
-        if os.environ.get("Z3CLI_MESEN_HEADLESS", "").lower() in {"1", "true", "yes", "on"}:
+        if os.environ.get("Z3CLI_MESEN_HEADLESS", "1").lower() in {"1", "true", "yes", "on"}:
             argv.append("--headless")
 
         try:
@@ -326,12 +339,18 @@ class Z3edBridge:
         if exported_instance:
             os.environ["MESEN2_INSTANCE"] = exported_instance
         if exported_socket:
+            target_error = mesen_socket_error(exported_socket)
+            if target_error:
+                return target_error
             os.environ["MESEN2_SOCKET_PATH"] = exported_socket
             self._project = self._project.with_mesen_socket(exported_socket)
             return None
 
         self._project = self._project.refresh_mesen_socket()
         if self._project.mesen_socket:
+            target_error = mesen_socket_error(self._project.mesen_socket)
+            if target_error:
+                return target_error
             os.environ["MESEN2_SOCKET_PATH"] = self._project.mesen_socket
             return None
 

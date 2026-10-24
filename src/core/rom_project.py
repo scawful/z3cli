@@ -21,7 +21,6 @@ keyed on the previous checksum.
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import shutil
 from dataclasses import dataclass, field, replace
@@ -74,36 +73,19 @@ def _discover_executable(
 
 
 def _discover_mesen_socket(override: str | None = None) -> str | None:
-    """Follow the mesen2-oos socket discovery order."""
-    if override:
-        return override
-    env_val = os.environ.get("MESEN2_SOCKET_PATH")
-    if env_val:
-        return env_val
-    tmp = Path("/tmp")
-    # Status files contain JSON with a ``socketPath`` key.
-    status_files = sorted(
-        tmp.glob("mesen2-*.status"),
-        key=lambda p: p.stat().st_mtime if p.exists() else 0.0,
-        reverse=True,
-    )
-    for sf in status_files:
-        try:
-            meta = json.loads(sf.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        sock = meta.get("socketPath")
-        if isinstance(sock, str) and sock and Path(sock).exists():
-            return sock
-    # Fallback: newest bare .sock file.
-    sock_files = sorted(
-        tmp.glob("mesen2-*.sock"),
-        key=lambda p: p.stat().st_mtime if p.exists() else 0.0,
-        reverse=True,
-    )
-    for sf in sock_files:
-        if sf.exists():
-            return str(sf)
+    """Use an explicitly selected runtime; never guess another session's socket."""
+    return override or os.environ.get("MESEN2_SOCKET_PATH") or None
+
+
+def mesen_socket_error(socket_path: str) -> str | None:
+    """Reject the protected play session, including a symlink to its socket."""
+    path = Path(socket_path).expanduser()
+    names = {path.name, path.resolve().name}
+    if (
+        "mesen2-oos-rc-play.sock" in names
+        or os.environ.get("MESEN2_INSTANCE") == "oos-rc-play"
+    ):
+        return "Error: oos-rc-play is protected; select an owned Mesen2 instance."
     return None
 
 
@@ -339,7 +321,7 @@ class RomProject:
         return replace(self, mesen_socket=mesen_socket or None)
 
     def refresh_mesen_socket(self) -> "RomProject":
-        """Return a copy with socket discovery re-run against current env/tmp state."""
+        """Return a copy using the currently explicit socket selection."""
         return replace(self, mesen_socket=_discover_mesen_socket())
 
     def preferred_mesen_rom_path(self) -> Path | None:
