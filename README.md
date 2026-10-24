@@ -134,6 +134,18 @@ Host placement policy:
 Use `/orchestrator <model|auto>` in `z3ui` when you want to pin or clear the
 cloud planner.
 
+## Mesen runtime selection
+
+Runtime tools use an explicit `MESEN2_SOCKET_PATH` or tool `mesen_socket`
+argument. z3cli never selects the newest socket or status file in `/tmp`.
+Select an instance you own; `oos-rc-play` is always protected.
+
+Automatic launch is off. To opt into launching a named instance after obtaining
+any project resource/launch authorization, set `Z3CLI_MESEN_AUTO_BOOTSTRAP=1`
+and `Z3CLI_MESEN_INSTANCE=<owned-name>`. The launcher defaults to headless;
+`Z3CLI_MESEN_HEADLESS=0` explicitly requests a visible window. This opt-in
+selects launcher behavior; it does not acquire the Oracle heavy lock.
+
 ## Windows 5090 Serving
 
 When `medical-mechanica` is the active LM Studio host, treat the API path and

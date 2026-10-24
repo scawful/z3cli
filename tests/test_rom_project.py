@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from core.rom_project import RomProject
+from core.rom_project import RomProject, _discover_mesen_socket
 
 
 class DiscoveryTests(unittest.TestCase):
@@ -70,6 +73,35 @@ class DiscoveryTests(unittest.TestCase):
                 env={"MESEN2_SOCKET_PATH": fake_sock_path},
             )
         self.assertEqual(proj.mesen_socket, fake_sock_path)
+
+    def test_does_not_attach_to_foreign_or_play_status_records(self) -> None:
+        # Mesen status files have no ownership field. A live-looking status
+        # record or bare socket is not evidence that this caller owns it.
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            records = []
+            for instance in ("foreign-agent", "oos-rc-play"):
+                socket = tmp_path / f"mesen2-{instance}.sock"
+                socket.touch()
+                status = socket.with_suffix(".status")
+                status.write_text(json.dumps({
+                    "pid": 123,
+                    "socketPath": str(socket),
+                    "statusPath": str(status),
+                    "emulatorRunning": True,
+                    "romHash": "A" * 40,
+                    "paused": False,
+                    "frameCount": 200,
+                    "scriptRunning": False,
+                    "registeredAgents": [],
+                    "lastSave": None,
+                    "lastLoad": None,
+                }))
+                records.append(status)
+            with patch.dict(os.environ, {}, clear=True):
+                with patch.object(Path, "glob", return_value=records) as glob:
+                    self.assertIsNone(_discover_mesen_socket())
+            glob.assert_not_called()
 
     def test_diagnostics_dict_is_serializable(self) -> None:
         import json as _json

@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
-import shutil
 import stat
 import sys
 import tempfile
-import textwrap
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -342,7 +339,7 @@ class Z3edBridgeTests(unittest.IsolatedAsyncioTestCase):
                 result = await bridge.call_tool("mesen_memory_read", {"address": "0x7E0000"})
         self.assertIn("Error", result)
         self.assertIn("Mesen2", result)
-        self.assertIn("socket not detected", result)
+        self.assertIn("no explicit Mesen2 runtime selected", result)
 
     async def test_mesen_preflight_passes_with_socket(self) -> None:
         schemas = {
@@ -404,11 +401,12 @@ class Z3edBridgeTests(unittest.IsolatedAsyncioTestCase):
             base_rom.write_bytes(b"\x00")
             patched_rom.write_bytes(b"\x01")
             proj = RomProject.discover(workspace=tmp_path, rom_path=base_rom, env={})
-            bridge = Z3edBridge(proj, yaze_bin=fake_z3ed)
+            bridge = Z3edBridge(proj, yaze_bin=fake_z3ed, auto_bootstrap_mesen=True)
             await bridge.connect()
 
             os.environ["FAKE_Z3ED_RECORD"] = str(z3ed_record)
             os.environ["FAKE_MESEN_LAUNCH_RECORD"] = str(launch_record)
+            os.environ["Z3CLI_MESEN_INSTANCE"] = "z3cli-test"
             try:
                 with patch("core.rom_project._discover_mesen_socket", return_value=None):
                     result = await bridge.call_tool("mesen_memory_read", {"address": "0x7E0000"})
@@ -417,12 +415,70 @@ class Z3edBridgeTests(unittest.IsolatedAsyncioTestCase):
                 os.environ.pop("FAKE_MESEN_LAUNCH_RECORD", None)
                 os.environ.pop("MESEN2_SOCKET_PATH", None)
                 os.environ.pop("MESEN2_INSTANCE", None)
+                os.environ.pop("Z3CLI_MESEN_INSTANCE", None)
 
             self.assertIn("ok", result)
             launch_cmd = launch_record.read_text().strip().splitlines()[-1]
             self.assertIn(f"--rom {patched_rom.resolve()}", launch_cmd)
+            self.assertIn("--headless", launch_cmd)
             captured = z3ed_record.read_text().strip().splitlines()[-1]
             self.assertIn(f"--mesen-socket={boot_socket}", captured)
+
+    async def test_runtime_defaults_do_not_launch_or_guess_a_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = RomProject.discover(workspace=Path(tmp), env={})
+            with patch.dict(os.environ, {}, clear=True):
+                bridge = Z3edBridge(project)
+                with patch("asyncio.create_subprocess_exec") as spawn:
+                    result = await bridge._ensure_mesen_socket()
+            self.assertIn("no explicit Mesen2 runtime selected", result)
+            spawn.assert_not_called()
+
+    async def test_opt_in_launch_requires_an_explicit_instance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = RomProject.discover(workspace=Path(tmp), env={})
+            with patch.dict(os.environ, {}, clear=True):
+                bridge = Z3edBridge(project, auto_bootstrap_mesen=True)
+                with patch("asyncio.create_subprocess_exec") as spawn:
+                    result = await bridge._ensure_mesen_socket()
+            self.assertIn("explicit Z3CLI_MESEN_INSTANCE", result)
+            spawn.assert_not_called()
+
+    async def test_protected_play_target_is_refused_in_all_selection_paths(self) -> None:
+        schemas = {"commands": [{
+            "name": "mesen-memory-read",
+            "category": "mesen2",
+            "description": "Read memory",
+            "usage": "mesen-memory-read --address <hex> [--mesen-socket <path>]",
+            "available_to_agent": True,
+            "requires_rom": False,
+            "requires_grpc": False,
+        }]}
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            fake_z3ed = tmp_path / "z3ed"
+            _write_fake_z3ed(fake_z3ed, schemas=schemas)
+            protected = tmp_path / "mesen2-oos-rc-play.sock"
+            protected.touch()
+            alias = tmp_path / "innocent.sock"
+            alias.symlink_to(protected)
+            project = RomProject.discover(workspace=tmp_path, env={})
+            bridge = Z3edBridge(project, yaze_bin=fake_z3ed)
+            await bridge.connect()
+            with patch.dict(os.environ, {}, clear=True):
+                for target in (protected, alias):
+                    for key in ("mesen_socket", "mesen-socket"):
+                        with self.subTest(target=target, key=key):
+                            result = await bridge.call_tool("mesen_memory_read", {
+                                "address": "0x7E0000", key: str(target),
+                            })
+                            self.assertIn("oos-rc-play is protected", result)
+                bridge._project = project.with_mesen_socket(str(protected))
+                self.assertIn("oos-rc-play is protected", await bridge._ensure_mesen_socket())
+                bridge._project = project
+                with patch.dict(os.environ, {"Z3CLI_MESEN_INSTANCE": "oos-rc-play"}):
+                    bridge._auto_bootstrap_mesen = True
+                    self.assertIn("oos-rc-play is protected", await bridge._ensure_mesen_socket())
 
     async def test_missing_binary_warns_not_crashes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
