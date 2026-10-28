@@ -41,7 +41,7 @@ Shared agent harness contract: [`~/src/docs/guides/ai-coder/AGENT_HARNESS_CONTRA
 - studio API base: `http://127.0.0.1:1234/v1`
 - llama.cpp API base: `http://127.0.0.1:8080/v1`
 - workspace: `~/src/hobby/oracle-of-secrets`
-- ROM: `~/src/hobby/roms/oracle.sfc`
+- ROM edit target: `~/src/hobby/oracle-of-secrets/Roms/oos168.sfc`
 - Public model portfolio note: [`docs/MODEL_PORTFOLIO_PUBLIC.md`](docs/MODEL_PORTFOLIO_PUBLIC.md)
 - Halext experimental page draft: [`docs/halext-model-lab-draft.md`](docs/halext-model-lab-draft.md)
 - Internal RL threshold policy: [`docs/ZELDA_RLHF_THRESHOLD_POLICY.md`](docs/ZELDA_RLHF_THRESHOLD_POLICY.md)
@@ -118,16 +118,16 @@ planners, and other manual lanes.
 
 Host placement policy:
 
-- primary local host is `medical-mechanica` on Windows + WSL2 with the RTX
-  `5090`
+- primary local host is `medical-mechanica` (native Windows, RTX `5090`, no
+  WSL); its LM Studio serves `http://medical-mechanica:1234` to the tailnet
 - Mac is the control plane and fallback local machine
 - local-first applies to `oracle`, `oracle-coder`, specialists, evals,
   merges, and most corrective work
 - `14B` is also local-first now, with Vast fallback when the shared desktop is
   busy, unstable, or needed for work/gaming
-- `oracle-pro` can delegate heavier work to hidden vLLM sidecars:
-  `oracle-coder-pro` for Qwen3-Coder 30B-A3B patch synthesis and
-  `oracle-reasoner-27b` for Qwen3.6 27B model/catalog/training strategy
+- `oracle-pro`'s hidden vLLM sidecars (`oracle-coder-pro`,
+  `oracle-reasoner-27b`) are dormant: they ran under WSL, which
+  `medical-mechanica` no longer uses
 - `scawfulbot` and Oracle-family inference may share that box, so repeated or
   conflict-heavy workloads can be paused, throttled, or offloaded
 
@@ -213,8 +213,9 @@ Shortcut:
 /route oracle-pro-vast
 ```
 
-The hidden Oracle sidecars use vLLM-compatible OpenAI endpoints. Start them
-only when you want the heavier delegated paths:
+**Dormant (needs WSL, which `medical-mechanica` no longer runs).** The hidden
+Oracle sidecars use vLLM-compatible OpenAI endpoints. Start them only when you
+want the heavier delegated paths:
 
 ```bash
 vllm serve Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8 \
@@ -283,8 +284,9 @@ python3 -m z3cli route smoke oracle-pro-ssh
 python3 -m z3cli --smoke home-ssh
 ```
 
-The same host daemon now also exposes WSL runtime status for the Windows `5090`
-box. The training-side control script uses the same tunnel:
+The `wsl-status` / `wsl-envs` commands below are obsolete since
+`medical-mechanica` moved to native Windows; `status` still applies. The
+training-side control script uses the same tunnel:
 
 ```bash
 export AFS_HOSTD_URL="http://127.0.0.1:8766"

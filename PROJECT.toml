@@ -1,0 +1,27 @@
+name = "z3cli"
+description = "Model-first Zelda ROM-hacking CLI with local model routing and tool calling"
+aliases = ["z3ui"]
+tags = ["tools", "romhacking", "ai", "cli", "active"]
+platforms = ["mac", "linux"]
+
+stage = "alpha"
+is_product = false
+commercial_intent = "none"
+public = true
+
+languages = ["python", "typescript"]
+build_system = "hatch"
+
+[links]
+github = "https://github.com/scawful/z3cli"
+
+[build]
+command = "python3 -m pip install -e ."
+
+[test]
+command = "python3 -m pytest -q"
+
+[sync]
+type = "git"
+direction = "both"
+remote = "origin"

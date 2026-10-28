@@ -240,3 +240,33 @@ Results with both fixes (no Mesen, `oracle-9b-router` = nothink v5):
   answering on content it cannot handle — it defies the prose retry too.
   That is the model-capability lane (session-replay preference data per
   `~/src/training` docs), not a runtime bug.
+
+## Live-Mesen Hard-Gate Results (2026-09-14, Mac)
+
+The Windows `Mesen.exe` build exposes no agent socket (`Core/Shared/SocketServer.cpp`
+is POSIX-only: `AF_UNIX`, `fcntl`, `poll`), so `-RequireMesen` on Windows only
+proves a process exists. These runs used the Mac instead: headless Mesen2-OOS
+(`scripts/Mesen2/mesen2_launch_instance.sh --headless`, `oos168x.sfc`,
+crc32 `1C588C1D`), LM Studio on the Mac with the same Q4_K_M GGUFs copied from
+Windows, and the wrapper's defaults (context 12288, parallel 1, row timeout 240).
+
+Harness fix applied first: z3ed nightly rejects `$`-prefixed hex
+(`Invalid hex value for '--address': $02A3B0`). `Z3edBridge._format_value` now
+rewrites `$HEX` to `0xHEX` (test: `test_format_value_converts_snes_hex_to_0x`).
+
+| Model | Result | Tool errors | Report |
+|---|---|---|---|
+| `oracle-9b-router` (v5 nothink) | **1/8** | 0 | `oracle_9b_router_hard_mac_mesen_hexfix_20260914.jsonl` |
+| `oracle` (qwen3-oracle-14b-v8) | **4/8** | 0 | `oracle_14b_v8_hard_mac_mesen_hexfix_20260914.jsonl` |
+
+Known scorer mismatch: `ozh_live_rom_read_exact_hook_01` checks the tool result
+against `(?:\b[0-9A-Fa-f]{2}\b[ ,:;|-]*){4,}`, but z3ed nightly returns bytes as a
+JSON array (`"AD",\n "09", ...`), so that check fails for both models even with
+correct bytes (`AD 09 06 18 65 00`). Adjusted for that row: v5 2/8, 14B 5/8.
+
+Remaining model failures:
+- v5: empty finals on both ASAR rows, truncated template finals
+  ("...so I should"), guard-prompt text echoed as the answer, stops after
+  `label_lookup` without the required `grep_disasm`.
+- 14B v8: no ASM emitted for `ozh_asar_clear_long_wram_01` (no tools called),
+  final-pattern misses on the two disasm-evidence rows.
