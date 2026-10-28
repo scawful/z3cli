@@ -19,6 +19,7 @@ The bridge does three important things beyond "shell out":
 from __future__ import annotations
 
 import asyncio
+import copy
 import os
 import re
 import shutil
@@ -36,6 +37,32 @@ DEFAULT_BOOTSTRAP_TIMEOUT_S = 60.0
 
 
 _ANSI_ESCAPE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
+_UNSAVED_WRITE_COMMANDS = frozenset({"rom-write", "hex-write"})
+# z3ed reads these at PC file offsets, while rom-resolve-address takes SNES addresses.
+_PC_OFFSET_COMMANDS = frozenset({"rom-read", "hex-read"})
+_SYMBOL_COMMANDS = frozenset({"rom-resolve-address", "rom-find-symbol"})
+_BANK_COLON_ADDRESS = re.compile(r"^\$?([0-9A-Fa-f]{1,2}):([0-9A-Fa-f]{4})$")
+# The schema types these as integers, but z3ed parses the text as hex (--room=40 is room 0x40),
+# so JSON integers must be sent 0x-prefixed.
+_HEX_PARSED_INT_FLAGS = frozenset({"room"})
+_PC_OFFSET_NOTE = (
+    " `address` is a PC file offset (0x7FC0 is SNES $00:FFC0). For a 65816/SNES "
+    "address pass `snes_address` instead ('$07:D151' or '$07D151'); it is mapped LoROM."
+)
+
+
+def lorom_snes_to_pc(text: str) -> int:
+    """'$07:D151' / '$07D151' / '0x07D151' -> PC offset. Raises ValueError off-ROM."""
+    cleaned = text.strip()
+    match = _BANK_COLON_ADDRESS.match(cleaned)
+    if match:
+        value = (int(match.group(1), 16) << 16) | int(match.group(2), 16)
+    else:
+        value = int(re.sub(r"^(\$|0x)", "", cleaned, flags=re.IGNORECASE), 16)
+    bank, offset = (value >> 16) & 0xFF, value & 0xFFFF
+    if bank in (0x7E, 0x7F) or offset < 0x8000:
+        raise ValueError(f"{text} is not a LoROM ROM address (WRAM/IO/low half of bank)")
+    return ((bank & 0x7F) << 15) | (offset & 0x7FFF)
 
 
 def _strip_ansi(text: str) -> str:
@@ -124,7 +151,31 @@ class Z3edBridge:
         return list(self._warnings)
 
     def get_openai_tools(self) -> list[dict]:
-        return [tool.openai_schema for tool in self._tools.values()]
+        schemas = []
+        for tool in self._tools.values():
+            schema = tool.openai_schema
+            if tool.z3ed_name in _PC_OFFSET_COMMANDS:
+                schema = copy.deepcopy(schema)
+                function = schema["function"]
+                function["description"] = function.get("description", "") + _PC_OFFSET_NOTE
+                params = function.setdefault("parameters", {"type": "object", "properties": {}})
+                params.setdefault("properties", {})["snes_address"] = {
+                    "type": "string",
+                    "description": "SNES CPU address in a ROM bank; converted to the PC offset.",
+                }
+                params["required"] = [r for r in params.get("required", []) if r != "address"]
+            hex_ints = _HEX_PARSED_INT_FLAGS & {p.name for p in tool.params}
+            if hex_ints:
+                schema = copy.deepcopy(schema)
+                props = schema["function"].get("parameters", {}).get("properties", {})
+                for name in hex_ints:
+                    if name in props:
+                        props[name]["description"] = (
+                            "Integer (decimal, e.g. 40) or hex string (\"0x28\", \"$28\"); "
+                            "a bare string like \"28\" is read as hex."
+                        )
+            schemas.append(schema)
+        return schemas
 
     def get_tool_server(self, tool_name: str) -> str:
         return SERVER_NAME if tool_name in self._tools else "unknown"
@@ -167,11 +218,21 @@ class Z3edBridge:
         # require RomProject to have found one. Returning a clear error here
         # beats letting z3ed exit with an opaque "socket failed" message.
         if tool.z3ed_name.startswith("mesen-"):
-            supplied_socket = arguments.get("mesen_socket") or arguments.get("mesen-socket")
+            # Match keys the way _build_argv renders them, so "_mesen_socket" can't dodge the guard.
+            supplied_socket = next(
+                (v for k, v in arguments.items() if self._to_snake(k) == "mesen_socket" and v),
+                None,
+            )
             if not supplied_socket:
                 bootstrap_error = await self._ensure_mesen_socket()
                 if bootstrap_error:
                     return bootstrap_error
+
+        note = ""
+        if tool.z3ed_name in _PC_OFFSET_COMMANDS:
+            arguments, note = self._map_snes_address(arguments)
+            if note.startswith("Error"):
+                return note
 
         argv = self._build_argv(tool, arguments, executable)
         try:
@@ -197,7 +258,43 @@ class Z3edBridge:
         out = stdout.strip()
         if stderr:
             out = f"{out}\n[stderr] {stderr}" if out else f"[stderr] {stderr}"
-        return out or "(no output)"
+        out = out or "(no output)"
+        # Builds with the guarded writer report save_status; the unsaved ones only bytes_written.
+        if (
+            tool.z3ed_name in _UNSAVED_WRITE_COMMANDS
+            and '"bytes_written"' in out
+            and '"save_status"' not in out
+        ):
+            out += (
+                f"\n[z3cli] z3ed {tool.z3ed_name} has reported success without saving the ROM "
+                "(yaze 0.8.0). Re-read the bytes (hex-read) or compare file hashes before "
+                "claiming the write landed."
+            )
+        if tool.z3ed_name == "rom-find-symbol" and '"not_found"' in out:
+            name = str(arguments.get("name", ""))
+            if name and not name.startswith("Oracle_"):
+                out += (
+                    "\n[z3cli] Symbols from asar namespaces carry their prefix in the .mlb; "
+                    f"try name=Oracle_{name}."
+                )
+        return f"{note}\n{out}" if note else out
+
+    @staticmethod
+    def _map_snes_address(arguments: dict[str, Any]) -> tuple[dict[str, Any], str]:
+        """Turn ``snes_address`` (or a ``BB:AAAA`` address) into a PC ``address``."""
+        arguments = dict(arguments)
+        snes = arguments.pop("snes_address", None)
+        address = arguments.get("address")
+        if snes is None and isinstance(address, str) and _BANK_COLON_ADDRESS.match(address.strip()):
+            snes = address
+        if snes is None:
+            return arguments, ""
+        try:
+            pc = lorom_snes_to_pc(str(snes))
+        except ValueError as exc:
+            return arguments, f"Error: {exc}"
+        arguments["address"] = f"0x{pc:06X}"
+        return arguments, f"[z3cli] SNES {snes} -> PC 0x{pc:06X} (LoROM)"
 
     def _build_argv(
         self,
@@ -207,6 +304,11 @@ class Z3edBridge:
     ) -> list[str]:
         argv: list[str] = [str(executable), tool.z3ed_name]
 
+        # Only flags the command declares; anything else could smuggle in
+        # undeclared mutators (--overwrite, --fix) past the write classification.
+        declared = {self._to_snake(p.name) for p in tool.params}
+        arguments = {k: v for k, v in arguments.items() if self._to_snake(k) in declared}
+
         # Auto-inject --rom for rom-dependent commands if not user-specified.
         supplied_names = {self._to_snake(k) for k in arguments.keys()}
         has_rom_arg = "rom" in supplied_names
@@ -215,6 +317,10 @@ class Z3edBridge:
 
         if tool.requires_rom and not has_rom_arg and self._project.rom_path:
             argv.append(f"--rom={self._project.rom_path}")
+
+        # --symbols is a z3ed global flag, so it never appears in the declared params.
+        if tool.z3ed_name in _SYMBOL_COMMANDS and self._project.symbols_mlb:
+            argv.append(f"--symbols={self._project.symbols_mlb}")
 
         if (
             tool.z3ed_name.startswith("mesen-")
@@ -242,6 +348,8 @@ class Z3edBridge:
                 continue
             if value is None:
                 continue
+            if snake in _HEX_PARSED_INT_FLAGS and isinstance(value, int):
+                value = f"0x{value:X}"
             argv.append(f"{flag}={self._format_value(value)}")
         return argv
 

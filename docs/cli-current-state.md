@@ -140,7 +140,8 @@ Model notes:
 - `oracle-coder` remains internal and spawn-only. It should appear only in
   delegation surfaces or bench/internal catalog views, not as part of the main
   Oracle surface.
-- The intended local host is now `medical-mechanica` WSL2 + RTX `5090`; Mac is
+- The intended local host is now `medical-mechanica` (native Windows, no WSL)
+  + RTX `5090`, with LM Studio on the tailnet at `http://medical-mechanica:1234`; Mac is
   the control plane/fallback machine, and Vast is the fallback when the shared
   desktop cannot spare the GPU.
 - The preferred studio control path for that host is now `afs-hostd`: set
@@ -160,9 +161,8 @@ Model notes:
 - `/route list` intentionally shows only canonical operator routes. Raw registry
   nodes, legacy aliases, and model fallback targets are available with
   `/route list advanced` or `python3 -m z3cli route list advanced`.
-- The same host daemon now exposes WSL runtime status and start/stop control
-  for training and `vllm`, so the Windows-side training controller can use the
-  same local tunnel instead of a second SSH + PowerShell control path.
+- The host daemon's WSL runtime and `vllm` controls are obsolete:
+  `medical-mechanica` no longer runs WSL, so the vLLM sidecars are dormant.
 - The older `Z3CLI_LMSTUDIO_REMOTE_HOST=medical-mechanica` path still exists as
   a fallback when the daemon is not running, but it is no longer the preferred
   control-plane shape.

@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
+from protocol.asar_namespace import namespace_note, strip_namespace
+
 
 DEFAULT_Z3DK_ROOT = Path.home() / "src/hobby/z3dk"
 
@@ -922,6 +924,11 @@ class Z3LspBridge:
                     return self._format_document_symbols(path, symbols, query)
                 result = await self._request("workspace/symbol", {"query": query})
                 symbols = result if isinstance(result, list) else []
+                stripped = strip_namespace(query, self.workspace) if not symbols else None
+                if stripped:
+                    result = await self._request("workspace/symbol", {"query": stripped})
+                    symbols = result if isinstance(result, list) else []
+                    return namespace_note(query, stripped) + "\n" + self._format_workspace_symbols(symbols)
                 return self._format_workspace_symbols(symbols)
 
             if name == "z3lsp_references":

@@ -199,6 +199,7 @@ class DoneParams(TypedDict):
     cache_read_tokens: NotRequired[int]
     request_id: NotRequired[str]
     end_status: NotRequired[str]
+    stop_reason: NotRequired[str]
 
 
 class ReadyModelInfo(TypedDict):
@@ -596,6 +597,7 @@ def done_params(
     cache_read_tokens: int | None = None,
     request_id: str | None = None,
     end_status: str | None = None,
+    stop_reason: str | None = None,
 ) -> DoneParams:
     payload: DoneParams = {
         "prompt_tokens": prompt_tokens,
@@ -610,6 +612,8 @@ def done_params(
         payload["request_id"] = request_id
     if end_status:
         payload["end_status"] = end_status
+    if stop_reason:
+        payload["stop_reason"] = stop_reason
     return payload
 
 

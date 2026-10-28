@@ -12,6 +12,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from protocol.asar_namespace import namespace_note, strip_namespace
+
 
 SERVER_NAME = "asm-symbols"
 _SEARCH_EXTENSIONS = {".asm", ".inc", ".s", ".wla", ".mlb", ".sym", ".md", ".txt"}
@@ -101,9 +103,14 @@ class AsmSymbolBridge:
         file_path = _normalise_query(arguments.get("file_path") or arguments.get("path"))
         hits = self._search(query, file_path=file_path)
         title = "Symbols" if name == "z3lsp_symbols" else "References"
+        note = ""
+        stripped = strip_namespace(query, self.workspace) if not hits else None
+        if stripped:
+            hits = self._search(stripped, file_path=file_path)
+            note, query = namespace_note(query, stripped), stripped
         if not hits:
             return f"## {title}\nNo matches for {query!r} under {self.workspace}."
-        lines = [f"## {title} for {query}"]
+        lines = [f"## {title} for {query}"] + ([note] if note else [])
         lines.extend(hits)
         return "\n".join(lines)
 

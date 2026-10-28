@@ -61,12 +61,24 @@ class ErrorEvent:
 
 @dataclass
 class DoneEvent:
-    """Response complete."""
+    """Response complete.
+
+    ``stop_reason`` is ``complete`` only for a clean turn. Other values:
+    ``cancelled``, ``denied`` (a tool call was refused), ``length``
+    (provider truncated the answer), ``empty`` (no visible answer), and
+    ``max_rounds``.
+    """
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
     cache_creation_tokens: int = 0
     cache_read_tokens: int = 0
+    stop_reason: str = "complete"
+    denied_tool_calls: int = 0
+
+    @property
+    def ok(self) -> bool:
+        return self.stop_reason == "complete"
 
 @dataclass
 class CompactionEvent:
@@ -102,6 +114,10 @@ class _ChatState:
     done: bool = False
     last_tool_round_grounded: bool = False
     answer_round_retried: bool = False
+    stop_reason: str = ""
+    halt: bool = False
+    denied_tool_calls: int = 0
+    denied_signatures: set[tuple[str, str]] = field(default_factory=set)
 
 
 @dataclass
@@ -111,11 +127,37 @@ class _RoundOutput:
     content: str = ""
     thinking_content: str = ""
     tool_calls: list[dict] = field(default_factory=list)
+    finish_reason: str = ""
 
 
 # ---------------------------------------------------------------------------
 # Thinking block parser (for local models that use XML <think> blocks)
 # ---------------------------------------------------------------------------
+
+def _assistant_message(content: str | None, reasoning: str = "") -> dict:
+    message: dict = {"role": "assistant", "content": content}
+    if reasoning:
+        message["reasoning_content"] = reasoning
+    return message
+
+
+def _classify_reasoning_stream(buffered: str) -> str | None:
+    """Decide how a round's ``reasoning_content`` stream is shaped.
+
+    Some LM Studio builds route the whole completion, ``<think>`` tags and the
+    answer included, through ``reasoning_content`` ("tagged"); LM Studio and
+    llama-server otherwise send only the untagged reasoning ("separate"), which
+    must never reach visible text or tool-call parsing. ``None`` = undecided yet.
+    """
+    head = buffered.lstrip()
+    if not head:
+        return None
+    if head.startswith(_ThinkingParser._OPEN):
+        return "tagged"
+    if _ThinkingParser._OPEN.startswith(head):
+        return None
+    return "separate"
+
 
 class _ThinkingParser:
     """State machine that splits streaming content into thinking vs text.
@@ -283,6 +325,18 @@ _XML_ADDRESS_ATTR_RE = re.compile(r"<address\s*=\s*\"([^\"]+)\"", re.DOTALL)
 def _strip_think_blocks(text: str) -> str:
     """Remove ``<think>...</think>`` blocks from text for history storage."""
     return _THINK_RE.sub("", text).lstrip()
+
+
+def _strip_think_for_tool_parsing(text: str) -> str:
+    """Drop closed and trailing unclosed ``<think>`` blocks.
+
+    Tool calls the model only deliberated about must not execute.
+    """
+    stripped = _THINK_RE.sub("", text)
+    open_idx = stripped.find("<think>")
+    if open_idx != -1:
+        stripped = stripped[:open_idx]
+    return stripped
 
 
 def _repair_tool_call_jsonish(raw: str) -> str:
@@ -938,6 +992,8 @@ def _tool_result_is_grounding_success(tool_name: str, result: str) -> bool:
         return False
     if lowered.startswith("unknown register"):
         return False
+    if lowered.startswith("mesen2 unavailable"):
+        return False
     if "[tool execution error]" in lowered:
         return False
     if "timed out" in lowered:
@@ -1165,6 +1221,7 @@ class ChatEngine:
         max_tool_result: int = 0,
         prompt_cache: bool = True,
         disable_reasoning_prefill: bool = False,
+        keep_reasoning: bool = True,
         answer_after_first_grounding: bool = False,
         answer_after_grounding_system: str = "",
         allow_manual_tool_calls: bool | None = None,
@@ -1177,8 +1234,13 @@ class ChatEngine:
         When *thinking* is True, ``<think>...</think>`` blocks in the
         response are parsed and emitted as :class:`ThinkingEvent` instead
         of :class:`TextEvent`.  If *strip_thinking* is also True (the
-        default), thinking content is removed from the message stored in
-        conversation history to save context window.
+        default), ``<think>`` blocks are removed from the stored message
+        content.
+
+        When *keep_reasoning* is True (the default), the round's reasoning is
+        stored on the assistant history message as ``reasoning_content`` and
+        sent back on later rounds; Qwen3.8's template renders it as the
+        ``<think>`` block of that turn, matching how the agent is trained.
 
         When *max_tool_result* > 0, tool results longer than that many
         characters are truncated before being stored in conversation
@@ -1230,10 +1292,14 @@ class ChatEngine:
             history_content = output.content
             if thinking and strip_thinking and output.thinking_content:
                 history_content = _strip_think_blocks(output.content)
+            history_reasoning = (
+                output.thinking_content.strip()
+                if keep_reasoning and not disable_reasoning_prefill else ""
+            )
 
             if state.cancelled:
                 if output.content.strip():
-                    self.messages.append({"role": "assistant", "content": history_content})
+                    self.messages.append(_assistant_message(history_content, history_reasoning))
                 yield self._build_done_event(state)
                 return
 
@@ -1241,7 +1307,9 @@ class ChatEngine:
             # reasoning content rather than in the tool_calls delta.
             tool_calls = output.tool_calls if allow_tool_execution else []
             if allow_tool_execution and not tool_calls and output.content:
-                xml_calls = _extract_xml_tool_calls(output.content)
+                xml_calls = _extract_xml_tool_calls(
+                    _strip_think_for_tool_parsing(output.content),
+                )
                 if xml_calls:
                     tool_calls = xml_calls
 
@@ -1266,7 +1334,11 @@ class ChatEngine:
                     if fallback:
                         history_content = fallback
                         yield TextEvent(fallback)
-                self.messages.append({"role": "assistant", "content": history_content})
+                if output.finish_reason in ("length", "max_tokens"):
+                    state.stop_reason = "length"
+                elif not _strip_think_for_tool_parsing(history_content).strip():
+                    state.stop_reason = "empty"
+                self.messages.append(_assistant_message(history_content, history_reasoning))
                 yield self._build_done_event(state)
                 return
 
@@ -1274,6 +1346,7 @@ class ChatEngine:
                 round_idx=round_idx,
                 tool_calls=tool_calls,
                 history_content=history_content,
+                history_reasoning=history_reasoning,
                 max_tool_result=max_tool_result,
                 state=state,
             ):
@@ -1281,7 +1354,7 @@ class ChatEngine:
 
             if state.done:
                 return
-            if state.cancelled:
+            if state.cancelled or state.halt:
                 yield self._build_done_event(state)
                 return
 
@@ -1293,6 +1366,7 @@ class ChatEngine:
             # Loop continues — model will see tool results in the next round.
 
         yield ErrorEvent(f"Exceeded {max_rounds} tool-calling rounds")
+        state.stop_reason = "max_rounds"
         yield self._build_done_event(state)
 
     # -- orchestration helpers --------------------------------------------
@@ -1408,7 +1482,10 @@ class ChatEngine:
             output.content = ""
             output.thinking_content = ""
             output.tool_calls = []
+            output.finish_reason = ""
             parser = _ThinkingParser() if use_xml_thinking else None
+            reasoning_mode: str | None = None
+            reasoning_pending = ""
             local_cancelled = False
             saw_stream_output = False
             try:
@@ -1424,16 +1501,28 @@ class ChatEngine:
                         state.total_cache_creation += chunk.usage.cache_creation_tokens
                         state.total_cache_read += chunk.usage.cache_read_tokens
 
+                    if chunk.stop_reason:
+                        output.finish_reason = chunk.stop_reason
+
                     if chunk.content:
                         # Native thinking (Anthropic)
                         if chunk.content.thinking:
                             output.thinking_content += chunk.content.thinking
                             yield ThinkingEvent(chunk.content.thinking)
 
-                        # Reasoning content (Qwen3 via LM Studio)
+                        # Reasoning content (Qwen3 via LM Studio / llama-server)
                         if chunk.content.reasoning:
                             raw = chunk.content.reasoning
-                            if disable_reasoning_prefill:
+                            if not disable_reasoning_prefill and reasoning_mode is None:
+                                reasoning_pending += raw
+                                reasoning_mode = _classify_reasoning_stream(reasoning_pending)
+                                if reasoning_mode is None:
+                                    raw = ""
+                                else:
+                                    raw, reasoning_pending = reasoning_pending, ""
+                            if not raw:
+                                pass
+                            elif disable_reasoning_prefill or reasoning_mode == "separate":
                                 output.thinking_content += raw
                                 if thinking:
                                     yield ThinkingEvent(raw)
@@ -1469,6 +1558,10 @@ class ChatEngine:
                                 "arguments": tc.arguments,
                             })
 
+                if reasoning_pending.strip() and not local_cancelled:
+                    output.thinking_content += reasoning_pending
+                    if thinking:
+                        yield ThinkingEvent(reasoning_pending)
                 if parser is not None and not local_cancelled:
                     for evt in parser.flush():
                         if isinstance(evt, ThinkingEvent):
@@ -1513,8 +1606,15 @@ class ChatEngine:
             except (httpx.StreamClosed, httpx.StreamError, httpx.ReadError):
                 # Cancellation closes an active stream. A stream drop
                 # before first bytes can still be retried.
-                if self._cancel_event.is_set() or saw_stream_output:
+                if self._cancel_event.is_set():
                     state.cancelled = True
+                    return
+                if saw_stream_output:
+                    self.provider_error_count += 1
+                    state.done = True
+                    yield ErrorEvent(
+                        f"Model stream disconnected mid-response ({self._provider.name})"
+                    )
                     return
                 can_retry = attempt < self.provider_max_retries
                 if can_retry:
@@ -1541,6 +1641,7 @@ class ChatEngine:
         history_content: str,
         max_tool_result: int,
         state: _ChatState,
+        history_reasoning: str = "",
     ) -> AsyncGenerator[ChatEvent, None]:
         """Append the assistant tool_calls record and execute each tool.
 
@@ -1567,8 +1668,7 @@ class ChatEngine:
             })
 
         self.messages.append({
-            "role": "assistant",
-            "content": history_content or None,
+            **_assistant_message(history_content or None, history_reasoning),
             "tool_calls": tc_list,
         })
 
@@ -1589,8 +1689,16 @@ class ChatEngine:
             server = bridge.get_tool_server(tc["name"]) if bridge else "?"
             yield ToolCallEvent(tc["name"], tc["arguments"], server, tc_id)
 
-            if not await self._gate_with_permission(tc, server, tc_id):
-                # Permission hook denied (or timed out → default-deny).
+            signature = (str(tc["name"]), str(tc["arguments"] or ""))
+            repeated_denial = signature in state.denied_signatures
+            if repeated_denial or not await self._gate_with_permission(tc, server, tc_id):
+                # Permission hook denied (or timed out → default-deny). A
+                # retry of an already-denied call is refused without
+                # re-prompting and ends the turn after this round.
+                state.denied_tool_calls += 1
+                state.denied_signatures.add(signature)
+                if repeated_denial:
+                    state.halt = True
                 denial = "[Tool call denied by user]"
                 self.messages.append({
                     "role": "tool",
@@ -1777,12 +1885,22 @@ class ChatEngine:
         return _ToolRunResult(output=output, duration_ms=duration_ms), status, exc, local_cancelled
 
     def _build_done_event(self, state: _ChatState) -> "DoneEvent":
+        if state.cancelled:
+            stop_reason = "cancelled"
+        elif state.stop_reason:
+            stop_reason = state.stop_reason
+        elif state.denied_tool_calls:
+            stop_reason = "denied"
+        else:
+            stop_reason = "complete"
         return DoneEvent(
             prompt_tokens=state.total_prompt_tokens,
             completion_tokens=state.total_completion_tokens,
             total_tokens=state.total_prompt_tokens + state.total_completion_tokens,
             cache_creation_tokens=state.total_cache_creation,
             cache_read_tokens=state.total_cache_read,
+            stop_reason=stop_reason,
+            denied_tool_calls=state.denied_tool_calls,
         )
 
     async def close(self):

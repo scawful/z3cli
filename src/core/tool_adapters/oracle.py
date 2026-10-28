@@ -160,6 +160,25 @@ class OracleAdapter(ToolAdapter):
                 },
             ),
             AdapterTool(
+                name="vanilla_lookup",
+                description=(
+                    "Look up vanilla ALTTP code in the usdasm disassembly by SNES "
+                    "address ('$07:D151') or name ('TileDetect_MainHandler', 'MODE'). "
+                    "Returns the instruction, enclosing routine, and source lines. "
+                    "Use for the vanilla side of a hook."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "SNES address or vanilla label/define name.",
+                        },
+                    },
+                    "required": ["query"],
+                },
+            ),
+            AdapterTool(
                 name="rom_read",
                 description=(
                     "Read raw bytes from the running Mesen process at a CPU address. "
@@ -280,11 +299,21 @@ class OracleAdapter(ToolAdapter):
             query = _first_non_empty(
                 arguments, "query", "pattern", "symbol", "target", "text", "value"
             )
+            # z3lsp_references is position-based (file/line/column), so text
+            # search stands in for "every site that mentions this symbol".
             symbols, references = await self._call_many_on([
                 ("symbols", "z3lsp_symbols", {"query": query}),
-                ("symbols", "z3lsp_references", {"symbol": query}),
+                ("asm_reference", "asm_grep", {"query": query, "scope": "both"}),
             ])
             return f"## Symbols\n{symbols}\n\n## References\n{references}"
+
+        if name == "vanilla_lookup":
+            query = _first_non_empty(
+                arguments, "query", "address", "symbol", "name", "value"
+            )
+            return await self._call_on(
+                "asm_reference", "vanilla_lookup", {"query": query}
+            )
 
         if name == "rom_read":
             address = _first_non_empty(arguments, "address", "addr", "value")

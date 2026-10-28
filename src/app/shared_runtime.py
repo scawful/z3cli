@@ -675,8 +675,6 @@ def session_metrics_patch(state: Any) -> dict[str, Any]:
         payload["orchestrator_model"] = state.orchestrator_model
     if hasattr(state, "lsp_context_mode"):
         payload["lsp_context_mode"] = state_lsp_context_mode(state)
-    if hasattr(state, "permission_rules"):
-        payload["permission_rules"] = state_permission_rules(state)
     if hasattr(state, "cancel_count"):
         payload["cancel_count"] = state.cancel_count
     if hasattr(state, "backend_restart_count"):
@@ -988,13 +986,10 @@ def restore_runtime_state(state: Any, meta: dict[str, Any]) -> list[str]:
                 )
             except RuntimeError:
                 warnings.append(f"Unknown orchestrator model in session: {requested_orchestrator}")
-    rules = meta.get("permission_rules")
-    if isinstance(rules, dict) and hasattr(state, "permission_rules"):
-        state.permission_rules = {
-            str(key): bool(value)
-            for key, value in rules.items()
-        }
-    elif hasattr(state, "permission_rules"):
+    # Tool approvals are process-local and keyed by tool name only, so a
+    # resumed session (possibly with older files that persisted them) must
+    # start with none.
+    if hasattr(state, "permission_rules"):
         state.permission_rules = {}
 
     focus_value = str(meta.get("focus_path", "") or "").strip()

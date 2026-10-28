@@ -165,8 +165,13 @@ class Z3asmBridge:
 
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
+            if lint_only:
+                # z3asm writes the ROM argument whenever assembly succeeds.
+                lint_rom = tmp_path / f"lint{rom_p.suffix or '.sfc'}"
+                shutil.copyfile(rom_p, lint_rom)
+                rom_p = lint_rom
             emit_flags, emitted_paths, emit_summary = _build_emit_flags(
-                arguments, lint_only=lint_only, tmp_path=tmp_path,
+                arguments, lint_only=lint_only, tmp_path=tmp_path, confine=self._confine,
             )
             if isinstance(emit_flags, str):
                 return emit_flags
@@ -216,7 +221,10 @@ class Z3asmBridge:
             return "Error: 'bank_start' is required"
         out_dir = arguments.get("out_dir")
         if out_dir:
-            out_path = Path(str(out_dir)).expanduser()
+            try:
+                out_path = self._confine(out_dir)
+            except ValueError as exc:
+                return f"Error: {exc}"
             out_path.mkdir(parents=True, exist_ok=True)
         else:
             # Persist outputs so subsequent z3disasm_read_output can see them.
@@ -230,12 +238,16 @@ class Z3asmBridge:
             "--bank-start", str(bank_start),
             "--bank-end", str(bank_end),
         ]
-        labels = arguments.get("labels") or (str(self._project.symbols_mlb) if self._project.symbols_mlb else "")
+        try:
+            labels = (str(self._confine(arguments["labels"])) if arguments.get("labels")
+                      else str(self._project.symbols_mlb) if self._project.symbols_mlb else "")
+            hooks = str(self._confine(arguments["hooks"])) if arguments.get("hooks") else ""
+        except ValueError as exc:
+            return f"Error: {exc}"
         if labels:
             argv.extend(["--labels", labels])
-        hooks = arguments.get("hooks")
         if hooks:
-            argv.extend(["--hooks", str(hooks)])
+            argv.extend(["--hooks", hooks])
         result = await _run_subprocess(argv, timeout=self._timeout_s)
         if result.startswith("Error"):
             return result
@@ -265,11 +277,25 @@ class Z3asmBridge:
         path_arg = arguments.get("path")
         if not path_arg:
             return "Error: 'path' is required"
-        p = Path(str(path_arg)).expanduser()
+        try:
+            p = self._confine(path_arg)
+        except ValueError as exc:
+            return f"Error: {exc}"
         if not p.exists():
             return f"Error: file not found: {p}"
         lines = int(arguments.get("lines", 200) or 200)
         return _read_head(p, lines)
+
+    def _confine(self, raw: Any) -> Path:
+        """Resolve a model-supplied path; only the project workspace and the temp dir are allowed."""
+        path = Path(str(raw)).expanduser()
+        if not path.is_absolute():
+            path = Path(self._project.workspace) / path
+        resolved = path.resolve()
+        roots = [Path(self._project.workspace).resolve(), Path(tempfile.gettempdir()).resolve()]
+        if not any(resolved.is_relative_to(root) for root in roots):
+            raise ValueError(f"path is outside the workspace and temp dir: {resolved}")
+        return resolved
 
 
 def _build_emit_flags(
@@ -277,6 +303,7 @@ def _build_emit_flags(
     *,
     lint_only: bool,
     tmp_path: Path,
+    confine: Any = None,
 ) -> tuple[list[str] | str, dict[str, Path], list[str]]:
     raw_targets = arguments.get("emit_targets")
     if raw_targets is None:
@@ -304,7 +331,10 @@ def _build_emit_flags(
     emitted_paths: dict[str, Path] = {}
     emit_summary: list[str] = []
     for target in targets:
-        emit_arg, basename, path = _resolve_emit_target(target, tmp_path)
+        try:
+            emit_arg, basename, path = _resolve_emit_target(target, tmp_path, confine)
+        except ValueError as exc:
+            return f"Error: {exc}", {}, []
         emit_flags.append(f"--emit={emit_arg}")
         emit_summary.append(target)
         if basename and path is not None:
@@ -312,7 +342,9 @@ def _build_emit_flags(
     return emit_flags, emitted_paths, emit_summary
 
 
-def _resolve_emit_target(target: str, tmp_path: Path) -> tuple[str, str | None, Path | None]:
+def _resolve_emit_target(
+    target: str, tmp_path: Path, confine: Any = None,
+) -> tuple[str, str | None, Path | None]:
     text = target.strip()
     lower = text.lower()
     mapped = _SIMPLE_EMIT_TARGETS.get(lower)
@@ -322,7 +354,7 @@ def _resolve_emit_target(target: str, tmp_path: Path) -> tuple[str, str | None, 
         return f"{kind}:{path}", basename, path
     if ":" in text:
         kind, raw_path = text.split(":", 1)
-        path = Path(raw_path).expanduser()
+        path = confine(raw_path) if confine else Path(raw_path).expanduser()
         basename = path.name if path.name in _JSON_ARTIFACT_BASENAMES else None
         if path.name == "symbols.mlb":
             basename = "symbols.mlb"

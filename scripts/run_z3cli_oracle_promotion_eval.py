@@ -51,6 +51,7 @@ class ObservedResponse:
     final_text: str = ""
     thinking: str = ""
     end_status: str = ""
+    stop_reason: str = ""
     errors: list[str] = field(default_factory=list)
 
 
@@ -254,7 +255,11 @@ def score_response(row: dict[str, Any], observed: ObservedResponse) -> dict[str,
         checks.append(entry)
 
     end_status = observed.end_status or "unknown"
-    add_check("request_succeeded", end_status in {"success", "unknown"}, end_status)
+    add_check(
+        "request_succeeded",
+        end_status in {"success", "unknown"} and not observed.stop_reason,
+        f"{end_status} ({observed.stop_reason})" if observed.stop_reason else end_status,
+    )
 
     if bool(expect.get("tool_required", False)):
         add_check("tool_required", bool(calls), call_names)
@@ -356,6 +361,7 @@ def score_response(row: dict[str, Any], observed: ObservedResponse) -> dict[str,
         "tool_call_count": len(calls),
         "request_id": observed.request_id,
         "end_status": observed.end_status,
+        "stop_reason": observed.stop_reason,
         "final_text_preview": observed.final_text[:240],
     }
 
@@ -708,6 +714,7 @@ async def run_live_eval(
                     observed.errors.append(str(params.get("message") or "unknown error"))
                 elif method == "done":
                     observed.end_status = str(params.get("end_status") or "success")
+                    observed.stop_reason = str(params.get("stop_reason") or "")
                     break
             result = score_response(row, observed)
             result["observed"] = observed.__dict__

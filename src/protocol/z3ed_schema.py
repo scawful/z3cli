@@ -31,15 +31,20 @@ from typing import Any
 
 # A backslash followed by a character that is NOT a valid JSON escape
 # sequence (", b, f, n, r, t, /, \, or u) is illegal in a JSON string.
-# z3ed has been observed to emit ``Application\ Support`` literally —
-# doubling the backslash preserves the intended text and lets json.loads
-# succeed.
-_BAD_ESCAPE = re.compile(r'\\(?![\"bfnrtu/\\])')
+# Older z3ed builds emit ``Application\ Support`` literally — doubling the
+# backslash preserves the intended text and lets json.loads succeed.
+# Escapes are consumed pairwise so an already-valid ``\\`` stays intact
+# (z3ed 0.8.0 emits ``Application\\ Support`` correctly).
+_ESCAPE = re.compile(r'\\(.?)', re.DOTALL)
+_VALID_ESCAPE_CHARS = frozenset('"\\/bfnrtu')
 
 
 def repair_z3ed_json(raw: str) -> str:
     """Best-effort fix for known malformed backslash escapes."""
-    return _BAD_ESCAPE.sub(r"\\\\", raw)
+    return _ESCAPE.sub(
+        lambda m: m.group(0) if m.group(1) and m.group(1) in _VALID_ESCAPE_CHARS else "\\\\" + m.group(1),
+        raw,
+    )
 
 
 # --- Command filters ----------------------------------------------------------
@@ -182,6 +187,9 @@ def parse_usage(usage: str) -> list[Parameter]:
 # --- OpenAI tool schema -------------------------------------------------------
 
 _DESCRIPTION_LIMIT = 600
+# Mutators with no --write flag and no write-like name token. dungeon-set-room-property saves the
+# ROM directly (z3ed 0.8.0); palette-set-color is a dry-run preview today but is named as a mutator.
+_SAVES_WITHOUT_WRITE_FLAG = frozenset({"dungeon-set-room-property", "palette-set-color"})
 
 
 def _openai_tool_name(kebab_name: str) -> str:
@@ -224,6 +232,8 @@ class TranslatedTool:
                 return True
         # Always-writes commands.
         hits = ("-write", "-patch", "-import", "-hook", "rom-patch")
+        if lowered in _SAVES_WITHOUT_WRITE_FLAG:
+            return True
         return any(tok in lowered for tok in hits) or lowered.startswith("mesen-memory-write")
 
 
@@ -272,13 +282,15 @@ def load_schemas(raw: str) -> tuple[list[TranslatedTool], list[str]]:
     commands, skipped commands, repair notifications).
     """
     warnings: list[str] = []
-    repaired = repair_z3ed_json(raw)
-    if repaired != raw:
-        warnings.append("z3ed schema: repaired malformed JSON escape(s).")
     try:
-        payload = json.loads(repaired)
-    except json.JSONDecodeError as exc:
-        return [], [f"z3ed schema: JSON parse failed: {exc}"]
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        repaired = repair_z3ed_json(raw)
+        try:
+            payload = json.loads(repaired)
+        except json.JSONDecodeError as exc:
+            return [], [f"z3ed schema: JSON parse failed: {exc}"]
+        warnings.append("z3ed schema: repaired malformed JSON escape(s).")
 
     commands: list[dict[str, Any]]
     if isinstance(payload, dict) and isinstance(payload.get("commands"), list):

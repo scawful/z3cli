@@ -38,6 +38,31 @@ class LocalProviderCompleteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(messages[1], {"role": "user", "content": "Reply exactly: z3cli smoke ok"})
         self.assertEqual(messages[2], {"role": "assistant", "content": "<think>\n\n</think>\n\n"})
 
+    async def _stream_body(self, disable_reasoning_prefill: bool) -> dict:
+        captured: dict = {}
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            captured.update(json.loads(request.content.decode()))
+            return httpx.Response(200, text="data: [DONE]\n\n")
+
+        provider = LocalProvider("http://127.0.0.1:1234/v1")
+        _attach_mock(provider, _mock_transport(respond))
+        request = CompletionRequest(
+            model_id="oracle-9b-router",
+            messages=[{"role": "user", "content": "hi"}],
+            disable_reasoning_prefill=disable_reasoning_prefill,
+        )
+        try:
+            async for _chunk in provider.stream(request):
+                pass
+        finally:
+            await provider.close()
+        return captured
+
+    async def test_stream_sends_reasoning_effort_none_when_reasoning_off(self) -> None:
+        self.assertEqual((await self._stream_body(True)).get("reasoning_effort"), "none")
+        self.assertNotIn("reasoning_effort", await self._stream_body(False))
+
     async def test_complete_posts_to_completions_endpoint(self) -> None:
         captured: dict[str, object] = {}
 
