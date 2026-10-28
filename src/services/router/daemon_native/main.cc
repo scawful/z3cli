@@ -577,7 +577,9 @@ int main(int argc, char** argv) {
 
   RouterState state;
   state.active_route = "";
-  InventorySidecar inventory;
+  // The launcher exports Z3CLI_PYTHON (the venv); PATH python3 may lack deps.
+  const std::string python = GetEnvString("Z3CLI_PYTHON");
+  InventorySidecar inventory(python.empty() ? "python3" : python);
   std::unordered_map<std::string, CachedSnapshot> snapshot_cache;
 
   std::string line;

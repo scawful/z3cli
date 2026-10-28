@@ -1,12 +1,23 @@
 import json
+import os
 import subprocess
+import sys
 import unittest
+from pathlib import Path
+
+ROUTERD = Path(__file__).resolve().parents[1] / "src/services/router/daemon_native/build/z3cli-routerd"
 
 
+@unittest.skipUnless(
+    ROUTERD.exists(),
+    "routerd not built: cmake -S src/services/router/daemon_native -B src/services/router/daemon_native/build && cmake --build src/services/router/daemon_native/build",
+)
 class RouterdStdioContractTests(unittest.TestCase):
     def test_routerd_route_list_shapes(self) -> None:
         proc = subprocess.Popen(
-            ["src/services/router/daemon_native/build/z3cli-routerd"],
+            [str(ROUTERD)],
+            cwd=ROUTERD.parents[5],
+            env={**os.environ, "Z3CLI_PYTHON": sys.executable},
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
