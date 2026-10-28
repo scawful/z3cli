@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from app.version import __version__
+from app import workbench
 from app.backends import DEFAULT_LLAMACPP_API_BASE, LMStudioBackend, LlamaCppBackend
 from app.ipc_schema import (
     AttachmentMeta,
@@ -4176,6 +4177,14 @@ async def serve_main(extra_args: list[str]) -> None:
 
         task.add_done_callback(_on_done)
 
+    workbench_tasks: set[asyncio.Task[None]] = set()
+
+    async def _run_workbench(req_id: int, method: str, params: Any) -> None:
+        try:
+            _respond(req_id, result=await workbench.dispatch(method, params))
+        except Exception as exc:
+            _respond(req_id, error=str(exc))
+
     while True:
         if os.name == "nt":
             raw_line = await asyncio.to_thread(sys.stdin.readline)
@@ -4264,6 +4273,11 @@ async def serve_main(extra_args: list[str]) -> None:
                 continue
             if not handled:
                 _respond(req_id, error=f"Unknown method: {method}")
+        elif str(method).startswith("workbench/") and req_id is not None:
+            # Training/eval calls take tens of seconds; keep reading cancel/chat meanwhile.
+            wb_task = asyncio.create_task(_run_workbench(req_id, str(method), params))
+            workbench_tasks.add(wb_task)
+            wb_task.add_done_callback(workbench_tasks.discard)
         elif method == "complete" and req_id is not None:
             try:
                 await handle_complete(state, req_id, params)
