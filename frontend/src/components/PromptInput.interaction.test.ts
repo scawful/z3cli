@@ -747,3 +747,31 @@ test("PromptInput clears on Ctrl+C and exits on the second Ctrl+C", async () => 
     restoreTTY();
   }
 });
+
+test("PromptInput keeps keystroke order when keys arrive between renders", async () => {
+  const restoreTTY = setTTY(true);
+  const app = renderPromptInput({
+    mode: "manual",
+    model: "nayru",
+    models: MODEL_FIXTURE,
+    workspace: process.cwd(),
+    disabled: false,
+    onSubmit: () => {},
+  });
+
+  try {
+    await waitFor(() => {
+      assert.ok(app.lastFrame()?.includes("❯"));
+    });
+    for (const char of "status") app.stdin.write(char);
+    app.stdin.write("\x7f");
+    app.stdin.write("s");
+
+    await waitFor(() => {
+      assert.ok(normalizeFrame(app.lastFrame()).includes("❯ status"));
+    });
+  } finally {
+    app.unmount();
+    restoreTTY();
+  }
+});

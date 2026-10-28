@@ -3,7 +3,7 @@
  * and interactive model/mode pickers.
  */
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import type { ScrollViewRef } from "ink-scroll-view";
 import { execFile } from "node:child_process";
@@ -147,8 +147,20 @@ export function PromptInput({
 }: PromptInputProps): React.ReactElement {
   const { settings, colors } = useSettingsContext();
   const rawModeSupported = Boolean(process.stdin.isTTY);
-  const [value, setValue] = useState("");
-  const [cursor, setCursor] = useState(0);
+  // value/cursor are mirrored in refs: Ink re-registers useInput per render,
+  // so keys arriving between renders would otherwise see stale closures.
+  const [value, setValueState] = useState("");
+  const [cursor, setCursorState] = useState(0);
+  const valueRef = useRef("");
+  const cursorRef = useRef(0);
+  const setValue = useCallback((next: string | ((v: string) => string)) => {
+    valueRef.current = typeof next === "function" ? next(valueRef.current) : next;
+    setValueState(valueRef.current);
+  }, []);
+  const setCursor = useCallback((next: number | ((c: number) => number)) => {
+    cursorRef.current = typeof next === "function" ? next(cursorRef.current) : next;
+    setCursorState(cursorRef.current);
+  }, []);
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [selectedCompletion, setSelectedCompletion] = useState(0);
@@ -807,6 +819,8 @@ export function PromptInput({
 
   useInput(
     (input, key) => {
+      const value = valueRef.current;
+      const cursor = cursorRef.current;
       const ctrlChar = key.ctrl ? input.toLowerCase() : "";
       const isCtrl = (char: string, raw: string): boolean =>
         ctrlChar === char || input === raw;

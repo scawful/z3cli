@@ -108,6 +108,7 @@ class PtyApp:
         env = os.environ.copy()
         env["Z3CLI_PYTHON"] = str(wrapper)
         env["Z3CLI_TEST_WORKSPACE"] = str(workspace)
+        env["HOME"] = self.tmpdir.name  # keep ~/.config/z3cli/ui-settings.json out of tests
         if extra_env:
             env.update(extra_env)
 
@@ -135,9 +136,12 @@ class PtyApp:
         self.tmpdir.cleanup()
 
     def send(self, data: str) -> None:
+        # Keep draining output: the UI redraws continuously, and a full pty
+        # buffer blocks Node's stdout writes so keystrokes go unprocessed.
         for char in data:
             os.write(self.master_fd, char.encode("utf-8"))
-            time.sleep(0.01)
+            select.select([self.master_fd], [], [], 0.01)
+            self._read_once()
 
     def resize(self, rows: int, cols: int) -> None:
         fcntl.ioctl(self.master_fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
@@ -154,6 +158,11 @@ class PtyApp:
             raise
         if chunk:
             self.buffer += chunk.decode("utf-8", errors="ignore")
+
+    def wait_ready(self, timeout: float = 10.0) -> str:
+        # "Ctrl+P" is in the welcome hint before the backend handshake; the
+        # model-labelled prompt only renders once input is live.
+        return self.wait_for("nayru ❯", timeout=timeout)
 
     def wait_for(self, pattern: str, timeout: float = 6.0) -> str:
         deadline = time.time() + timeout
@@ -243,13 +252,13 @@ class FrontendPtyTests(unittest.TestCase):
         self.app.wait_for("Command palette", timeout=8)
 
     def test_file_reference_picker_opens_for_workspace_match(self) -> None:
-        self.app.wait_for("Ctrl+P", timeout=8)
+        self.app.wait_ready()
         self.app.send("@room")
         self.app.wait_for("File reference", timeout=8)
         self.app.wait_for("src/room.asm", timeout=8)
 
     def test_prompt_typing_echoes_into_the_input_line(self) -> None:
-        self.app.wait_for("Ctrl+P", timeout=8)
+        self.app.wait_ready()
         self.app.send("status")
         self.app.wait_for("❯ status", timeout=8)
 
