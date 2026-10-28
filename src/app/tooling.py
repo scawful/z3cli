@@ -13,6 +13,7 @@ from core.rom_project import RomProject
 from protocol.mcp_bridge import MCPBridge
 from core.tool_bridge import CompositeBridge, ReadOnlyBridge, ToolBridge
 from core.tool_adapters import get_adapter
+from protocol.asm_reference_bridge import AsmReferenceBridge
 from protocol.asm_symbol_bridge import AsmSymbolBridge
 from protocol.asm_test_bridge import AsmTestBridge
 from protocol.mesen_fallback_bridge import MesenFallbackBridge
@@ -100,6 +101,10 @@ async def connect_tool_bridge(
         warnings.append(
             f"z3lsp unavailable; using file-backed ASM symbol search at {zelda_workspace}"
         )
+    if workspace_supports_z3lsp(zelda_workspace):
+        asm_reference = AsmReferenceBridge(zelda_workspace)
+        if asm_reference.tool_count > 0:
+            bridges.append(asm_reference)
 
     z3ed_connected = False
     if enable_z3ed:
@@ -153,6 +158,7 @@ def _build_capability_bridges(bridge: ToolBridge) -> dict[str, ToolBridge]:
       * ``"asm"``      — Z3asmBridge
       * ``"workflow"`` — AsmTestBridge (transactional patch/run/assert tools)
       * ``"workspace"``— local workspace file reads rooted at the active project
+      * ``"asm_reference"`` — AsmReferenceBridge (usdasm lookup + ASM grep)
       * ``"reference"``— MCPBridge
       * ``"*"``        — the original bridge, used as a fallback
 
@@ -191,6 +197,8 @@ def _build_capability_bridges(bridge: ToolBridge) -> dict[str, ToolBridge]:
             workflow_bridge = child
         elif isinstance(child, WorkspaceContextBridge):
             workspace_bridge = child
+        elif isinstance(child, AsmReferenceBridge):
+            caps["asm_reference"] = child
         elif isinstance(child, MCPBridge):
             mcp_emulator_fallback = mcp_emulator_fallback or child.capability_view("emulator")
             mcp_rom_fallback = mcp_rom_fallback or child.capability_view("rom")

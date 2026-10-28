@@ -55,6 +55,7 @@ class OracleAdapterRegistrationTests(unittest.TestCase):
             {
                 "label_lookup",
                 "grep_disasm",
+                "vanilla_lookup",
                 "rom_read",
                 "disasm_at",
                 "cpu_state",
@@ -121,32 +122,41 @@ class OracleAdapterRoutingTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
-    async def test_grep_disasm_fans_out_to_two_symbols_calls(self) -> None:
+    async def test_grep_disasm_fans_out_to_symbols_and_text_search(self) -> None:
         symbols = _TrackingBridge("symbols")
-        adapter = get_adapter("oracle", {"symbols": symbols})
+        asm_reference = _TrackingBridge("asm_reference")
+        adapter = get_adapter("oracle", {"symbols": symbols, "asm_reference": asm_reference})
         assert adapter is not None
 
         await adapter.call_tool("grep_disasm", {"query": "MDMAEN"})
 
+        self.assertEqual([call[0] for call in symbols.calls], ["z3lsp_symbols"])
         self.assertEqual(
-            [call[0] for call in symbols.calls],
-            ["z3lsp_symbols", "z3lsp_references"],
+            asm_reference.calls, [("asm_grep", {"query": "MDMAEN", "scope": "both"})]
         )
 
     async def test_grep_disasm_accepts_pattern_alias(self) -> None:
         symbols = _TrackingBridge("symbols")
-        adapter = get_adapter("oracle", {"symbols": symbols})
+        asm_reference = _TrackingBridge("asm_reference")
+        adapter = get_adapter("oracle", {"symbols": symbols, "asm_reference": asm_reference})
         assert adapter is not None
 
         await adapter.call_tool("grep_disasm", {"pattern": "Sprite_CheckIfActive"})
 
+        self.assertEqual(symbols.calls, [("z3lsp_symbols", {"query": "Sprite_CheckIfActive"})])
         self.assertEqual(
-            symbols.calls,
-            [
-                ("z3lsp_symbols", {"query": "Sprite_CheckIfActive"}),
-                ("z3lsp_references", {"symbol": "Sprite_CheckIfActive"}),
-            ],
+            asm_reference.calls,
+            [("asm_grep", {"query": "Sprite_CheckIfActive", "scope": "both"})],
         )
+
+    async def test_vanilla_lookup_routes_to_asm_reference(self) -> None:
+        asm_reference = _TrackingBridge("asm_reference")
+        adapter = get_adapter("oracle", {"asm_reference": asm_reference})
+        assert adapter is not None
+
+        await adapter.call_tool("vanilla_lookup", {"address": "$07:D151"})
+
+        self.assertEqual(asm_reference.calls, [("vanilla_lookup", {"query": "$07:D151"})])
 
     async def test_rom_read_and_disasm_route_to_emulator(self) -> None:
         emulator = _TrackingBridge("emulator")
@@ -185,7 +195,10 @@ class OracleAdapterRoutingTests(unittest.IsolatedAsyncioTestCase):
     async def test_common_value_aliases_route_for_salvaged_bare_calls(self) -> None:
         symbols = _TrackingBridge("symbols")
         workspace = _TrackingBridge("workspace")
-        adapter = get_adapter("oracle", {"symbols": symbols, "workspace": workspace})
+        asm_reference = _TrackingBridge("asm_reference")
+        adapter = get_adapter(
+            "oracle", {"symbols": symbols, "workspace": workspace, "asm_reference": asm_reference}
+        )
         assert adapter is not None
 
         await adapter.call_tool("label_lookup", {"value": "Underworld_LoadSongBankIfNeeded"})
@@ -197,8 +210,11 @@ class OracleAdapterRoutingTests(unittest.IsolatedAsyncioTestCase):
             [
                 ("z3lsp_symbols", {"query": "Underworld_LoadSongBankIfNeeded"}),
                 ("z3lsp_symbols", {"query": "Sprite_CheckIfActive"}),
-                ("z3lsp_references", {"symbol": "Sprite_CheckIfActive"}),
             ],
+        )
+        self.assertEqual(
+            asm_reference.calls,
+            [("asm_grep", {"query": "Sprite_CheckIfActive", "scope": "both"})],
         )
         self.assertEqual(
             workspace.calls,
