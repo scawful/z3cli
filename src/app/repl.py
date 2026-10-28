@@ -6,12 +6,14 @@ import argparse
 import asyncio
 import os
 import shlex
+import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from rich.console import Console
+from rich.markup import escape
 
 from app.version import __version__
 from app.backends import DEFAULT_LLAMACPP_API_BASE
@@ -84,7 +86,7 @@ from core.subagent_bridge import SubagentBridge
 from core.tool_bridge import CompositeBridge, ToolBridge
 from app.tooling import connect_tool_bridge, wrap_bridge_for_model
 from app.verify import run_verification_hooks
-from app.write_review import ToolWriteContext, detect_changes, prepare_write_context
+from app.write_review import ToolWriteContext, detect_changes, looks_like_write_tool, prepare_write_context
 
 # Optional prompt_toolkit — degrade to input() if missing
 try:
@@ -223,6 +225,7 @@ class AppState:
     lsp_context_mode: str = "auto"
     permission_rules: dict[str, bool] = field(default_factory=dict)
     pending_write_contexts: dict[str, ToolWriteContext] = field(default_factory=dict)
+    interactive_approvals: bool = False
     subagent_tools_enabled: bool = True
     _subagent_runner: SubagentRunner | None = None
     _first_message_sent: bool = False
@@ -357,6 +360,44 @@ async def _tool_invocation_hook(state: AppState, model_name: str, payload: dict)
         pass
 
 
+def _tool_requires_approval(
+    state: AppState,
+    tool_name: str,
+    arguments: str,
+    write_context: ToolWriteContext | None,
+) -> bool:
+    if write_context is not None:
+        return True
+    inner = getattr(state.bridge, "is_write_tool", None) if state.bridge is not None else None
+    if inner is not None:
+        try:
+            declared = inner(tool_name)
+        except Exception:
+            declared = None
+        if declared is not None:
+            return bool(declared)
+    return looks_like_write_tool(tool_name, arguments)
+
+
+def _prompt_tool_approval(
+    rule_key: str,
+    write_context: ToolWriteContext | None,
+) -> str:
+    detail = ""
+    if write_context is not None and write_context.files:
+        names = [str(snapshot.path) for snapshot in write_context.files[:3]]
+        more = len(write_context.files) - len(names)
+        detail = f" ({', '.join(names)}{f' +{more} more' if more > 0 else ''})"
+    question = (
+        f"Allow write tool {rule_key}{detail}? "
+        "[y]es / [n]o / [a]lways this session / [d]eny this session: "
+    )
+    try:
+        return input(question).strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        return "n"
+
+
 async def _tool_permission_hook(
     state: AppState,
     tool_name: str,
@@ -373,7 +414,22 @@ async def _tool_permission_hook(
         if not cached:
             state.pending_write_contexts.pop(call_id, None)
         return cached
-    return True
+    if not _tool_requires_approval(state, tool_name, arguments, write_context):
+        return True
+    if not state.interactive_approvals:
+        state.pending_write_contexts.pop(call_id, None)
+        state.console.print(
+            f"[yellow]Denied {escape(rule_key)}: write tools need interactive approval.[/yellow]"
+        )
+        return False
+    choice = _prompt_tool_approval(rule_key, write_context)
+    approved = choice in {"y", "yes", "a", "always"}
+    if choice in {"a", "always", "d", "deny"}:
+        # Session-scoped and keyed by tool name only (any arguments).
+        state.permission_rules[rule_key] = approved
+    if not approved:
+        state.pending_write_contexts.pop(call_id, None)
+    return approved
 
 
 async def _post_tool_hook(
@@ -776,6 +832,8 @@ async def stream_response(
             state.message_count += 1
             state.prompt_tokens += event.prompt_tokens
             state.completion_tokens += event.completion_tokens
+            if not event.ok:
+                state.console.print(f"[yellow]Turn ended: {event.stop_reason}[/yellow]")
             _persist_state(state, model_name=target.name)
             # Record the final assistant message in session
             if state.session and full_text:
@@ -1856,6 +1914,7 @@ async def run_repl(state: AppState) -> int:
     state.last_active_at = datetime.now(timezone.utc).isoformat()
 
     _ensure_session_started(state)
+    state.interactive_approvals = sys.stdin.isatty()
 
     # Set up prompt input
     if HAS_PROMPT_TOOLKIT:

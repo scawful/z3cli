@@ -44,7 +44,7 @@ def test_default_registry_registers_oracle_9b_router_aliases() -> None:
     models, _routers = load_registry()
 
     model = models["oracle-9b-router"]
-    assert model.model_id == "gguf/zelda/oracle-9b-candidate-v5-q4km.gguf"
+    assert model.model_id == "gguf/zelda/oracle-9b-candidate-v5-nothink-q4km.gguf"
     assert model.teacher_router == ROUTER_NAME
     assert model.tool_profile == "oracle"
     assert model.lmstudio_parallel == 1

@@ -386,7 +386,7 @@ Do not invent symbols, addresses, patches, or code snippets."""
 [[models]]
 name = "claude-sonnet"
 provider = "anthropic"
-model_id = "claude-sonnet-4-20250514"
+model_id = "claude-sonnet-5"
 role = "balanced cloud planning and orchestration"
 description = "Preferred cloud orchestrator"
 tags = ["cloud", "anthropic", "orchestrator"]
@@ -394,7 +394,7 @@ tags = ["cloud", "anthropic", "orchestrator"]
 [[models]]
 name = "claude-opus"
 provider = "anthropic"
-model_id = "claude-opus-4-20250514"
+model_id = "claude-opus-5"
 role = "deeper cloud reasoning and orchestration"
 description = "Heavy cloud orchestrator"
 tags = ["cloud", "anthropic"]
@@ -402,7 +402,7 @@ tags = ["cloud", "anthropic"]
 [[models]]
 name = "gpt-4o"
 provider = "openai"
-model_id = "gpt-4o"
+model_id = "gpt-5.6-sol"
 role = "cloud fallback planner and general reasoning model"
 description = "OpenAI orchestrator fallback"
 tags = ["cloud", "openai"]

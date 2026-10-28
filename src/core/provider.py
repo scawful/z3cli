@@ -13,7 +13,7 @@ import base64
 import contextlib
 import json
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import AsyncGenerator, Protocol
 from urllib.parse import urlparse
 
@@ -160,6 +160,9 @@ class LocalProvider:
             "stream": True,
             "stream_options": {"include_usage": True},
         }
+        if request.disable_reasoning_prefill:
+            # LM Studio renders Qwen3.5/3.8 templates with thinking on unless told otherwise.
+            payload["reasoning_effort"] = "none"
         if request.tools:
             payload["tools"] = request.tools
             payload["tool_choice"] = request.tool_choice
@@ -358,6 +361,8 @@ class SSHOpenAIProvider:
             "max_tokens": request.max_tokens,
             "stream": False,
         }
+        if request.disable_reasoning_prefill:
+            payload["reasoning_effort"] = "none"
         if request.tools:
             payload["tools"] = request.tools
             payload["tool_choice"] = request.tool_choice
@@ -542,6 +547,16 @@ class SSHOpenAIProvider:
 # AnthropicProvider — Claude API (/v1/messages)
 # ---------------------------------------------------------------------------
 
+# Claude models that reject temperature/top_p/top_k with HTTP 400.
+ANTHROPIC_NO_SAMPLING_MODEL_PREFIXES = (
+    "claude-opus-5",
+    "claude-sonnet-5",
+    "claude-fable-5",
+    "claude-opus-4-7",
+    "claude-opus-4-8",
+)
+
+
 class AnthropicProvider:
     """Provider for the Anthropic Messages API.
 
@@ -560,7 +575,7 @@ class AnthropicProvider:
         api_key: str | None = None,
         api_base: str = "https://api.anthropic.com",
         timeout: float = 300.0,
-        default_model: str = "claude-sonnet-4-20250514",
+        default_model: str = "claude-sonnet-5",
     ):
         self._api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
         self._api_base = api_base.rstrip("/")
@@ -588,9 +603,10 @@ class AnthropicProvider:
             "model": model,
             "messages": self._convert_messages(request.messages),
             "max_tokens": request.max_tokens,
-            "temperature": request.temperature,
             "stream": True,
         }
+        if not model.startswith(ANTHROPIC_NO_SAMPLING_MODEL_PREFIXES):
+            payload["temperature"] = request.temperature
         if request.system:
             payload["system"] = self._build_system(request.system, request.prompt_cache)
         if request.tools:
@@ -833,7 +849,7 @@ class OpenAICloudProvider:
         api_key: str | None = None,
         api_base: str = "https://api.openai.com/v1",
         timeout: float = 300.0,
-        default_model: str = "gpt-4o",
+        default_model: str = "gpt-5.6-sol",
     ):
         self._api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
         self._api_base = api_base.rstrip("/")
@@ -857,17 +873,13 @@ class OpenAICloudProvider:
         self,
         request: CompletionRequest,
     ) -> AsyncGenerator[CompletionChunk, None]:
+        # reasoning_content is a local-template field; the cloud API does not take it back.
+        if any("reasoning_content" in m for m in request.messages):
+            request = replace(request, messages=[
+                {k: v for k, v in m.items() if k != "reasoning_content"} for m in request.messages
+            ])
         if not request.model_id:
-            request = CompletionRequest(
-                model_id=self._default_model,
-                messages=request.messages,
-                system=request.system,
-                temperature=request.temperature,
-                max_tokens=request.max_tokens,
-                tools=request.tools,
-                tool_choice=request.tool_choice,
-                stream=request.stream,
-            )
+            request = replace(request, model_id=self._default_model)
         async for chunk in self._local.stream(request):
             yield chunk
 
@@ -920,7 +932,7 @@ def create_provider(
             api_key=api_key,
             api_base=api_base or "https://api.anthropic.com",
             timeout=timeout,
-            default_model=default_model or "claude-sonnet-4-20250514",
+            default_model=default_model or "claude-sonnet-5",
         )
 
     if provider_name == "openai":
@@ -928,7 +940,7 @@ def create_provider(
             api_key=api_key,
             api_base=api_base or "https://api.openai.com/v1",
             timeout=timeout,
-            default_model=default_model or "gpt-4o",
+            default_model=default_model or "gpt-5.6-sol",
         )
 
     raise ValueError(f"Unknown provider: {provider_name!r} (valid: {VALID_PROVIDERS})")

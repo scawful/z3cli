@@ -191,6 +191,7 @@ export interface DoneParams {
   cache_read_tokens?: number;
   request_id?: string;
   end_status?: string;
+  stop_reason?: string;
 }
 
 export interface ReadyModelInfo {

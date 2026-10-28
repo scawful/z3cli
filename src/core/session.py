@@ -323,13 +323,17 @@ def _preview_text(value: str, max_chars: int = 96) -> str:
     return text[: max_chars - 3] + "..."
 
 
-def _engine_message_view(msg: dict[str, Any]) -> dict[str, Any]:
+def _engine_message_view(msg: dict[str, Any], *, include_reasoning: bool = False) -> dict[str, Any]:
     """Strip session-only metadata before restoring engine history."""
     role = str(msg.get("role", ""))
     cleaned: dict[str, Any] = {"role": role}
 
     if role in {"system", "user", "assistant"}:
         cleaned["content"] = msg.get("content", "")
+    if role == "assistant" and include_reasoning:
+        reasoning = msg.get("reasoning_content") or msg.get("thinking")
+        if isinstance(reasoning, str) and reasoning.strip():
+            cleaned["reasoning_content"] = reasoning.strip()
     if role == "assistant" and isinstance(msg.get("tool_calls"), list):
         cleaned["tool_calls"] = msg["tool_calls"]
     if role == "tool":
@@ -342,6 +346,8 @@ def _engine_message_view(msg: dict[str, Any]) -> dict[str, Any]:
 
 def _normalize_tool_call_history(
     msgs: list[dict[str, Any]],
+    *,
+    include_reasoning: bool = False,
 ) -> list[dict[str, Any]]:
     """Restore provider-safe tool history from session-log engine messages.
 
@@ -358,7 +364,7 @@ def _normalize_tool_call_history(
     synthetic_index = 1
 
     for msg in msgs:
-        cleaned = _engine_message_view(msg)
+        cleaned = _engine_message_view(msg, include_reasoning=include_reasoning)
         role = str(cleaned.get("role", ""))
 
         if role == "assistant":
@@ -794,10 +800,10 @@ def _load_session_bundle(path: Path, *, include_thinking: bool) -> LoadedSession
             summary, compact_idx = compact_points[model]
             msgs = [msg for msg in msgs if msg.get("_idx", 0) > compact_idx]
             msgs.insert(0, {"role": "assistant", "content": summary})
-        model_messages[model] = _normalize_tool_call_history([
-            {k: v for k, v in msg.items() if k != "_idx"}
-            for msg in msgs
-        ])
+        model_messages[model] = _normalize_tool_call_history(
+            [{k: v for k, v in msg.items() if k != "_idx"} for msg in msgs],
+            include_reasoning=include_thinking,
+        )
 
     meta.setdefault("prompt_tokens", 0)
     meta.setdefault("completion_tokens", 0)

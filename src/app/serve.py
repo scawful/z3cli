@@ -1260,8 +1260,9 @@ class ServeState:
             self.pending_write_contexts.pop(call_id, None)
             return False
         if self.tool_decision_scope == "session":
+            # In-memory only and keyed by tool name (any arguments); never
+            # persisted so approvals cannot outlive this process/session.
             self.permission_rules[rule_key] = self.tool_approved
-            _persist_state(self, {"permission_rules": state_permission_rules(self)})
         if not self.tool_approved:
             self.pending_write_contexts.pop(call_id, None)
         return self.tool_approved
@@ -2044,6 +2045,7 @@ async def handle_chat(
     cache_read_tokens = 0
     request_tool_ms = 0
     end_status = "success"
+    stop_reason = ""
     turn_id = _next_turn_id(state)
 
     # Record user message to session
@@ -2388,6 +2390,8 @@ async def handle_chat(
                     completion_tokens += event.completion_tokens
                     cache_creation_tokens += event.cache_creation_tokens
                     cache_read_tokens += event.cache_read_tokens
+                    if not event.ok and event.stop_reason != "cancelled":
+                        stop_reason = event.stop_reason
                     _persist_state(state, model_name=target.name)
                     target_done = True
                     break
@@ -2442,6 +2446,7 @@ async def handle_chat(
         cache_read_tokens=cache_read_tokens,
         request_id=request_id or None,
         end_status=end_status,
+        stop_reason=stop_reason or None,
     ))
 
     if req_id is not None:

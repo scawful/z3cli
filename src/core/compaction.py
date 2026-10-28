@@ -40,6 +40,9 @@ def estimate_message_tokens(message: dict) -> int:
     total = 0
     # Role and structural overhead (~4 tokens per message)
     total += 4
+    reasoning = message.get("reasoning_content")
+    if isinstance(reasoning, str):
+        total += estimate_tokens(reasoning)
     content = message.get("content")
     if isinstance(content, str):
         total += estimate_tokens(content)
