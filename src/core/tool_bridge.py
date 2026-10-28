@@ -234,8 +234,14 @@ _WRITE_TOOL_PATTERNS = {
     "patch", "apply_patch", "save",
 }
 
-# Argument keys that enable writes (e.g., z3ed's --write flag).
-_WRITE_ARG_KEYS = {"write", "dry_run", "dryRun"}
+# Argument keys that enable writes (e.g., z3ed's --write flag), compared
+# after lowercasing and dropping "_" / "-".
+_WRITE_ARG_KEYS = {"write", "overwrite", "apply", "commit"}
+_DRY_RUN_KEY = "dryrun"
+
+
+def _arg_key(key: str) -> str:
+    return key.lower().replace("_", "").replace("-", "")
 
 
 def _is_write_tool(name: str) -> bool:
@@ -277,11 +283,13 @@ class ReadOnlyBridge:
         if self._looks_like_write(name):
             return f"Error: Write operation '{name}' is blocked in read-only mode. Use /tools-write on to enable."
 
-        # Strip write-enable flags from arguments as a safety net
-        safe_args = {
-            k: v for k, v in arguments.items()
-            if k.lower() not in _WRITE_ARG_KEYS
-        }
+        # Safety net: strip write-enable flags and force any dry-run flag on.
+        safe_args = {}
+        for k, v in arguments.items():
+            key = _arg_key(k)
+            if key in _WRITE_ARG_KEYS:
+                continue
+            safe_args[k] = True if key == _DRY_RUN_KEY else v
         return await self._bridge.call_tool(name, safe_args)
 
     def get_tool_server(self, tool_name: str) -> str:

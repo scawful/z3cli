@@ -210,6 +210,13 @@ class Z3edBridgeTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn(f"--rom={rom.resolve()}", captured)
             self.assertIn("--format=json", captured)
 
+    def test_format_value_converts_snes_hex_to_0x(self) -> None:
+        self.assertEqual(Z3edBridge._format_value("$02A3B0"), "0x02A3B0")
+        self.assertEqual(Z3edBridge._format_value("0x02A3B0"), "0x02A3B0")
+        self.assertEqual(Z3edBridge._format_value("oos:CustomMirror"), "oos:CustomMirror")
+        self.assertEqual(Z3edBridge._format_value("LDA $10"), "LDA $10")
+        self.assertEqual(Z3edBridge._format_value(["$10", "$7E0200"]), "0x10,0x7E0200")
+
     async def test_call_tool_injects_mesen_socket(self) -> None:
         schemas = {
             "commands": [

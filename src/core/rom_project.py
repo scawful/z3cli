@@ -29,7 +29,7 @@ from typing import Mapping
 
 
 DEFAULT_WORKSPACE = Path.home() / "src/hobby/oracle-of-secrets"
-DEFAULT_ROM = Path.home() / "src/hobby/roms/oracle.sfc"
+DEFAULT_ROM = DEFAULT_WORKSPACE / "Roms/oos168.sfc"
 DEFAULT_Z3DK_ROOT = Path.home() / "src/hobby/z3dk"
 DEFAULT_YAZE_ROOT = Path.home() / "src/hobby/yaze"
 
@@ -70,6 +70,23 @@ def _discover_executable(
         if cand.exists():
             return cand.resolve()
     return None
+
+
+def _z3dk_emit_symbols(z3dk_toml: Path | None) -> list[Path]:
+    """``[emit] symbols_mlb`` from z3dk.toml, resolved against the toml's directory."""
+    if z3dk_toml is None:
+        return []
+    try:
+        import tomllib
+
+        data = tomllib.loads(z3dk_toml.read_text(encoding="utf-8"))
+    except (ImportError, OSError, ValueError):
+        return []
+    value = (data.get("emit") or {}).get("symbols_mlb")
+    if not isinstance(value, str) or not value.strip():
+        return []
+    path = Path(value).expanduser()
+    return [path if path.is_absolute() else z3dk_toml.parent / path]
 
 
 def _discover_mesen_socket(override: str | None = None) -> str | None:
@@ -199,12 +216,14 @@ class RomProject:
                 candidate = Path(env_val).expanduser()
                 if candidate.exists():
                     rom_final = candidate.resolve()
-        if rom_final is None and DEFAULT_ROM.exists():
+        # The default ROM belongs to the default workspace; never fall back to it elsewhere.
+        if rom_final is None and DEFAULT_ROM.exists() and ws.resolve() == DEFAULT_WORKSPACE.resolve():
             rom_final = DEFAULT_ROM
 
-        # Symbols.mlb — workspace build dir fallback.
+        # Symbols.mlb — z3dk.toml [emit] symbols_mlb, then workspace build dir fallback.
         symbols_mlb: Path | None = None
         for cand in (
+            *_z3dk_emit_symbols(z3dk_toml_final),
             ws / "build" / "symbols.mlb",
             ws / "symbols.mlb",
         ):

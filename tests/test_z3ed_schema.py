@@ -30,6 +30,21 @@ class RepairJsonTests(unittest.TestCase):
         self.assertEqual(data["quote"], '"hi"')
         self.assertEqual(data["unicode"], "é")
 
+    def test_leaves_escaped_backslash_before_space_untouched(self) -> None:
+        raw = r'{"ex": "~/Library/Application\\ Support/Mesen2", "mixed": "a\\b\ c"}'
+        data = json.loads(repair_z3ed_json(raw))
+        self.assertEqual(data["ex"], "~/Library/Application\\ Support/Mesen2")
+        self.assertEqual(data["mixed"], "a\\b\\ c")
+
+    def test_load_schemas_parses_valid_payload_without_repair(self) -> None:
+        raw = json.dumps({"commands": [{
+            "name": "rom-info", "category": "rom", "description": "d",
+            "usage": "rom-info --rom <sfc>", "examples": ["--states-dir=~/Library/Application\\ Support"],
+        }]})
+        tools, warnings = load_schemas(raw)
+        self.assertEqual([t.z3ed_name for t in tools], ["rom-info"])
+        self.assertFalse(any("repaired" in w or "failed" in w for w in warnings), warnings)
+
 
 class ParseUsageTests(unittest.TestCase):
     def test_required_flag(self) -> None:
@@ -169,6 +184,14 @@ class BuildToolTests(unittest.TestCase):
         assert read_tool is not None
         self.assertFalse(read_tool.is_write())
 
+        for name, usage in (
+            ("dungeon-set-room-property", "dungeon-set-room-property --room <room_id> --property <p> --value <v>"),
+            ("palette-set-color", "palette-set-color --group <g> --palette <i> --index <i> --color <RRGGBB>"),
+        ):
+            setter = build_tool(dict(write_cmd, name=name, usage=usage, requires_rom=True))
+            assert setter is not None
+            self.assertTrue(setter.is_write(), name)
+
     def test_duplicate_translated_tool_names_warn_and_skip_later_entry(self) -> None:
         raw = json.dumps(
             {
@@ -205,13 +228,11 @@ class BuildToolTests(unittest.TestCase):
 
 
 class LiveFixtureTests(unittest.TestCase):
-    """End-to-end tests against the real z3ed --export-schemas payload."""
+    """End-to-end tests against a real z3ed --export-schemas payload (yaze 0.8.0)."""
 
-    FIXTURE = Path("/tmp/z3ed_schemas.json")
+    FIXTURE = Path(__file__).parent / "fixtures" / "z3ed" / "export_schemas_0.8.0.json"
 
     def _load_raw(self) -> str:
-        if not self.FIXTURE.exists():
-            self.skipTest(f"fixture {self.FIXTURE} not present")
         return self.FIXTURE.read_text(encoding="utf-8")
 
     def test_repair_yields_valid_json(self) -> None:
@@ -225,8 +246,7 @@ class LiveFixtureTests(unittest.TestCase):
     def test_load_schemas_produces_tools(self) -> None:
         raw = self._load_raw()
         tools, warnings = load_schemas(raw)
-        # Expect repair warning
-        self.assertTrue(any("repaired" in w for w in warnings), warnings)
+        self.assertFalse(any("parse failed" in w for w in warnings), warnings)
         # Should produce >50 tools after skipping gRPC/gui
         self.assertGreater(len(tools), 50)
         # All mesen-* commands should translate
